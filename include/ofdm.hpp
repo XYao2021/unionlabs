@@ -109,9 +109,9 @@ public:
         if (search_len > 0) maxd = std::min(maxd, search_len);
         if (maxd < 0) { start = 0; cfo_norm = 0; return; }
 
-        std::vector<float>   M(maxd + 1, 0.0f);
+        std::vector<float>   M(maxd + 1, 0.0f), Rv(maxd + 1, 0.0f);
         std::vector<ofdm_cf> Pv(maxd + 1);
-        float bestM = -1.0f; int bestd = 0;
+        float maxR = 1e-12f;
         for (int d = 0; d <= maxd; ++d) {
             ofdm_cf P(0, 0); float R = 0.0f;
             for (int m = 0; m < L; ++m) {
@@ -119,9 +119,15 @@ public:
                 R += std::norm(rx[d + m + L]);
             }
             M[d]  = (R > 1e-9f) ? std::norm(P) / (R * R) : 0.0f;
-            Pv[d] = P;
-            if (M[d] > bestM) { bestM = M[d]; bestd = d; }
+            Rv[d] = R; Pv[d] = P;
+            if (R > maxR) maxR = R;
         }
+        // Energy gate: the |P|²/R² metric explodes where R→0 (lead-in / tail
+        // noise). Only accept peaks whose window actually carries signal energy
+        // (R ≥ 30% of the peak window energy), so sync locks onto the frame.
+        float bestM = -1.0f; int bestd = 0;
+        for (int d = 0; d <= maxd; ++d)
+            if (Rv[d] >= 0.30f * maxR && M[d] > bestM) { bestM = M[d]; bestd = d; }
         // The metric plateaus over the CP length: both the CP start and the
         // useful-part start give a max (CP is a cyclic copy). Find the plateau's
         // LEFT edge (= CP start) and add cp to land on the useful-part start, so

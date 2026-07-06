@@ -29,6 +29,7 @@
 #include "frequency_offset.hpp"
 #include "phase_offset.hpp"
 #include "channel_estimation.hpp"
+#include "ofdm_pipeline.hpp"
 
 // ─────────────────────────────────────────────────────────────
 //  Global stop signal (Ctrl-C handler sets this)
@@ -122,6 +123,13 @@ struct PHYSICAL_CONFIG {
     // Modulation
     std::string scheme          = "QPSK";
     int         sps             = 2;
+
+    // Waveform: "sc" = single-carrier (RRC + match filter + timing + eq),
+    //           "ofdm" = OFDM (IFFT/CP; OFDM does its own sync/CFO/equalize).
+    std::string waveform        = "sc";
+    int         ofdm_fft        = 64;      // FFT size (subcarriers)
+    int         ofdm_cp         = 16;      // cyclic prefix length
+    float       ofdm_tx_peak    = 0.5f;    // TX scaling (OFDM high PAPR → avoid clip)
 
     // Timing recovery loop
     float       timing_loop_bw  = 0.015f;
@@ -302,6 +310,21 @@ private:
 
     // ── TX pipeline threads ────────────────────────────────
     void launch_tx_pipeline() {
+        // ── OFDM waveform: bits → OFDM frame → transmit (no RRC pulse shaper) ──
+        if (cfg_.waveform == "ofdm") {
+            threads_.emplace_back(ofdm_modulation_thread,
+                std::ref(tx_bits_fifo), std::ref(shaped_fifo_),
+                std::ref(cfg_.scheme), cfg_.ofdm_fft, cfg_.ofdm_cp,
+                cfg_.ofdm_tx_peak, std::ref(stop_flag_));
+
+            std::vector<unsigned long> tx_ch = {(unsigned long)cfg_.tx_channel};
+            threads_.emplace_back(transmit_thread,
+                tx_usrp_, std::ref(shaped_fifo_),
+                cfg_.tx_rate, tx_ch, cfg_.uhd_timeout / 1000.0,
+                std::ref(stop_flag_));
+            return;
+        }
+
         auto preamble_copy = preamble_;
 
         // NOTE: scheme and add_preamble are passed by reference into the thread,
@@ -352,6 +375,17 @@ private:
         threads_.emplace_back(AGC_thread,
             std::ref(detected_fifo_), std::ref(agc_fifo_),
             std::ref(stop_flag_), std::ref(cfg_.AGC_type));
+
+        // ── OFDM waveform: energy/AGC burst → OFDM demod → bits.
+        //    OFDM::receive() does frame sync, CFO and per-subcarrier equalization
+        //    itself, so the single-carrier front-end below is skipped entirely.
+        if (cfg_.waveform == "ofdm") {
+            threads_.emplace_back(ofdm_demodulation_thread,
+                std::ref(agc_fifo_), std::ref(rx_bits_fifo),
+                std::ref(cfg_.scheme), cfg_.ofdm_fft, cfg_.ofdm_cp,
+                cfg_.message_length, std::ref(stop_flag_));
+            return;
+        }
 
         // RX integer oversampling (samples/symbol on the wire). The whole RX
         // front-end now runs at this integer rate — no fractional resampling.

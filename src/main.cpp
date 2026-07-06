@@ -212,6 +212,19 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("scheme",
          po::value<std::string>(&config.scheme)->default_value("QPSK"),
          "Modulation: QPSK / DQPSK / DBPSK / 16-QAM / ...")
+        ("waveform",
+         po::value<std::string>(&config.waveform)->default_value("sc"),
+         "Waveform: sc (single-carrier) or ofdm. OFDM handles multipath/CFO "
+         "natively (per-subcarrier equalization) — best for dense QAM.")
+        ("ofdm-fft",
+         po::value<int>(&config.ofdm_fft)->default_value(64),
+         "OFDM FFT size (number of subcarriers)")
+        ("ofdm-cp",
+         po::value<int>(&config.ofdm_cp)->default_value(16),
+         "OFDM cyclic-prefix length (>= channel delay spread)")
+        ("ofdm-tx-peak",
+         po::value<float>(&config.ofdm_tx_peak)->default_value(0.5f),
+         "OFDM TX peak scaling (high PAPR — keep the DAC out of clipping)")
         ("sps",
          po::value<int>(&config.sps)->default_value(2),
          "Samples per symbol (informational)")
@@ -294,8 +307,23 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         int total_syms   = guard + preamble_len + data_syms;
 
         if (vm["recv_msg_len"].defaulted())
-            config.message_length = data_syms;              // ACQ extracts this many data symbols
-        if (vm["energy_packet_size"].defaulted()) {
+            config.message_length = data_syms;              // data QAM symbols per chunk
+
+        if (config.waveform == "ofdm") {
+            // OFDM frame = [SC | chest | data] OFDM symbols on the wire, one
+            // sample per wire sample (no RRC). data subcarriers = fft-2 (skip
+            // DC + Nyquist). The energy detector gate is ~0.6x the frame length.
+            int dsc  = std::max(1, config.ofdm_fft - 2);
+            int nsym = (data_syms + dsc - 1) / dsc;
+            int frame_samples = (2 + nsym) * (config.ofdm_fft + config.ofdm_cp);
+            if (vm["energy_packet_size"].defaulted())
+                config.energy_packet_size = (size_t)std::lround(0.6 * frame_samples);
+            std::cout << "[MAIN] OFDM: fft=" << config.ofdm_fft << " cp=" << config.ofdm_cp
+                      << " data_sc=" << dsc << " -> " << nsym << " data OFDM syms, frame="
+                      << frame_samples << " samples, energy_packet_size="
+                      << config.energy_packet_size << "\n";
+        }
+        else if (vm["energy_packet_size"].defaulted()) {
             // Detector works in RF samples: at rx_rate there are
             // (rx_rate/symbol_rate) samples/symbol, so a packet is
             // that many * total_syms samples. Use ~0.75x of that as the minimum
@@ -312,6 +340,21 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                   << " -> energy_packet_size=" << config.energy_packet_size
                   << " samples  (override via --recv_msg_len / --energy_packet_size)\n";
     }
+
+    // ── OFDM waveform: no symbol_rate/RRC chain; the OFDM samples ARE the
+    //    baseband, sent at tx_rate directly. Only require rx_rate == tx_rate. ──
+    if (config.waveform == "ofdm") {
+        std::cout << "[MAIN] Waveform: OFDM (fft=" << config.ofdm_fft
+                  << ", cp=" << config.ofdm_cp << ").  OFDM samples sent at tx_rate="
+                  << config.tx_rate << " Hz directly (no RRC / match filter).\n";
+        if (std::abs(config.rx_rate - config.tx_rate) > 1e-3 * config.tx_rate) {
+            std::cerr << "  [FAIL] OFDM needs rx_rate == tx_rate (" << config.tx_rate
+                      << "). Set --rx-rate " << config.tx_rate << ".\n";
+            if (!skip_rate_check) return EXIT_FAILURE;
+        } else {
+            std::cout << "  [OK] rx_rate == tx_rate; OFDM does its own sync/CFO/eq.\n\n";
+        }
+    } else {
 
     // ── Report the RX oversampling used for ACQ symbol timing ──
     // The RX front-end runs entirely at an INTEGER samples/symbol `os`
@@ -389,6 +432,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             return EXIT_FAILURE;
         }
     }
+    }   // end single-carrier (non-OFDM) rate-check branch
 
     // ── Role / mode routing ─────────────────────────────────
     // role = "tx": transmit only on the TX B210 (--tx-args serial=...).
