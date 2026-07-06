@@ -1,0 +1,26 @@
+# CMake build tree (regenerate with: cmake .. && make)
+build/
+
+# Compiled binaries / objects
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+sim/tx_app
+sim/rx_app
+tests/frontend_repro
+tests/pipeline2_verify
+tests/integration_test
+tests/mod_loopback_test
+tests/rx_chain_sweep
+tests/sync_reorder_demo
+
+# Runtime output dirs written by the transceiver
+transmit/
+received/
+debugging/
+
+# Misc
+.DS_Store
+*.txt.bak
