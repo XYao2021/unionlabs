@@ -151,14 +151,28 @@ full-size frame so it reuses the data sizing.)
 
 ## Things you will almost certainly need to tune
 
-- **`--sync_threshold`** — default is now 15 (was 1.0, far too low). After AGC
+- **`--sync_threshold`** (alias **`--sync-threshold`**) — default 15. After AGC
   normalises the RX to ~unit RMS the correlation peak is ~the preamble length
   (31 for `m=5`). Watch the `[ACQ]   Peak correlation` lines: set it below the
   true peak but above the sidelobes. Too low → locks onto noise/guard; too high →
-  never detects.
+  never detects. The startup prints `[MAIN] ACQ sync_threshold: …` so you can
+  confirm the value took.
+- **`--det-mult`** (alias for `--IIR_threshold_multiplier`) — the **auto detector
+  threshold** = measured `noise_floor × det-mult` (default 5). This is the first
+  gate: it decides which bursts even reach the ACQ. **Over-the-air, raise it**
+  (try 10–30) so the detector fires only on real bursts, not on ambient RF —
+  otherwise the pipeline is flooded with noise "bursts". Too high and it misses
+  weak signals. Startup prints `[MAIN] Energy detector: AUTO threshold = …`.
+  (Use `--det-adaptive false --det-threshold <v>` for a fixed threshold instead.)
+- **Antenna vs cable** — with real antennas the signal is weaker and the air is
+  noisier, so you will typically **raise `--det-mult`** (reject ambient RF at the
+  detector) and re-tune **`--sync_threshold`** and **`--rx-gain`** together. Bring
+  the radios close, watch `[AFTER ENERGY DETECTION] … RMS` and `[ACQ]   Peak
+  correlation`, and set each threshold below the real values but above the noise.
 - **`--rx-gain` / `--tx-gain`** — watch the `[FEEDFORWARD AGC] ... RMS` line. If
   the RX RMS is tiny, raise gain (or reduce attenuation); if it's clipping,
-  lower it. Reasonable cabled starting points: TX 50–70 dB, RX 30–45 dB.
+  lower it. Cabled starting points: TX 50–70 dB, RX 30–45 dB. Over antennas you
+  will usually need more RX gain (and less TX, to stay legal / avoid overload).
 - **`--tx-freq` == `--rx-freq`** — must match. Keep it in an ISM band (e.g.
   2.45e9) if radiating.
 - **Sample vs symbol rate** — defaults are `--tx-rate/--rx-rate 1.6e6` with an

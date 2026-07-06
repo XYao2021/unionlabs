@@ -154,7 +154,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
          "gives one clean capture per burst.")
         ("energy_threshold",
          po::value<float>(&config.energy_threshold)->default_value(1e-7f),
-         "Fixed energy threshold (used if adaptive=false)")
+         "Fixed energy threshold (used only if the adaptive detector is off). "
+         "Alias: --det-threshold")
+        ("det-threshold", po::value<float>(),
+         "alias for --energy_threshold (fixed detector threshold)")
         ("energy_packet_size",
          po::value<size_t>(&config.energy_packet_size)->default_value(3300),
          "Samples to collect after energy detection")
@@ -163,10 +166,17 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
          "IIR window size")
         ("IIR_threshold_adaptive",
          po::value<bool>(&config.IIR_threshold_adaptive)->default_value(true),
-         "Use adaptive energy threshold")
+         "Use the auto (adaptive) detection threshold = noise_floor × multiplier. "
+         "Alias: --det-adaptive")
+        ("det-adaptive", po::value<bool>(),
+         "alias for --IIR_threshold_adaptive (use the auto detector threshold)")
         ("IIR_threshold_multiplier",
          po::value<float>(&config.IIR_threshold_multiplier)->default_value(5.0f),
-         "Adaptive threshold = noise_floor × this")
+         "Auto detector threshold = measured noise_floor × this. RAISE it "
+         "over-the-air (e.g. 10-30) so the detector fires only on real bursts, "
+         "not ambient RF; too high and it misses weak bursts. Alias: --det-mult")
+        ("det-mult", po::value<float>(),
+         "alias for --IIR_threshold_multiplier (auto-threshold noise multiplier)")
 
         // Synchronisation
         ("sps_sync",
@@ -174,7 +184,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
          "Samples per symbol at match-filter output")
         ("sync_threshold",
          po::value<float>(&config.sync_threshold)->default_value(15.0f),
-         "ACQ correlation threshold (preamble peak ~= preamble length after AGC)")
+         "ACQ correlation threshold — raise it over-the-air so ambient-noise bursts "
+         "are rejected (a real preamble peaks near the preamble length ~31 after AGC; "
+         "noise correlates far lower). Watch the '[ACQ]   Peak correlation' lines and "
+         "set it below the true peak but above the noise. Alias: --sync-threshold")
+        ("sync-threshold",
+         po::value<float>(),
+         "alias for --sync_threshold (hyphenated spelling)")
         ("recv_msg_len",
          po::value<int>(&config.message_length)->default_value(508),
          "Data symbols to extract (QPSK: 1016bits/2bps=508)")
@@ -239,6 +255,17 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::cout << desc << "\n";
         return EXIT_SUCCESS;
     }
+
+    // Hyphenated aliases override their underscore originals when given (matches
+    // the hyphen convention of --rx-gain / --tx-args etc.).
+    if (vm.count("sync-threshold"))
+        config.sync_threshold = vm["sync-threshold"].as<float>();
+    if (vm.count("det-mult"))
+        config.IIR_threshold_multiplier = vm["det-mult"].as<float>();
+    if (vm.count("det-threshold"))
+        config.energy_threshold = vm["det-threshold"].as<float>();
+    if (vm.count("det-adaptive"))
+        config.IIR_threshold_adaptive = vm["det-adaptive"].as<bool>();
 
     // ── Apply preamble type ─────────────────────────────────
     config.preamble_type = preamble_type;
@@ -468,6 +495,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // ── Start physical layer ────────────────────────────────
     std::cout << "[MAIN] Mode: " << mode << "\n";
     std::cout << "[MAIN] Scheme: " << config.scheme << "\n";
+    std::cout << "[MAIN] ACQ sync_threshold: " << config.sync_threshold
+              << "  (raise for over-the-air; watch '[ACQ]   Peak correlation')\n";
+    if (config.IIR_threshold_adaptive)
+        std::cout << "[MAIN] Energy detector: AUTO threshold = noise_floor x "
+                  << config.IIR_threshold_multiplier << " (--det-mult)"
+                  << "  (raise over-the-air to reject ambient RF)\n";
+    else
+        std::cout << "[MAIN] Energy detector: FIXED threshold = "
+                  << config.energy_threshold << " (--det-threshold)\n";
     std::cout << "[MAIN] TX " << config.tx_freq/1e9 << " GHz  gain="
               << config.tx_gain << " dB\n";
     std::cout << "[MAIN] RX " << config.rx_freq/1e9 << " GHz  gain="
