@@ -273,13 +273,20 @@ void Modulator::normalize_constellation()
 
 int Modulator::bits_to_index(const std::vector<uint8_t>& bits, int start_position)
 {
+    // Build the bps-bit symbol index MSB-first. If the final group has fewer than
+    // bps bits (packet_bits not a multiple of bps, e.g. 32-QAM/128-QAM), the
+    // missing low bits are treated as 0 — the shift MUST still happen so the real
+    // bits stay left-aligned in their correct positions. The old code skipped the
+    // shift for out-of-range bits, which right-shifted the partial symbol and
+    // corrupted it (and the trailing CRC bits that share that symbol) → CRC
+    // always failed for schemes whose bits/symbol don't divide the frame.
     int index = 0;
     for (int i = 0; i < bps; i++){
-        if (start_position + i < bits.size()){
-            index = (index << 1) | bits[start_position + i];  // build binary number bit by bit
-        }
+        int bit = (start_position + i < static_cast<int>(bits.size()))
+                    ? bits[start_position + i] : 0;
+        index = (index << 1) | bit;
     }
-    return index;  // return the index of binary number in the constellation vector
+    return index;  // index into the constellation vector
 }
 
 int Modulator::get_bits_per_symbol() const {
