@@ -26,14 +26,18 @@
 // ─────────────────────────────────────────────────────────────
 class SOURCE {
 public:
-    SOURCE(PHYSICAL_LAYER& phy, int timeout_ms, int num_bits_per_packet)
+    // max_attempts: give up on a chunk after this many un-ACKed transmissions
+    // (0 = retry forever). Prevents a dead reverse link from hanging the run.
+    SOURCE(PHYSICAL_LAYER& phy, int timeout_ms, int num_bits_per_packet,
+           int max_attempts = 50)
         : phy_(phy), timeout_ms_(timeout_ms),
-          num_bits_(num_bits_per_packet)
+          num_bits_(num_bits_per_packet), max_attempts_(max_attempts)
     {}
 
     void start(const std::vector<std::string>& chunks) {
         chunks_  = chunks;
         running_ = true;
+        done_    = false;
         worker_  = std::thread(&SOURCE::run, this);
     }
 
@@ -42,18 +46,24 @@ public:
         if (worker_.joinable()) worker_.join();
     }
 
+    // True once every chunk has been ACKed (or given up on) — lets main() exit.
+    bool done() const { return done_.load(); }
+
 private:
     PHYSICAL_LAYER&      phy_;
     int                  timeout_ms_;
     int                  num_bits_;
+    int                  max_attempts_;
     std::vector<std::string> chunks_;
     std::atomic<bool>    running_{false};
+    std::atomic<bool>    done_{false};
     std::thread          worker_;
 
     void run() {
         uint8_t total = static_cast<uint8_t>(chunks_.size());
         size_t  sent  = 0;
         size_t  retx  = 0;
+        size_t  failed = 0;
 
         for (uint8_t idx = 0; idx < total && running_; ++idx) {
             auto bits = build_packet_bits(chunks_[idx], idx, total);
@@ -76,28 +86,36 @@ private:
                 while (!acked && std::chrono::steady_clock::now() < deadline && running_) {
                     std::pair<size_t, std::vector<uint8_t>> rx;
                     if (phy_.rx_bits_fifo.pop(rx)) {
-                        // Any received frame with matching index is treated as ACK
-                        auto [ridx, rtot, rpayload] = decode_packet_bits(rx.second);
-                        if (ridx == idx) {
+                        // ACK = an error-free frame (CRC OK) whose index matches.
+                        auto [ridx, rtot, rpayload, rok] = decode_packet_bits(rx.second);
+                        if (rok && ridx == idx) {
                             acked = true;
                             std::cout << "[SOURCE] ACK received for chunk "
-                                      << (int)idx+1 << "\n";
+                                      << (int)idx+1 << "  (attempt " << tries << ")\n";
                         }
                     } else {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
                     }
                 }
 
                 if (!acked) {
+                    ++retx;
+                    if (max_attempts_ > 0 && tries >= max_attempts_) {
+                        std::cout << "[SOURCE] GAVE UP on chunk " << (int)idx+1
+                                  << " after " << tries << " attempts (no ACK)\n";
+                        ++failed;
+                        break;   // move on so the run can finish
+                    }
                     std::cout << "[SOURCE] TIMEOUT on chunk " << (int)idx+1
                               << " — retransmitting\n";
-                    ++retx;
                 }
             }
         }
 
         std::cout << "[SOURCE] Done. Sent=" << sent
-                  << "  Retransmissions=" << retx << "\n";
+                  << "  Retransmissions=" << retx
+                  << "  Unacked chunks=" << failed << "\n";
+        done_.store(true);
     }
 };
 
@@ -106,12 +124,19 @@ private:
 // ─────────────────────────────────────────────────────────────
 class SINK {
 public:
-    SINK(PHYSICAL_LAYER& phy, int ack_interval_ms)
-        : phy_(phy), ack_interval_ms_(ack_interval_ms)
+    // ack_payload_bytes: pad the ACK payload to this many bytes so the ACK frame
+    // is the SAME length as a data chunk. The source box's RX pipeline extracts a
+    // fixed number of symbols (recv_msg_len, sized for a data chunk), so a short
+    // ACK would not line up; a same-size ACK reuses all the existing sizing. (An
+    // optimisation would be short ACKs with a per-role recv_msg_len.)
+    SINK(PHYSICAL_LAYER& phy, int ack_interval_ms, size_t ack_payload_bytes = 0)
+        : phy_(phy), ack_interval_ms_(ack_interval_ms),
+          ack_payload_bytes_(ack_payload_bytes)
     {}
 
     void start() {
         running_ = true;
+        done_    = false;
         worker_  = std::thread(&SINK::run, this);
     }
 
@@ -119,6 +144,9 @@ public:
         running_ = false;
         if (worker_.joinable()) worker_.join();
     }
+
+    // True once every chunk (per the header's total) has been received.
+    bool done() const { return done_.load(); }
 
     void print_received_message() const {
         std::cout << "\n========== RECEIVED MESSAGE ==========\n";
@@ -143,7 +171,9 @@ public:
 private:
     PHYSICAL_LAYER&  phy_;
     int              ack_interval_ms_;
+    size_t           ack_payload_bytes_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> done_{false};
     std::thread      worker_;
     std::map<uint8_t, std::string> chunks_;
 
@@ -158,11 +188,19 @@ private:
                 continue;
             }
 
-            auto [idx, tot, payload] = decode_packet_bits(rx.second);
+            auto [idx, tot, payload, crc_ok] = decode_packet_bits(rx.second);
+
+            // Only accept (and ACK) error-free frames: a failed CRC means bit
+            // errors, so drop it and let the source retransmit.
+            if (!crc_ok || tot == 0 || idx >= tot) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(ack_interval_ms_));
+                continue;
+            }
 
             std::cout << "[SINK] Received chunk " << (int)idx+1
                       << "/" << (int)tot
-                      << "  payload_len=" << payload.size() << "\n";
+                      << "  payload_len=" << payload.size() << "  [CRC OK]\n";
 
             // Print printable characters only
             std::string clean;
@@ -172,8 +210,12 @@ private:
 
             chunks_[idx] = payload;
 
-            // Send ACK: re-encode the same header with empty payload
-            auto ack_bits = build_packet_bits("", idx, tot);
+            // Send ACK: same header (carries the chunk index the source waits on),
+            // payload padded to a full data-chunk length so the frame is the same
+            // size as data (see ack_payload_bytes_ note). Sent even for duplicates,
+            // in case a previous ACK was lost.
+            auto ack_bits = build_packet_bits(std::string(ack_payload_bytes_, ' '),
+                                              idx, tot);
             phy_.transmit(ack_bits);
             std::cout << "[SINK] ACK sent for chunk " << (int)idx+1 << "\n";
 
@@ -181,6 +223,9 @@ private:
             if (tot > 0 && chunks_.size() == static_cast<size_t>(tot)) {
                 std::cout << "[SINK] All " << (int)tot << " chunks received!\n";
                 print_received_message();
+                // Keep running briefly so late duplicates still get ACKed (helps
+                // the source close out its last chunk), then signal completion.
+                done_.store(true);
             }
         }
         std::cout << "[SINK] Stopped\n";

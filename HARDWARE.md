@@ -68,7 +68,58 @@ and the differential PSK schemes `DBPSK DQPSK 8-DPSK`.
 
 The RX prints, per burst: the ACQ correlation peak, the CFO and phase estimates,
 the demodulated bits, and the decoded chunk; at the end it prints the reassembled
-message.
+message. The RX **auto-terminates** `--rx-idle-timeout` seconds (default 8) after
+the last burst (i.e. once the TX has finished) and prints the message; `0` keeps
+the old run-until-Ctrl-C behaviour.
+
+## Reliable delivery (error detection)
+
+Every packet carries a **CRC-16**, so a chunk corrupted by bit errors is detected
+and rejected instead of producing a wrong message. Two modes use it:
+
+### 1. CRC-verified collection (one cable, no ACK) — the default `--role rx`
+
+The RX accepts a chunk only when its CRC checks out, and — because the TX repeats
+every chunk (`--tx-reps`) — simply waits for a clean copy of each. It auto-stops
+the moment all chunks are verified. This delivers an **exact** message over the
+single data cable with no reverse channel. Just run the `--role tx`/`--role rx`
+commands above (hardware-verified: the full message decoded error-free).
+
+### 2. True stop-and-wait ARQ (two cables, ACK feedback)
+
+With a reverse **ACK cable** wired (RF B), the receiver transmits an ACK for each
+CRC-verified chunk and the transmitter retransmits until ACKed, advancing
+chunk-by-chunk and stopping when all are confirmed. Each box runs **full-duplex
+on one B210**: data on RF A, ACK on RF B, on **different frequencies** (so a box's
+own data-TX doesn't blind its ACK-RX).
+
+Wiring: data `30CD424 RF A TX/RX → 30CD3F7 RF A RX2`; ACK `30CD3F7 RF B TX/RX →
+30CD424 RF B RX2`.
+
+Terminal 1 — **SINK** (data RX + ACK TX), serial 30CD3F7, start first:
+```bash
+./sdr_system --role sink_arq \
+    --tx-args "serial=30CD3F7" --rx-args "serial=30CD3F7" \
+    --rx-subdev "A:A" --rx-ant "RX2"   --rx-freq 2.45e9 \
+    --tx-subdev "A:B" --tx-ant "TX/RX" --tx-freq 2.40e9 \
+    --tx-rate 1.6e6 --rx-rate 1.6e6 --tx-gain 60 --rx-gain 40 --scheme QPSK
+```
+
+Terminal 2 — **SOURCE** (data TX + ACK RX), serial 30CD424:
+```bash
+./sdr_system --role source_arq \
+    --tx-args "serial=30CD424" --rx-args "serial=30CD424" \
+    --tx-subdev "A:A" --tx-ant "TX/RX" --tx-freq 2.45e9 \
+    --rx-subdev "A:B" --rx-ant "RX2"   --rx-freq 2.40e9 \
+    --tx-rate 1.6e6 --rx-rate 1.6e6 --tx-gain 60 --rx-gain 40 \
+    --scheme QPSK --timeout 2000
+```
+
+Both processes exit on their own (source when all chunks ACKed, sink when all
+received). Hardware-verified: the message delivered error-free with 0 unacked
+chunks. Note the ACK is currently sent as a full-size frame (same length as a data
+chunk) so it reuses the data sizing; the first few chunks show extra retransmits
+while the ACK-RX front-end calibrates and the pipelines warm up.
 
 ## Things you will almost certainly need to tune
 

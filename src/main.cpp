@@ -34,6 +34,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     int         num_bits        = 1000;
     int         interval_ms     = 3000;
     int         tx_reps         = 20;      // one-way (role tx) repetitions
+    double      rx_idle_timeout = 8.0;     // role rx: auto-stop after N s of no bursts
     bool        skip_rate_check = false;   // bypass the rate-chain consistency check
     bool        continuous      = false;
     std::string preamble_type;
@@ -52,6 +53,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "both = original single-box full-duplex/loopback")
         ("tx-reps",  po::value<int>(&tx_reps)->default_value(20),
                      "role tx: how many times to cycle through all chunks (one-way, no ACK)")
+        ("rx-idle-timeout", po::value<double>(&rx_idle_timeout)->default_value(8.0),
+                     "role rx: auto-stop and print the message after this many seconds "
+                     "with no new bursts (TX has finished). 0 = run until Ctrl-C")
         ("skip-rate-check", po::bool_switch(&skip_rate_check),
                      "bypass the startup rate-chain consistency check (run even if rates mismatch)")
         ("timeout",  po::value<int>(&timeout_ms)->default_value(3000),
@@ -242,7 +246,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         int bps          = probe.get_bits_per_symbol();
         int preamble_len = (1 << config.preamble_length) - 1;        // m-sequence length
         const int guard  = 10;                                       // matches modulate()
-        int packet_bits  = 16 + static_cast<int>(bytes_length) * 8;  // 16-bit header + full chunk
+        int packet_bits  = 16 + static_cast<int>(bytes_length) * 8 + 16;  // header + chunk + CRC-16
         int data_syms    = (packet_bits + bps - 1) / bps;            // ceil
         int total_syms   = guard + preamble_len + data_syms;
 
@@ -358,6 +362,25 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         mode = "sink";
         std::cout << "[MAIN] Role rx  -> RX device '" << config.rx_args
                   << "' subdev " << config.rx_subdev << " ant " << config.rx_ant << "\n";
+    } else if (config.role == "source_arq" || config.role == "sink_arq") {
+        // ── Two-box stop-and-wait ARQ (full-duplex on one B210) ──
+        // Data on one RF front-end, ACK on the other. The user supplies BOTH
+        // --tx-* and --rx-* explicitly (same --tx-args == --rx-args = this box's
+        // serial, different --tx-subdev/--rx-subdev, antennas and frequencies).
+        //   source_arq: TX = data out, RX = ACK in.   Runs SOURCE.
+        //   sink_arq  : RX = data in,  TX = ACK out.   Runs SINK.
+        // No arg munging — the config is used as given.
+        if (config.tx_args.empty() || config.tx_args != config.rx_args) {
+            std::cerr << "[ERROR] " << config.role << " needs --tx-args and --rx-args "
+                         "set to the SAME serial (this box), with different "
+                         "--tx-subdev/--rx-subdev for RF A vs RF B.\n";
+            return EXIT_FAILURE;
+        }
+        std::cout << "[MAIN] Role " << config.role << "  device '" << config.tx_args
+                  << "'  data/ACK split: TX subdev " << config.tx_subdev << " ("
+                  << config.tx_ant << ", " << config.tx_freq/1e9 << " GHz)  |  RX subdev "
+                  << config.rx_subdev << " (" << config.rx_ant << ", "
+                  << config.rx_freq/1e9 << " GHz)\n";
     } else if (config.role == "both") {
         // ── Legacy single-box routing (unchanged) ───────────
         // source: TX and RX on the same physical device (different ports)
@@ -382,7 +405,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         }
     } else {
         std::cerr << "[ERROR] Unknown role: " << config.role
-                  << "  (use tx | rx | both)\n";
+                  << "  (use tx | rx | both | source_arq | sink_arq)\n";
         return EXIT_FAILURE;
     }
 
@@ -438,7 +461,37 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     transceiver.start();
 
     // ── Run according to role ───────────────────────────────
-    if (config.role == "tx") {
+    if (config.role == "source_arq") {
+        // Stop-and-wait ARQ transmitter: send each chunk, wait for its ACK on the
+        // reverse RF channel, retransmit on timeout, advance when ACKed. Exits
+        // when every chunk is ACKed (or gives up per SOURCE max-attempts).
+        std::cout << "[SOURCE-ARQ] " << chunks.size() << " chunks, timeout "
+                  << timeout_ms << " ms. Ctrl-C to abort.\n";
+        SOURCE source(transceiver, timeout_ms, num_bits);
+        source.start(chunks);
+        while (!source.done() && !global_stop_signal.load())
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        source.stop();
+        std::cout << "[SOURCE-ARQ] Finished.\n";
+
+    } else if (config.role == "sink_arq") {
+        // Stop-and-wait ARQ receiver: CRC-verify each data chunk, transmit an ACK
+        // (full-size, so it matches the data length) on the reverse RF channel,
+        // reassemble. Exits once all chunks are received.
+        std::cout << "[SINK-ARQ] Waiting for chunks; ACKing verified ones. "
+                     "Ctrl-C to stop.\n";
+        SINK sink(transceiver, timer_interval, bytes_length);
+        sink.start();
+        while (!sink.done() && !global_stop_signal.load())
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        // Grace period so a lost final ACK is re-sent when the source retransmits
+        // its last chunk (the sink re-ACKs duplicates).
+        if (sink.done())
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+        sink.stop();
+        sink.print_received_message();
+
+    } else if (config.role == "tx") {
         // ONE-WAY TRANSMIT (no ARQ). Push every chunk into the TX pipeline and
         // repeat the whole message tx_reps times so the RX — which may be started
         // at any moment — has several chances to acquire each burst.
@@ -461,32 +514,81 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     } else if (config.role == "rx") {
         // ONE-WAY RECEIVE (no ARQ). Pull decoded packets from the RX pipeline,
         // place each chunk by its header index, and print the running message.
-        std::cout << "[RX] One-way receive, scheme " << config.scheme
-                  << ". Ctrl-C to stop.\n";
+        // Auto-terminate: the TX process exits once it has sent all repetitions,
+        // after which no more bursts arrive. When no packet has been received for
+        // rx_idle_timeout seconds (only armed AFTER the first burst, so the RX can
+        // be started first and wait for the TX), stop, assemble, and print. Ctrl-C
+        // still works. --rx-idle-timeout 0 restores the old run-until-Ctrl-C.
+        // CRC-VERIFIED COLLECTION. Each packet carries a CRC-16, so a chunk is
+        // accepted only when its CRC checks out — i.e. it arrived with NO bit
+        // errors. The TX repeats every chunk (--tx-reps), so a corrupted copy is
+        // simply dropped and a later clean copy is taken instead. This guarantees
+        // an error-free reassembled message over the current one-way link, with
+        // no reverse ACK channel. The RX stops as soon as every chunk has a
+        // CRC-verified copy (or on the idle timeout / Ctrl-C).
+        std::cout << "[RX] One-way receive (CRC-verified), scheme " << config.scheme
+                  << ". Auto-stops when all chunks verified, or " << rx_idle_timeout
+                  << " s after the last burst (Ctrl-C also stops).\n";
         std::vector<std::string> parts;
         std::vector<bool>        got;
         int total = 0;
+        long rx_bursts = 0, crc_pass = 0, crc_fail = 0;
+        bool got_any = false;
+        auto last_rx = std::chrono::steady_clock::now();
         while (!global_stop_signal.load()) {
             std::pair<size_t, std::vector<uint8_t>> rx;
             if (transceiver.rx_bits_fifo.pop(rx)) {
-                auto [idx, tot, payload] = decode_packet_bits(rx.second);
-                // Guard against bogus headers from noise/false-alarm bursts: a
-                // garbage 16-bit header decodes to random idx/tot (e.g. 192/255),
-                // which would resize `parts` to 255 and write junk into the
-                // reassembled message. Accept only self-consistent, plausibly
-                // small frames. (A CRC in the header would be the robust fix.)
-                if (tot > 0 && tot <= 64 && idx < tot) {
-                    total = tot;
-                    if ((int)parts.size() < tot) { parts.resize(tot); got.resize(tot, false); }
-                    if (idx < tot) { parts[idx] = payload; got[idx] = true; }
-                    int have = 0; for (bool g : got) have += g ? 1 : 0;
-                    std::cout << "[RX] chunk " << (int)idx + 1 << "/" << (int)tot
-                              << "  (" << have << "/" << tot << " unique): \""
-                              << payload << "\"\n";
+                // Any burst (valid or not) counts as TX activity: keep the link
+                // alive while the transmitter is still sending.
+                got_any = true;
+                rx_bursts++;
+                last_rx = std::chrono::steady_clock::now();
+                auto [idx, tot, payload, crc_ok] = decode_packet_bits(rx.second);
+                // Accept ONLY error-free frames: CRC must pass, and the header
+                // must be self-consistent (belt-and-suspenders against the ~1/65536
+                // CRC false-accept). A failed CRC means bit errors → drop it and
+                // wait for a clean retransmission.
+                if (!crc_ok || tot == 0 || tot > 64 || idx >= tot) {
+                    crc_fail++;
+                    continue;
+                }
+                crc_pass++;
+                total = tot;
+                if ((int)parts.size() < tot) { parts.resize(tot); got.resize(tot, false); }
+                bool first = !got[idx];
+                parts[idx] = payload; got[idx] = true;
+                int have = 0; for (bool g : got) have += g ? 1 : 0;
+                std::cout << "[RX] chunk " << (int)idx + 1 << "/" << (int)tot
+                          << (first ? "  [CRC OK, new]" : "  [CRC OK, dup]")
+                          << "  (" << have << "/" << (int)tot << " verified): \""
+                          << payload << "\"\n";
+                if (have == total) {
+                    std::cout << "[RX] all " << total
+                              << " chunks CRC-verified — message complete, stopping.\n";
+                    break;
                 }
             } else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                if (rx_idle_timeout > 0.0 && got_any) {
+                    double idle = std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - last_rx).count();
+                    if (idle >= rx_idle_timeout) {
+                        std::cout << "[RX] no new bursts for " << idle
+                                  << " s (>= " << rx_idle_timeout
+                                  << " s) — TX finished, stopping.\n";
+                        break;
+                    }
+                }
             }
+        }
+        std::cout << "[RX] bursts=" << rx_bursts << "  CRC-pass=" << crc_pass
+                  << "  CRC-fail(dropped)=" << crc_fail << "\n";
+        {
+            int have = 0; for (bool g : got) have += g ? 1 : 0;
+            if (total > 0 && have < total)
+                std::cout << "[RX] WARNING: only " << have << "/" << total
+                          << " chunks verified — message INCOMPLETE (raise --tx-reps"
+                             " or link margin).\n";
         }
         std::string full; for (auto& p : parts) full += p;
         std::cout << "\n================ DECODED MESSAGE ================\n"

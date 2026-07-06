@@ -205,9 +205,10 @@ int main(int argc, char** argv){
                   << "  (BER " << std::setprecision(4)
                   << (double)be/std::max<size_t>(1,truth_bits.size()) << ")\n";
 
-        // ---- DECODE (header + payload) ----
-        auto [ridx, rtot, payload] = decode_packet_bits(rx_bits);
-        std::cout << "[DECODE] header: chunk_index=" << (int)ridx << " total_chunks=" << (int)rtot << "\n";
+        // ---- DECODE (header + payload + CRC) ----
+        auto [ridx, rtot, payload, rcrc] = decode_packet_bits(rx_bits);
+        std::cout << "[DECODE] header: chunk_index=" << (int)ridx << " total_chunks=" << (int)rtot
+                  << "  CRC=" << (rcrc ? "OK" : "FAIL") << "\n";
         std::cout << "[DECODE] payload text: \"" << payload << "\"\n";
         if (idx>=0 && idx<(int)parts.size()) parts[idx] = payload;
     }

@@ -151,20 +151,40 @@ public:
         stop_flag_.store(false);
         std::signal(SIGINT, global_sig_int_handler);
 
-        const bool do_tx = (cfg_.role == "tx" || cfg_.role == "both");
-        const bool do_rx = (cfg_.role == "rx" || cfg_.role == "both");
+        // ARQ roles run BOTH pipelines full-duplex on ONE box: data on one RF
+        // front-end and the ACK on the other (RF A / RF B).
+        const bool arq   = (cfg_.role == "source_arq" || cfg_.role == "sink_arq");
+        const bool do_tx = (cfg_.role == "tx" || cfg_.role == "both" || arq);
+        const bool do_rx = (cfg_.role == "rx" || cfg_.role == "both" || arq);
         std::cout << "[PHY] Role: " << cfg_.role
                   << (do_tx ? "  [TX pipeline]" : "")
                   << (do_rx ? "  [RX pipeline]" : "") << "\n";
 
-        // ── Build USRP objects (only the ones this role needs) ──
-        if (do_tx) {
+        // ── Build USRP objects ─────────────────────────────────
+        // A USB device can be opened only once, so when TX and RX are the SAME
+        // serial (full-duplex on one box, e.g. ARQ over RF A + RF B) we make() a
+        // single multi_usrp and share the sptr for both directions. setup_tx_usrp
+        // and setup_rx_usrp then configure the two directions (different subdev /
+        // antenna / frequency) on that one device.
+        const bool one_device = do_tx && do_rx && !cfg_.tx_args.empty()
+                                && cfg_.tx_args == cfg_.rx_args;
+        if (one_device) {
+            std::cout << "[PHY] Full-duplex on one device (" << cfg_.tx_args
+                      << "): TX subdev " << cfg_.tx_subdev << " / RX subdev "
+                      << cfg_.rx_subdev << "\n";
             tx_usrp_ = uhd::usrp::multi_usrp::make(cfg_.tx_args);
+            rx_usrp_ = tx_usrp_;
             setup_tx_usrp();
-        }
-        if (do_rx) {
-            rx_usrp_ = uhd::usrp::multi_usrp::make(cfg_.rx_args);
             setup_rx_usrp();
+        } else {
+            if (do_tx) {
+                tx_usrp_ = uhd::usrp::multi_usrp::make(cfg_.tx_args);
+                setup_tx_usrp();
+            }
+            if (do_rx) {
+                rx_usrp_ = uhd::usrp::multi_usrp::make(cfg_.rx_args);
+                setup_rx_usrp();
+            }
         }
 
         std::this_thread::sleep_for(
