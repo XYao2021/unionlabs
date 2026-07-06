@@ -20,17 +20,19 @@
 
 #include "physical_layer.hpp"
 #include "messages.hpp"
+#include "ack_transport.hpp"
 
 // ─────────────────────────────────────────────────────────────
 //  SOURCE
 // ─────────────────────────────────────────────────────────────
 class SOURCE {
 public:
+    // ack: ACK channel (RF or TCP) the receiver acknowledges chunks on.
     // max_attempts: give up on a chunk after this many un-ACKed transmissions
     // (0 = retry forever). Prevents a dead reverse link from hanging the run.
-    SOURCE(PHYSICAL_LAYER& phy, int timeout_ms, int num_bits_per_packet,
-           int max_attempts = 50)
-        : phy_(phy), timeout_ms_(timeout_ms),
+    SOURCE(PHYSICAL_LAYER& phy, AckLink& ack, int timeout_ms,
+           int num_bits_per_packet, int max_attempts = 50)
+        : phy_(phy), ack_(ack), timeout_ms_(timeout_ms),
           num_bits_(num_bits_per_packet), max_attempts_(max_attempts)
     {}
 
@@ -51,6 +53,7 @@ public:
 
 private:
     PHYSICAL_LAYER&      phy_;
+    AckLink&             ack_;
     int                  timeout_ms_;
     int                  num_bits_;
     int                  max_attempts_;
@@ -84,15 +87,14 @@ private:
                               + std::chrono::milliseconds(timeout_ms_);
 
                 while (!acked && std::chrono::steady_clock::now() < deadline && running_) {
-                    std::pair<size_t, std::vector<uint8_t>> rx;
-                    if (phy_.rx_bits_fifo.pop(rx)) {
-                        // ACK = an error-free frame (CRC OK) whose index matches.
-                        auto [ridx, rtot, rpayload, rok] = decode_packet_bits(rx.second);
-                        if (rok && ridx == idx) {
+                    uint8_t ridx;
+                    if (ack_.poll_ack(ridx)) {
+                        if (ridx == idx) {
                             acked = true;
                             std::cout << "[SOURCE] ACK received for chunk "
                                       << (int)idx+1 << "  (attempt " << tries << ")\n";
                         }
+                        // else: stale ACK for an already-sent chunk — ignore.
                     } else {
                         std::this_thread::sleep_for(std::chrono::milliseconds(20));
                     }
@@ -124,14 +126,9 @@ private:
 // ─────────────────────────────────────────────────────────────
 class SINK {
 public:
-    // ack_payload_bytes: pad the ACK payload to this many bytes so the ACK frame
-    // is the SAME length as a data chunk. The source box's RX pipeline extracts a
-    // fixed number of symbols (recv_msg_len, sized for a data chunk), so a short
-    // ACK would not line up; a same-size ACK reuses all the existing sizing. (An
-    // optimisation would be short ACKs with a per-role recv_msg_len.)
-    SINK(PHYSICAL_LAYER& phy, int ack_interval_ms, size_t ack_payload_bytes = 0)
-        : phy_(phy), ack_interval_ms_(ack_interval_ms),
-          ack_payload_bytes_(ack_payload_bytes)
+    // ack: ACK channel (RF or TCP) used to acknowledge each verified chunk.
+    SINK(PHYSICAL_LAYER& phy, AckLink& ack, int ack_interval_ms)
+        : phy_(phy), ack_(ack), ack_interval_ms_(ack_interval_ms)
     {}
 
     void start() {
@@ -170,8 +167,8 @@ public:
 
 private:
     PHYSICAL_LAYER&  phy_;
+    AckLink&         ack_;
     int              ack_interval_ms_;
-    size_t           ack_payload_bytes_;
     std::atomic<bool> running_{false};
     std::atomic<bool> done_{false};
     std::thread      worker_;
@@ -210,14 +207,11 @@ private:
 
             chunks_[idx] = payload;
 
-            // Send ACK: same header (carries the chunk index the source waits on),
-            // payload padded to a full data-chunk length so the frame is the same
-            // size as data (see ack_payload_bytes_ note). Sent even for duplicates,
-            // in case a previous ACK was lost.
-            auto ack_bits = build_packet_bits(std::string(ack_payload_bytes_, ' '),
-                                              idx, tot);
-            phy_.transmit(ack_bits);
-            std::cout << "[SINK] ACK sent for chunk " << (int)idx+1 << "\n";
+            // Acknowledge over the ACK channel (RF or TCP). Sent even for
+            // duplicates, in case a previous ACK was lost.
+            ack_.send_ack(idx, tot);
+            std::cout << "[SINK] ACK sent for chunk " << (int)idx+1
+                      << "  via " << ack_.name() << "\n";
 
             // Check if all chunks received
             if (tot > 0 && chunks_.size() == static_cast<size_t>(tot)) {

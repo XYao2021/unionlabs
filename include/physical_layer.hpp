@@ -88,8 +88,16 @@ struct PHYSICAL_CONFIG {
 
     // Role: "tx" = transmit only (open TX device + TX pipeline),
     //       "rx" = receive only (open RX device + RX pipeline),
-    //       "both" = original full-duplex/loopback (open both, run both).
+    //       "both" = original full-duplex/loopback (open both, run both),
+    //       "source_arq"/"sink_arq" = stop-and-wait ARQ (data over RF).
     std::string role          = "both";
+
+    // ARQ ACK transport: "tcp" (ACK over a socket — default; no reverse RF
+    // needed, ideal when both radios are on one host) or "rf" (ACK over the
+    // second RF path, RF B — needs the reverse cable/antenna + full-duplex).
+    std::string ack_transport = "tcp";
+    std::string ack_host      = "127.0.0.1";  // TCP: sink's address (source connects here)
+    int         ack_port      = 5599;         // TCP: ACK socket port
 
     // Energy detection  (alpha: larger = more IIR smoothing; see main.cpp)
     float       alpha                  = 0.95f;
@@ -151,11 +159,20 @@ public:
         stop_flag_.store(false);
         std::signal(SIGINT, global_sig_int_handler);
 
-        // ARQ roles run BOTH pipelines full-duplex on ONE box: data on one RF
-        // front-end and the ACK on the other (RF A / RF B).
-        const bool arq   = (cfg_.role == "source_arq" || cfg_.role == "sink_arq");
-        const bool do_tx = (cfg_.role == "tx" || cfg_.role == "both" || arq);
-        const bool do_rx = (cfg_.role == "rx" || cfg_.role == "both" || arq);
+        // ARQ role pipelines. Data always uses RF; the ACK uses RF only when
+        // ack_transport == "rf" (then the box is full-duplex: data on one RF
+        // front-end, ACK on the other). With TCP ACKs, each ARQ box needs only
+        // its DATA pipeline (source: TX, sink: RX) — a single RF path.
+        const bool ack_rf = (cfg_.ack_transport == "rf");
+        bool do_tx, do_rx;
+        if (cfg_.role == "source_arq") {          // data TX; ACK RX only over RF
+            do_tx = true;  do_rx = ack_rf;
+        } else if (cfg_.role == "sink_arq") {     // data RX; ACK TX only over RF
+            do_rx = true;  do_tx = ack_rf;
+        } else {
+            do_tx = (cfg_.role == "tx" || cfg_.role == "both");
+            do_rx = (cfg_.role == "rx" || cfg_.role == "both");
+        }
         std::cout << "[PHY] Role: " << cfg_.role
                   << (do_tx ? "  [TX pipeline]" : "")
                   << (do_rx ? "  [RX pipeline]" : "") << "\n";

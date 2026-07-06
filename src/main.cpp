@@ -14,6 +14,7 @@
 #include <chrono>
 #include <vector>
 #include <string>
+#include <memory>
 #include <cmath>
 #include <algorithm>
 
@@ -56,6 +57,14 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("rx-idle-timeout", po::value<double>(&rx_idle_timeout)->default_value(8.0),
                      "role rx: auto-stop and print the message after this many seconds "
                      "with no new bursts (TX has finished). 0 = run until Ctrl-C")
+        ("ack-transport", po::value<std::string>(&config.ack_transport)->default_value("tcp"),
+                     "ARQ ACK channel: tcp (default, ACK over a socket — no reverse RF "
+                     "needed) or rf (ACK over the second RF path, RF B)")
+        ("ack-host", po::value<std::string>(&config.ack_host)->default_value("127.0.0.1"),
+                     "TCP ACK: host/IP of the sink that the source connects to "
+                     "(default localhost)")
+        ("ack-port", po::value<int>(&config.ack_port)->default_value(5599),
+                     "TCP ACK: socket port")
         ("skip-rate-check", po::bool_switch(&skip_rate_check),
                      "bypass the startup rate-chain consistency check (run even if rates mismatch)")
         ("timeout",  po::value<int>(&timeout_ms)->default_value(3000),
@@ -363,24 +372,31 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::cout << "[MAIN] Role rx  -> RX device '" << config.rx_args
                   << "' subdev " << config.rx_subdev << " ant " << config.rx_ant << "\n";
     } else if (config.role == "source_arq" || config.role == "sink_arq") {
-        // ── Two-box stop-and-wait ARQ (full-duplex on one B210) ──
-        // Data on one RF front-end, ACK on the other. The user supplies BOTH
-        // --tx-* and --rx-* explicitly (same --tx-args == --rx-args = this box's
-        // serial, different --tx-subdev/--rx-subdev, antennas and frequencies).
-        //   source_arq: TX = data out, RX = ACK in.   Runs SOURCE.
-        //   sink_arq  : RX = data in,  TX = ACK out.   Runs SINK.
-        // No arg munging — the config is used as given.
-        if (config.tx_args.empty() || config.tx_args != config.rx_args) {
-            std::cerr << "[ERROR] " << config.role << " needs --tx-args and --rx-args "
-                         "set to the SAME serial (this box), with different "
-                         "--tx-subdev/--rx-subdev for RF A vs RF B.\n";
+        // ── Two-box stop-and-wait ARQ ──
+        // DATA always travels over RF (source TX -> sink RX). The ACK uses the
+        // transport chosen by --ack-transport:
+        //   tcp (default): ACK over a socket; each box needs only its DATA RF
+        //                  path (one cable). Source connects to --ack-host:--ack-port;
+        //                  sink listens there.
+        //   rf           : ACK over the second RF path (RF B); each box is
+        //                  full-duplex on ONE B210, so --tx-args == --rx-args
+        //                  (same serial) with different --tx-subdev/--rx-subdev.
+        if (config.ack_transport == "rf") {
+            if (config.tx_args.empty() || config.tx_args != config.rx_args) {
+                std::cerr << "[ERROR] " << config.role << " with --ack-transport rf needs "
+                             "--tx-args and --rx-args set to the SAME serial (this box), "
+                             "with different --tx-subdev/--rx-subdev for RF A vs RF B.\n";
+                return EXIT_FAILURE;
+            }
+        } else if (config.ack_transport != "tcp") {
+            std::cerr << "[ERROR] --ack-transport must be 'tcp' or 'rf'\n";
             return EXIT_FAILURE;
         }
-        std::cout << "[MAIN] Role " << config.role << "  device '" << config.tx_args
-                  << "'  data/ACK split: TX subdev " << config.tx_subdev << " ("
-                  << config.tx_ant << ", " << config.tx_freq/1e9 << " GHz)  |  RX subdev "
-                  << config.rx_subdev << " (" << config.rx_ant << ", "
-                  << config.rx_freq/1e9 << " GHz)\n";
+        std::cout << "[MAIN] Role " << config.role << "  ACK transport: "
+                  << config.ack_transport;
+        if (config.ack_transport == "tcp")
+            std::cout << "  (" << config.ack_host << ":" << config.ack_port << ")";
+        std::cout << "\n";
     } else if (config.role == "both") {
         // ── Legacy single-box routing (unchanged) ───────────
         // source: TX and RX on the same physical device (different ports)
@@ -462,12 +478,31 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     // ── Run according to role ───────────────────────────────
     if (config.role == "source_arq") {
-        // Stop-and-wait ARQ transmitter: send each chunk, wait for its ACK on the
-        // reverse RF channel, retransmit on timeout, advance when ACKed. Exits
-        // when every chunk is ACKed (or gives up per SOURCE max-attempts).
+        // Stop-and-wait ARQ transmitter: send each chunk, wait for its ACK,
+        // retransmit on timeout, advance when ACKed. Exits when every chunk is
+        // ACKed (or gives up per SOURCE max-attempts).
+        std::unique_ptr<AckLink> ack;
+        if (config.ack_transport == "tcp") {
+            // Source is the TCP client — connect to the sink (retry until it's up).
+            int fd = -1;
+            for (int i = 0; i < 60 && fd < 0 && !global_stop_signal.load(); ++i) {
+                try { fd = net::connect_to(config.ack_host, config.ack_port); }
+                catch (const std::exception&) {
+                    if (i == 0) std::cout << "[SOURCE-ARQ] waiting for sink ACK server at "
+                                          << config.ack_host << ":" << config.ack_port << " ...\n";
+                    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                }
+            }
+            if (fd < 0) { std::cerr << "[SOURCE-ARQ] could not connect ACK socket\n"; transceiver.stop(); return EXIT_FAILURE; }
+            std::cout << "[SOURCE-ARQ] ACK socket connected to " << config.ack_host
+                      << ":" << config.ack_port << "\n";
+            ack.reset(new TcpAckLink(fd));
+        } else {
+            ack.reset(new RfAckLink(transceiver, bytes_length));
+        }
         std::cout << "[SOURCE-ARQ] " << chunks.size() << " chunks, timeout "
-                  << timeout_ms << " ms. Ctrl-C to abort.\n";
-        SOURCE source(transceiver, timeout_ms, num_bits);
+                  << timeout_ms << " ms, ACK via " << ack->name() << ". Ctrl-C to abort.\n";
+        SOURCE source(transceiver, *ack, timeout_ms, num_bits);
         source.start(chunks);
         while (!source.done() && !global_stop_signal.load())
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -475,12 +510,25 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::cout << "[SOURCE-ARQ] Finished.\n";
 
     } else if (config.role == "sink_arq") {
-        // Stop-and-wait ARQ receiver: CRC-verify each data chunk, transmit an ACK
-        // (full-size, so it matches the data length) on the reverse RF channel,
+        // Stop-and-wait ARQ receiver: CRC-verify each data chunk, send an ACK,
         // reassemble. Exits once all chunks are received.
-        std::cout << "[SINK-ARQ] Waiting for chunks; ACKing verified ones. "
-                     "Ctrl-C to stop.\n";
-        SINK sink(transceiver, timer_interval, bytes_length);
+        std::unique_ptr<AckLink> ack;
+        if (config.ack_transport == "tcp") {
+            // Sink is the TCP server — accept the source's ACK connection.
+            std::cout << "[SINK-ARQ] waiting for source to connect ACK socket on port "
+                      << config.ack_port << " ...\n";
+            int fd;
+            try { fd = net::accept_one(config.ack_port); }
+            catch (const std::exception& e) { std::cerr << "[SINK-ARQ] ACK accept failed: "
+                      << e.what() << "\n"; transceiver.stop(); return EXIT_FAILURE; }
+            std::cout << "[SINK-ARQ] ACK socket connected\n";
+            ack.reset(new TcpAckLink(fd));
+        } else {
+            ack.reset(new RfAckLink(transceiver, bytes_length));
+        }
+        std::cout << "[SINK-ARQ] Waiting for chunks; ACKing verified ones via "
+                  << ack->name() << ". Ctrl-C to stop.\n";
+        SINK sink(transceiver, *ack, timer_interval);
         sink.start();
         while (!sink.done() && !global_stop_signal.load())
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -595,8 +643,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                   << full << "\n"
                   << "=================================================\n";
 
-    } else if (mode == "source") {   // role both (legacy ARQ)
-        SOURCE source(transceiver, timeout_ms, num_bits);
+    } else if (mode == "source") {   // role both (legacy single-box loopback ARQ)
+        RfAckLink ack(transceiver, bytes_length);   // ACK over RF (loopback)
+        SOURCE source(transceiver, ack, timeout_ms, num_bits);
         source.start(chunks);
 
         std::cout << "[SOURCE] Running — Ctrl-C to stop\n";
@@ -605,8 +654,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
         source.stop();
 
-    } else {   // role both, mode sink (legacy ARQ)
-        SINK sink(transceiver, timer_interval);
+    } else {   // role both, mode sink (legacy single-box loopback ARQ)
+        RfAckLink ack(transceiver, bytes_length);   // ACK over RF (loopback)
+        SINK sink(transceiver, ack, timer_interval);
         sink.start();
 
         std::cout << "[SINK] Running — Ctrl-C to stop\n";

@@ -85,20 +85,49 @@ the moment all chunks are verified. This delivers an **exact** message over the
 single data cable with no reverse channel. Just run the `--role tx`/`--role rx`
 commands above (hardware-verified: the full message decoded error-free).
 
-### 2. True stop-and-wait ARQ (two cables, ACK feedback)
+### 2. True stop-and-wait ARQ (ACK feedback)
 
-With a reverse **ACK cable** wired (RF B), the receiver transmits an ACK for each
-CRC-verified chunk and the transmitter retransmits until ACKed, advancing
-chunk-by-chunk and stopping when all are confirmed. Each box runs **full-duplex
-on one B210**: data on RF A, ACK on RF B, on **different frequencies** (so a box's
-own data-TX doesn't blind its ACK-RX).
+The receiver ACKs each CRC-verified chunk and the transmitter retransmits until
+ACKed, advancing chunk-by-chunk and stopping when all are confirmed. The **DATA**
+always goes over RF (RF A); the **ACK** transport is chosen with
+**`--ack-transport`** (both hardware-verified, message delivered error-free, 0
+unacked chunks). Start the **SINK first** in both cases.
 
-Wiring: data `30CD424 RF A TX/RX → 30CD3F7 RF A RX2`; ACK `30CD3F7 RF B TX/RX →
-30CD424 RF B RX2`.
+#### 2a. TCP/IP ACK — default (one cable)
+
+Best when both radios are on one host: data over the RF-A cable, ACK over a
+localhost socket. No reverse RF cable, no full-duplex, no ACK-RX warm-up. The
+sink is the ACK server; the source connects to `--ack-host:--ack-port`
+(default `127.0.0.1:5599`).
+
+Terminal 1 — **SINK** (serial 30CD3F7):
+```bash
+./sdr_system --role sink_arq \
+    --rx-args "serial=30CD3F7" --rx-subdev "A:A" --rx-ant "RX2" --rx-freq 2.45e9 \
+    --tx-rate 1.6e6 --rx-rate 1.6e6 --rx-gain 40 --scheme QPSK \
+    --ack-transport tcp --ack-port 5599
+```
+
+Terminal 2 — **SOURCE** (serial 30CD424):
+```bash
+./sdr_system --role source_arq \
+    --tx-args "serial=30CD424" --tx-subdev "A:A" --tx-ant "TX/RX" --tx-freq 2.45e9 \
+    --tx-rate 1.6e6 --rx-rate 1.6e6 --tx-gain 60 --scheme QPSK --timeout 2000 \
+    --ack-transport tcp --ack-host 127.0.0.1 --ack-port 5599
+```
+(`--ack-transport tcp` is the default; `--ack-host`/`--ack-port` let you point at
+another machine or port. Use the sink's IP as `--ack-host` if on two hosts.)
+
+#### 2b. RF ACK — `--ack-transport rf` (two cables)
+
+ACK travels over a second RF path (RF B). Needs the reverse cable and each box
+full-duplex on one B210: data on RF A, ACK on RF B, on **different frequencies**
+(so a box's own data-TX doesn't blind its ACK-RX). Wiring: data
+`30CD424 RF A TX/RX → 30CD3F7 RF A RX2`; ACK `30CD3F7 RF B TX/RX → 30CD424 RF B RX2`.
 
 Terminal 1 — **SINK** (data RX + ACK TX), serial 30CD3F7, start first:
 ```bash
-./sdr_system --role sink_arq \
+./sdr_system --role sink_arq --ack-transport rf \
     --tx-args "serial=30CD3F7" --rx-args "serial=30CD3F7" \
     --rx-subdev "A:A" --rx-ant "RX2"   --rx-freq 2.45e9 \
     --tx-subdev "A:B" --tx-ant "TX/RX" --tx-freq 2.40e9 \
@@ -107,7 +136,7 @@ Terminal 1 — **SINK** (data RX + ACK TX), serial 30CD3F7, start first:
 
 Terminal 2 — **SOURCE** (data TX + ACK RX), serial 30CD424:
 ```bash
-./sdr_system --role source_arq \
+./sdr_system --role source_arq --ack-transport rf \
     --tx-args "serial=30CD424" --rx-args "serial=30CD424" \
     --tx-subdev "A:A" --tx-ant "TX/RX" --tx-freq 2.45e9 \
     --rx-subdev "A:B" --rx-ant "RX2"   --rx-freq 2.40e9 \
@@ -116,10 +145,9 @@ Terminal 2 — **SOURCE** (data TX + ACK RX), serial 30CD424:
 ```
 
 Both processes exit on their own (source when all chunks ACKed, sink when all
-received). Hardware-verified: the message delivered error-free with 0 unacked
-chunks. Note the ACK is currently sent as a full-size frame (same length as a data
-chunk) so it reuses the data sizing; the first few chunks show extra retransmits
-while the ACK-RX front-end calibrates and the pipelines warm up.
+received). With the RF ACK, the first chunks show extra retransmits while the
+ACK-RX front-end calibrates; the TCP ACK avoids that. (The RF ACK is currently a
+full-size frame so it reuses the data sizing.)
 
 ## Things you will almost certainly need to tune
 

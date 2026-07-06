@@ -43,6 +43,13 @@ inline void recv_all(int fd, void* buf, size_t n) {
 inline void  send_i32(int fd, int32_t v)            { send_all(fd, &v, sizeof(v)); }
 inline int32_t recv_i32(int fd) { int32_t v; recv_all(fd, &v, sizeof(v)); return v; }
 
+// Non-blocking read of up to n bytes. Returns the count read (0 if nothing is
+// available right now). Used to poll for ACKs without blocking the ARQ loop.
+inline int recv_avail(int fd, void* buf, size_t n) {
+    ssize_t r = ::recv(fd, buf, n, MSG_DONTWAIT);
+    return (r > 0) ? static_cast<int>(r) : 0;
+}
+
 inline void send_str(int fd, const std::string& s) {
     send_i32(fd, static_cast<int32_t>(s.size()));
     if (!s.empty()) send_all(fd, s.data(), s.size());
