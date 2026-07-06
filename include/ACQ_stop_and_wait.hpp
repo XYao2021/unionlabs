@@ -68,6 +68,10 @@ private:
         size_t  retx  = 0;
         size_t  failed = 0;
 
+        // Per-chunk bookkeeping for the end-of-run summary.
+        std::vector<int>  tries_per(total, 0);
+        std::vector<bool> ok_per(total, false);
+
         for (uint8_t idx = 0; idx < total && running_; ++idx) {
             auto bits = build_packet_bits(chunks_[idx], idx, total);
 
@@ -112,11 +116,24 @@ private:
                               << " — retransmitting\n";
                 }
             }
+
+            tries_per[idx] = tries;
+            ok_per[idx]    = acked;
         }
 
         std::cout << "[SOURCE] Done. Sent=" << sent
                   << "  Retransmissions=" << retx
                   << "  Unacked chunks=" << failed << "\n";
+
+        // Per-chunk summary: how many transmissions each chunk needed.
+        std::cout << "\n[SOURCE] ===== Per-chunk transmission summary =====\n";
+        for (uint8_t idx = 0; idx < total; ++idx) {
+            std::cout << "[SOURCE]   chunk #" << (int)idx + 1 << "/" << (int)total
+                      << " : tried " << tries_per[idx] << " time"
+                      << (tries_per[idx] == 1 ? "" : "s") << "  ->  "
+                      << (ok_per[idx] ? "ACKed" : "NOT ACKed (gave up)") << "\n";
+        }
+        std::cout << "[SOURCE] ==========================================\n";
         done_.store(true);
     }
 };
