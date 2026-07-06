@@ -181,9 +181,21 @@ full-size frame so it reuses the data sizing.)
   does symbol timing, so `rx_rate/symbol_rate` **must be a whole number** and
   `tx_rate == rx_rate == symbol_rate*U/D`. The `[CONSISTENCY]` block checks all
   three and aborts with the exact values to use on a mismatch.
-- **Dense QAM** (128/256) needs a clean, well-tuned link (good SNR, gains, and
-  threshold) before it will decode; start with QPSK to bring the link up, then
-  step up.
+- **Higher-order QAM / channel equalizer.** For 8-PSK and QAM through a
+  multipath (over-the-air) channel, use a **complex Zadoff-Chu preamble** and the
+  **equalizer**: add `--preamble zadoff --eq_type LMS` on BOTH ends. A real BPSK
+  m-sequence preamble under-trains a complex equalizer (it can't excite the Q
+  axis); the ZC preamble lets the least-squares equalizer recover the true
+  channel inverse — symbol-level BER is 0 for all QAM through multipath, and 8-PSK
+  over-the-air jumps from marginal to solid. The equalizer is LS-trained on the
+  preamble and **frozen** by default (exact); add `--eq_dd true` to also
+  decision-directed-track a slowly time-varying channel. `--eq_taps` (default 11)
+  sets the span.
+- **Dense QAM (16-QAM and up) over antennas is PAPR/SNR-limited**: 16-QAM+RRC has
+  a high peak-to-average ratio, so the RX ADC clips (watch `[AFTER ENERGY
+  DETECTION] … Peak=` — keep it under ~0.7) before you can raise gain enough for
+  the SNR it needs. Bring the radios close, or use a cabled/attenuated link, for
+  16-QAM+. This is a link limit, not the equalizer. Start with QPSK/8-PSK.
 
 ## Hardware result (verified on two B210s)
 

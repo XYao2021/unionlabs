@@ -237,8 +237,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
          po::value<int>(&config.eq_taps)->default_value(11),
          "Number of equaliser taps")
         ("eq_mu",
-         po::value<float>(&config.eq_mu)->default_value(0.01f),
-         "LMS step size")
+         po::value<float>(&config.eq_mu)->default_value(0.3f),
+         "Equalizer NLMS step (used for DD tracking / real-preamble training)")
+        ("eq_dd",
+         po::value<bool>(&config.eq_decision_directed)->default_value(false),
+         "Equalizer decision-directed tracking after training (default off: the "
+         "LS-trained eq is exact frozen; DD can diverge on noisy dense QAM)")
         ("eq_type",
          po::value<std::string>(&config.eq_type)->default_value("None"),
          "Equaliser type: LMS / RLS / DFE / None. Default None: on a clean cabled "
@@ -280,7 +284,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     {
         Modulator probe(string_to_mod_type(config.scheme));
         int bps          = probe.get_bits_per_symbol();
-        int preamble_len = (1 << config.preamble_length) - 1;        // m-sequence length
+        // Derive the preamble length from the ACTUAL generated preamble so it is
+        // correct for either an m-sequence (2^m-1) or a Zadoff-Chu sequence.
+        int preamble_len = (int)generate_preamble(config.preamble_type,
+                                                  config.preamble_length).size();
         const int guard  = 10;                                       // matches modulate()
         int packet_bits  = 16 + static_cast<int>(bytes_length) * 8 + 16;  // header + chunk + CRC-16
         int data_syms    = (packet_bits + bps - 1) / bps;            // ceil

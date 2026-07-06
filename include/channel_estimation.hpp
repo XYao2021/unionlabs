@@ -119,10 +119,13 @@ public:
 class LMSEqualizer {
 public:
     // num_taps : equalizer length (odd number recommended, e.g. 11)
-    // mu       : step size (0.001 – 0.1; larger = faster but unstable)
-    LMSEqualizer(int num_taps = 11, float mu = 0.01f)
+    // mu       : NLMS step size (0.05 – 0.6; normalised, so scale-independent)
+    // epochs   : how many passes over the (short) preamble during training —
+    //            NLMS converges an 11-tap eq on a 31-symbol preamble in a few passes
+    LMSEqualizer(int num_taps = 11, float mu = 0.3f, int epochs = 12)
         : num_taps_(num_taps),
           mu_(mu),
+          epochs_(std::max(1, epochs)),
           delay_((num_taps - 1) / 2),
           weights_(num_taps, std::complex<float>(0.0f)),
           buf_(num_taps, std::complex<float>(0.0f))
@@ -130,35 +133,71 @@ public:
         // Initialise centre tap to 1 (identity start)
         weights_[delay_] = {1.0f, 0.0f};
         std::cout << "[LMSEqualizer] taps=" << num_taps
-                  << "  mu=" << mu
+                  << "  mu=" << mu << "  epochs=" << epochs_
                   << "  delay=" << delay_ << "\n";
     }
 
-    // Train on known preamble.
+    // Symbols of delay the equalizer output lags its input by (centre tap). The
+    // caller must feed `delay()` extra runway symbols and read from output[delay].
+    int delay() const { return delay_; }
+
+    // Train on the known preamble.
     // received : received preamble symbols (at 1-sps after timing recovery)
     // ideal    : ideal preamble symbols
+    // If `ideal` is a COMPLEX (2-D) sequence (e.g. Zadoff-Chu), a one-shot
+    // least-squares solve gives the optimal equalizer directly. If `ideal` is
+    // real-only (BPSK m-sequence), LS is skipped (a real preamble under-determines
+    // a complex equalizer — it perfectly fits the preamble but mangles QAM data);
+    // the light NLMS training below plus decision-directed adaptation on the data
+    // is used instead. The buffer is left holding the preamble tail for a seamless
+    // hand-off into the data.
     void train(const std::vector<std::complex<float>>& received,
                const std::vector<std::complex<float>>& ideal)
     {
-        size_t N = std::min(received.size(), ideal.size());
-        float total_error = 0.0f;
-        for (size_t n = 0; n < N; ++n) {
-            // Shift new sample into buffer
-            shift_in(received[n]);
-            // Filter output
-            std::complex<float> y = filter_output();
-            // Error: desired - output (with delay compensation)
-            size_t ref_idx = (n >= static_cast<size_t>(delay_))
-                                 ? n - delay_ : 0;
-            std::complex<float> d = ideal[std::min(ref_idx, ideal.size()-1)];
-            std::complex<float> e = d - y;
-            total_error += std::norm(e);
-            // LMS update: w += mu * e * conj(x)
-            for (int k = 0; k < num_taps_; ++k)
-                weights_[k] += mu_ * e * std::conj(buf_[k]);
+        int P = static_cast<int>(std::min(received.size(), ideal.size()));
+        int M = num_taps_;
+
+        bool complex_pre = false;
+        for (int i = 0; i < P; ++i)
+            if (std::abs(ideal[i].imag()) > 1e-3f) { complex_pre = true; break; }
+
+        if (complex_pre && P >= M) {
+            // Optimal LS: solve (R^H R + load I) w = R^H d.
+            std::vector<std::vector<std::complex<float>>> A(
+                M, std::vector<std::complex<float>>(M, std::complex<float>(0)));
+            std::vector<std::complex<float>> b(M, std::complex<float>(0));
+            for (int n = M - 1; n < P; ++n) {
+                std::complex<float> d = ideal[n - delay_];
+                for (int i = 0; i < M; ++i) {
+                    std::complex<float> xi = received[n - i];
+                    b[i] += std::conj(xi) * d;
+                    for (int j = 0; j < M; ++j)
+                        A[i][j] += std::conj(xi) * received[n - j];
+                }
+            }
+            float tr = 0.0f; for (int i = 0; i < M; ++i) tr += A[i][i].real();
+            float load = 0.01f * tr / M + 1e-6f;
+            for (int i = 0; i < M; ++i) A[i][i] += std::complex<float>(load, 0.0f);
+            solve_linear(A, b, weights_);
+            std::cout << "[LMSEqualizer] LS-trained on complex preamble (P=" << P << ")\n";
+        } else {
+            // Light NLMS pass(es) — keep the start near identity so the following
+            // decision-directed data adaptation (which uses complex QAM decisions)
+            // can open both axes.
+            for (int ep = 0; ep < epochs_; ++ep) {
+                std::fill(buf_.begin(), buf_.end(), std::complex<float>(0.0f));
+                for (int n = 0; n < P; ++n) {
+                    shift_in(received[n]);
+                    std::complex<float> y = filter_output();
+                    int ref = (n >= delay_) ? n - delay_ : 0;
+                    nlms_update(ideal[ref] - y);
+                }
+            }
+            std::cout << "[LMSEqualizer] NLMS-trained on real preamble (P=" << P << ")\n";
         }
-        std::cout << "[LMSEqualizer] Training done  N=" << N
-                  << "  MSE=" << total_error / N << "\n";
+        // Prime the buffer with the tail of the preamble.
+        std::fill(buf_.begin(), buf_.end(), std::complex<float>(0.0f));
+        for (int k = 0; k < M && k < P; ++k) buf_[k] = received[P - 1 - k];
     }
 
     // Equalize a block of received symbols.
@@ -175,7 +214,7 @@ public:
             out.push_back(y);
 
             if (mod) {
-                // Decision-directed: make hard decision, use as reference
+                // Decision-directed: hard decision as reference, NLMS update.
                 const auto& C = mod->get_constellation();
                 int nearest = 0;
                 float min_d = std::norm(y - C[0]);
@@ -183,9 +222,7 @@ public:
                     float d = std::norm(y - C[j]);
                     if (d < min_d) { min_d = d; nearest = j; }
                 }
-                std::complex<float> e = C[nearest] - y;
-                for (int k = 0; k < num_taps_; ++k)
-                    weights_[k] += mu_ * e * std::conj(buf_[k]);
+                nlms_update(C[nearest] - y);
             }
         }
         return out;
@@ -200,7 +237,7 @@ public:
     const std::vector<std::complex<float>>& weights() const { return weights_; }
 
 private:
-    int num_taps_, delay_;
+    int num_taps_, epochs_, delay_;
     float mu_;
     std::vector<std::complex<float>> weights_;
     std::vector<std::complex<float>> buf_;
@@ -217,6 +254,47 @@ private:
         for (int k = 0; k < num_taps_; ++k)
             y += weights_[k] * buf_[k];
         return y;
+    }
+
+    // NLMS weight update: w += mu * e * conj(x) / (eps + ||x||^2). Normalising by
+    // the input energy makes the step scale-independent (robust to the AGC level)
+    // and stable — the key fix vs the old fixed-step LMS that diverged.
+    void nlms_update(std::complex<float> e) {
+        float energy = 1e-6f;
+        for (int k = 0; k < num_taps_; ++k) energy += std::norm(buf_[k]);
+        std::complex<float> g = (mu_ / energy) * e;
+        for (int k = 0; k < num_taps_; ++k)
+            weights_[k] += g * std::conj(buf_[k]);
+    }
+
+    // Solve A x = b for a small dense complex system (Gaussian elimination with
+    // partial pivoting). A is M×M, b and x are length M.
+    static void solve_linear(std::vector<std::vector<std::complex<float>>> A,
+                             std::vector<std::complex<float>> b,
+                             std::vector<std::complex<float>>& x)
+    {
+        int M = static_cast<int>(b.size());
+        for (int col = 0; col < M; ++col) {
+            int piv = col; float best = std::abs(A[col][col]);
+            for (int r = col + 1; r < M; ++r)
+                if (std::abs(A[r][col]) > best) { best = std::abs(A[r][col]); piv = r; }
+            if (piv != col) { std::swap(A[piv], A[col]); std::swap(b[piv], b[col]); }
+            std::complex<float> d = A[col][col];
+            if (std::abs(d) < 1e-12f) d = std::complex<float>(1e-12f, 0.0f);
+            for (int r = col + 1; r < M; ++r) {
+                std::complex<float> f = A[r][col] / d;
+                for (int c = col; c < M; ++c) A[r][c] -= f * A[col][c];
+                b[r] -= f * b[col];
+            }
+        }
+        x.assign(M, std::complex<float>(0));
+        for (int r = M - 1; r >= 0; --r) {
+            std::complex<float> s = b[r];
+            for (int c = r + 1; c < M; ++c) s -= A[r][c] * x[c];
+            std::complex<float> d = A[r][r];
+            if (std::abs(d) < 1e-12f) d = std::complex<float>(1e-12f, 0.0f);
+            x[r] = s / d;
+        }
     }
 };
 
@@ -248,6 +326,8 @@ public:
         std::cout << "[RLSEqualizer] taps=" << num_taps
                   << "  lambda=" << lambda << "\n";
     }
+
+    int delay() const { return delay_; }
 
     void train(const std::vector<std::complex<float>>& received,
                const std::vector<std::complex<float>>& ideal)
@@ -359,6 +439,16 @@ public:
         std::cout << "[DFEqualizer] FF=" << ff_taps
                   << "  FB=" << fb_taps
                   << "  mu=" << mu << "\n";
+    }
+
+    int delay() const { return ff_delay_; }
+
+    void reset() {
+        std::fill(ff_w_.begin(), ff_w_.end(), std::complex<float>(0.0f));
+        std::fill(fb_w_.begin(), fb_w_.end(), std::complex<float>(0.0f));
+        std::fill(ff_buf_.begin(), ff_buf_.end(), std::complex<float>(0.0f));
+        std::fill(fb_buf_.begin(), fb_buf_.end(), std::complex<float>(0.0f));
+        ff_w_[ff_delay_] = {1.0f, 0.0f};
     }
 
     void train(const std::vector<std::complex<float>>& received,
@@ -508,28 +598,48 @@ void channel_eq_thread(
         std::cout << "[channel_eq_thread] Block " << msg.first
                   << "  SNR=" << snr << " dB\n";
 
-        // Train + equalize
-        std::vector<std::complex<float>> eq_preamble, eq_data;
+        // Each burst is independent: RESET the equalizer, TRAIN on this burst's
+        // preamble, then equalize the data. The equalizer has a centre-tap DELAY
+        // of `D` symbols, so its output at index i estimates data[i-D]. We feed
+        // `D` zero-runway symbols after the data so every data symbol is emitted,
+        // then take the delay-aligned window out[D .. D+ndata-1]. (Without this
+        // the whole data block was shifted by D and demod/decode misaligned —
+        // that was the equalizer's real failure, not "divergence".)
         const Modulator* dd_mod = decision_directed ? &mod : nullptr;
+        const int ndata = static_cast<int>(rx_data.size());
+        std::vector<std::complex<float>> eq_data;
+        int D = 0;
 
         if (eq_type == EqType::LMS) {
+            lms->reset();
             lms->train(rx_preamble, preamble);
-            eq_preamble = lms->equalize(rx_preamble);
-            eq_data     = lms->equalize(rx_data, dd_mod);
+            D = lms->delay();
+            std::vector<std::complex<float>> run = rx_data;
+            run.insert(run.end(), D, std::complex<float>(0.0f));
+            auto y = lms->equalize(run, dd_mod);
+            if ((int)y.size() >= D + ndata)
+                eq_data.assign(y.begin() + D, y.begin() + D + ndata);
         } else if (eq_type == EqType::RLS) {
+            rls->reset();
             rls->train(rx_preamble, preamble);
-            eq_preamble = rls->equalize(rx_preamble);
-            eq_data     = rls->equalize(rx_data, dd_mod);
+            D = rls->delay();
+            std::vector<std::complex<float>> run = rx_data;
+            run.insert(run.end(), D, std::complex<float>(0.0f));
+            auto y = rls->equalize(run, dd_mod);
+            if ((int)y.size() >= D + ndata)
+                eq_data.assign(y.begin() + D, y.begin() + D + ndata);
         } else {
+            dfe->reset();
             dfe->train(rx_preamble, preamble, mod);
-            eq_preamble = dfe->equalize(rx_preamble, mod);
-            eq_data     = dfe->equalize(rx_data,    mod);
+            D = dfe->delay();
+            std::vector<std::complex<float>> run = rx_data;
+            run.insert(run.end(), D, std::complex<float>(0.0f));
+            auto y = dfe->equalize(run, mod);
+            if ((int)y.size() >= D + ndata)
+                eq_data.assign(y.begin() + D, y.begin() + D + ndata);
         }
 
-        // The preamble has done its job (training); strip it and forward only
-        // the equalized DATA symbols to the demodulator. (eq_preamble is kept
-        // above only so the equalizer state is warmed up over the pilot.)
-        (void)eq_preamble;
+        // Forward exactly ndata equalized, delay-aligned DATA symbols.
         output_fifo.push({msg.first, std::move(eq_data)});
         ++processed;
     }

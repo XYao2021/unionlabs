@@ -133,8 +133,12 @@ struct PHYSICAL_CONFIG {
 
     // Equaliser
     int         eq_taps         = 11;
-    float       eq_mu           = 0.01f;
+    float       eq_mu           = 0.3f;      // NLMS step (fallback DD tracking)
     std::string eq_type         = "None";   // LMS diverges on real signal; see main.cpp
+    // With a complex (Zadoff-Chu) preamble the LS-trained equalizer is exact when
+    // frozen, so decision-directed tracking is OFF by default (it can diverge on
+    // noisy dense QAM). Turn on with --eq_dd for slowly time-varying channels.
+    bool        eq_decision_directed = false;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -422,7 +426,7 @@ private:
                 channel_eq_thread(phase_fifo_, eq_fifo_,
                     preamble_copy, mod2,
                     et, cfg_.eq_taps, cfg_.eq_mu,
-                    true,        // decision_directed after preamble training
+                    cfg_.eq_decision_directed,   // DD tracking after training
                     stop_flag_);
             });
         } else {
