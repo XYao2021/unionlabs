@@ -92,9 +92,24 @@ message.
   threshold) before it will decode; start with QPSK to bring the link up, then
   step up.
 
-## Note
+## Hardware result (verified on two B210s)
 
-I could not build or run this UHD path here (no UHD/USRP in my environment), so
-these code changes are compile-reviewed but hardware-untested. The role gating is
-a small, contained change; if the build complains or a radio doesn't open, send
-me the exact `sdr_system` output and I'll help.
+Verified end-to-end on the two radios (30CD424 TX/RX  →  30CD3F7 RX2, SMA cable,
+QPSK @ 2.45 GHz, 1.6 Msps). With the current defaults the full message decodes
+and is readable. What it took, beyond the front-end rebuild (see `CHANGES.md`):
+
+- **Energy detector**: default `--alpha` is now **0.95** (was 0.02). The IIR is
+  `filtered = (1-alpha)*inst + alpha*prev`, so 0.02 barely smoothed and the
+  detector fired thousands of times on the noise floor and chopped bursts apart.
+  0.95 gives one clean capture per burst (31 captures for 31 transmitted bursts).
+- **Equaliser**: default `--eq_type` is now **None**. The LMS loop **diverges** on
+  the real signal (decision-directed error grows and destroys the symbols) — with
+  LMS the output was garbage, with None the message decodes. Fix LMS before using
+  it. On a clean cabled link no equaliser is needed.
+- **Reassembly** now rejects bogus headers (`tot>64` or `idx>=tot`) so false-alarm
+  bursts don't pollute the decoded message.
+
+Remaining, quality-not-connectivity: a few residual bit errors survive at moderate
+SNR (no FEC yet, and the RX keeps the *last* decoded copy of each chunk rather than
+majority-voting across the `--tx-reps` repetitions). Improve with more link margin
+(gain tuning), wiring in `fec.hpp`, or best-of-N chunk selection.

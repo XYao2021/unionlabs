@@ -91,8 +91,8 @@ struct PHYSICAL_CONFIG {
     //       "both" = original full-duplex/loopback (open both, run both).
     std::string role          = "both";
 
-    // Energy detection
-    float       alpha                  = 0.02f;
+    // Energy detection  (alpha: larger = more IIR smoothing; see main.cpp)
+    float       alpha                  = 0.95f;
     float       energy_threshold       = 1e-7f;
     size_t      energy_packet_size     = 3300;
     size_t      IIR_window_size        = 20;
@@ -126,7 +126,7 @@ struct PHYSICAL_CONFIG {
     // Equaliser
     int         eq_taps         = 11;
     float       eq_mu           = 0.01f;
-    std::string eq_type         = "LMS";    // LMS / RLS / DFE / None
+    std::string eq_type         = "None";   // LMS diverges on real signal; see main.cpp
 };
 
 // ─────────────────────────────────────────────────────────────

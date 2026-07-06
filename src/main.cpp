@@ -133,8 +133,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
         // Energy detection
         ("alpha",
-         po::value<float>(&config.alpha)->default_value(0.02f),
-         "IIR energy smoothing alpha")
+         po::value<float>(&config.alpha)->default_value(0.95f),
+         "Energy-detector IIR smoothing: filtered = (1-alpha)*inst + alpha*prev, "
+         "so LARGER alpha = MORE smoothing. The old 0.02 barely smoothed, so the "
+         "detector fired on every noise spike (thousands of false bursts) and cut "
+         "real bursts apart on the RRC envelope. 0.95 (~20-sample time constant) "
+         "gives one clean capture per burst.")
         ("energy_threshold",
          po::value<float>(&config.energy_threshold)->default_value(1e-7f),
          "Fixed energy threshold (used if adaptive=false)")
@@ -207,8 +211,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
          po::value<float>(&config.eq_mu)->default_value(0.01f),
          "LMS step size")
         ("eq_type",
-         po::value<std::string>(&config.eq_type)->default_value("LMS"),
-         "Equaliser type: LMS / RLS / DFE / None");
+         po::value<std::string>(&config.eq_type)->default_value("None"),
+         "Equaliser type: LMS / RLS / DFE / None. Default None: on a clean cabled "
+         "link no equaliser is needed, and the LMS loop currently DIVERGES on the "
+         "real signal (decision-directed error grows and destroys the symbols) — "
+         "verified on hardware, where None decodes the message and LMS produces "
+         "garbage. Leave None until the LMS/RLS/DFE update is debugged.");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -462,7 +470,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             std::pair<size_t, std::vector<uint8_t>> rx;
             if (transceiver.rx_bits_fifo.pop(rx)) {
                 auto [idx, tot, payload] = decode_packet_bits(rx.second);
-                if (tot > 0) {
+                // Guard against bogus headers from noise/false-alarm bursts: a
+                // garbage 16-bit header decodes to random idx/tot (e.g. 192/255),
+                // which would resize `parts` to 255 and write junk into the
+                // reassembled message. Accept only self-consistent, plausibly
+                // small frames. (A CRC in the header would be the robust fix.)
+                if (tot > 0 && tot <= 64 && idx < tot) {
                     total = tot;
                     if ((int)parts.size() < tot) { parts.resize(tot); got.resize(tot, false); }
                     if (idx < tot) { parts[idx] = payload; got[idx] = true; }
