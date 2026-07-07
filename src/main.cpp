@@ -863,8 +863,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 int have = 0; for (bool g : got) have += g ? 1 : 0;
                 std::cout << "[RX] chunk " << (int)idx + 1 << "/" << (int)tot
                           << (first ? "  [CRC OK, new]" : "  [CRC OK, dup]")
-                          << "  (" << have << "/" << (int)tot << " verified): \""
-                          << payload << "\"\n";
+                          << "  (" << have << "/" << (int)tot << " verified)";
+                // Text is printed inline; random bytes aren't readable, so only
+                // the final hex summary is shown (below), not per-chunk garbage.
+                if (message_type != "random")
+                    std::cout << ": \"" << payload << "\"";
+                std::cout << "\n";
                 if (have == total) {
                     std::cout << "[RX] all " << total
                               << " chunks CRC-verified — message complete, stopping.\n";
