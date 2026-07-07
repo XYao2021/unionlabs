@@ -1148,6 +1148,10 @@ buffer \\
 (0 = continuous) \\
 \texttt{-\/-AGC\_type} & \texttt{Feed} & \texttt{Feed} (feed-forward) or
 \texttt{Closed} (closed-loop) \\
+\texttt{-\/-dc-block} & \texttt{false} & experimental RX DC-block
+high-pass (see §13) \\
+\texttt{-\/-tx-dc-i} / \texttt{-\/-tx-dc-q} & \texttt{0} / \texttt{0} &
+manual TX LO-leakage null, normalized {[}−1,1{]} (§13) \\
 \texttt{-\/-skip-rate-check} & off & bypass startup rate-consistency
 check \\
 \texttt{-\/-viz} & \texttt{true} & capture + auto-save TX/RX figure on
@@ -1297,18 +1301,96 @@ decodes")}\label{level-tuning-cheatsheet-the-1-cause-of-nothing-decodes}}
   \% of bit errors.
 \end{itemize}
 
-\hypertarget{unlocking-16-qam-and-higher--the-cabled-link}{%
-\subsubsection{Unlocking 16-QAM and higher --- the cabled
-link}\label{unlocking-16-qam-and-higher--the-cabled-link}}
+\hypertarget{higher-order-qam-16-qam-and-up}{%
+\subsubsection{Higher-order QAM (16-QAM and
+up)}\label{higher-order-qam-16-qam-and-up}}
 
-Cable the two radios (SMA + \textasciitilde30--40 dB attenuator) for a
-clean, flat channel: EVM drops well below 10 \%, so \textbf{16-QAM /
-64-QAM / 256-QAM} single-carrier decode. Start from
-\texttt{-\/-rx-gain\ 21\ -\/-tx-gain\ 80} and lower \texttt{-\/-rx-gain}
-/ add attenuation until the raw RX front end isn't saturated; keep
-\texttt{-\/-fec\ true}. Higher orders need progressively lower EVM
-(16-QAM \textless\textasciitilde{} 12 \%, 64-QAM
-\textless\textasciitilde{} 6 \%, 256-QAM \textless\textasciitilde{} 3
-\%).
+A clean channel is necessary but \textbf{not sufficient} on this
+two-radio rig --- see §13. Over the air the \textasciitilde28--31 \% EVM
+floor blocks it; on a direct cable the SNR is excellent but a
+carrier-leakage / free-running-clock problem blocks it too.
+\textbf{Dense QAM needs a shared reference clock.}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{13-known-limitation--dense-qam-needs-a-shared-reference-clock}{%
+\subsection{13. Known limitation --- dense QAM needs a shared reference
+clock}\label{13-known-limitation--dense-qam-needs-a-shared-reference-clock}}
+
+\textbf{Validated ceiling on this rig: QPSK and 8-PSK} (both
+single-carrier and OFDM, over the air and over a cable). \textbf{16-QAM
+and higher do not decode} on the two free-running B210s, and the cause
+is understood.
+
+\hypertarget{symptom}{%
+\subsubsection{Symptom}\label{symptom}}
+
+Over a direct SMA cable the SNR is excellent --- the QAM
+\emph{amplitude} is perfect (clean concentric rings at the right radii)
+and QPSK decodes --- yet 16-QAM fails on \textbf{both} waveforms:
+single-carrier shows a \textbf{phase-rotating ring}, OFDM a \textbf{blob
+at the origin}.
+
+\hypertarget{root-cause}{%
+\subsubsection{Root cause}\label{root-cause}}
+
+The two B210s run on \textbf{independent TCXOs} (no shared clock), so
+there is a real carrier frequency offset whose estimate jitters ±1200
+Hz. On the cable, the \textbf{TX carrier / LO leakage couples straight
+into the RX} (a \textasciitilde40 dB spike near DC) and \textbf{beats at
+that CFO} --- a slowly drifting near-DC tone. It (a) rotates the
+constellation, which QPSK's wide decision regions survive but 16-QAM's
+don't (and the decision-directed phase PLL can't lock 16 points), and
+(b) dominates the AGC, collapsing the OFDM constellation.
+
+\hypertarget{what-we-tried-and-why-each-failed}{%
+\subsubsection{What we tried (and why each
+failed)}\label{what-we-tried-and-why-each-failed}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Static DC / per-burst mean removal} --- the leakage is a
+  \emph{drifting tone}, not a static DC, so mean subtraction can't
+  remove it.
+\item
+  \textbf{RX DC-block high-pass} (\texttt{-\/-dc-block}) --- a gentle
+  cutoff has no effect; an aggressive cutoff removes the leakage but
+  \textbf{distorts the m-sequence preamble} (ACQ correlation peak
+  69-\textgreater45) and breaks sync. Left in as an off-by-default
+  option.
+\item
+  \textbf{Manual TX LO-leakage null} (\texttt{-\/-tx-dc-i} /
+  \texttt{-\/-tx-dc-q}, via \texttt{set\_tx\_dc\_offset}) --- only
+  shifts the DC spike \textasciitilde7 dB, and noisily, so the spike is
+  mostly \textbf{RX self-mixing}, not TX feedthrough. The B210 can't
+  self-calibrate either (no cal antenna -\textgreater{}
+  \texttt{uhd\_cal\_tx\_dc\_offset} fails).
+\end{itemize}
+
+\hypertarget{the-fix}{%
+\subsubsection{The fix}\label{the-fix}}
+
+Feed a \textbf{common 10 MHz reference} into both radios'
+\texttt{REF\ IN} and run both with \texttt{-\/-ref\ external} (a signal
+generator's 10 MHz output split two ways, a GPSDO, or an OctoClock).
+That drives \textbf{CFO ≈ 0} (no residual rotation -\textgreater{} dense
+QAM decodes) \emph{and} turns the leakage into a \textbf{true static DC}
+(removed by the RX DC-offset correction / OFDM's nulled DC subcarrier).
+This is the standard requirement for coherent operation between separate
+SDRs.
+
+Without a shared clock, the alternative is dedicated DSP --- most
+promisingly \textbf{OFDM with leakage-robust sync} (AGC and CFO
+estimation that exclude the DC region; OFDM's scattered pilots already
+track residual CFO the WiFi way) or \textbf{pilot-aided single-carrier}
+--- a substantial effort with no guarantee, versus a
+\textasciitilde\$100 reference clock that is guaranteed.
+
+\textbf{Note:} WiFi radios are \emph{also} free-running and still do
+256-/1024-QAM --- via per-packet preamble CFO estimation + continuous
+pilot tracking (which we have) \emph{and} factory-calibrated TX LO
+leakage (which the B210, uncalibrated on a direct cable, lacks). Closing
+that gap is exactly the DSP-vs-shared-clock trade-off above.
 
 \end{document}

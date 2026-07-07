@@ -171,8 +171,18 @@ phase, and differential fights its per-symbol CPE tracking.
 - **One-way (no ACK)** instead of ARQ: use `--role rx` / `--role tx --tx-reps 20`
   (drop the `--ack-*` flags).
 
-## Unlocking 16-QAM and higher (cable link)
-Cable the two radios (SMA + ~30–40 dB attenuator) for a clean, flat channel.
-EVM drops well below 10 %, so 16-QAM / 64-QAM / 256-QAM single-carrier decode.
-Start from `--rx-gain 21 --tx-gain 80` and lower `--rx-gain` / add attenuation
-until the raw RX front end isn't saturated; keep `--fec true`.
+## 16-QAM and higher — blocked without a shared clock
+**Validated ceiling on this rig is QPSK / 8-PSK.** 16-QAM+ does **not** decode, and a clean cable
+is necessary but not sufficient. On a direct cable the SNR is excellent and QPSK works, but the two
+B210s are **free-running** (independent TCXOs) and the TX carrier leakage beats at that CFO — a
+drifting near-DC tone that rotates the constellation (16-QAM can't tolerate it; the phase PLL can't
+lock 16 points) and dominates the AGC (OFDM → blob). Static DC removal, an RX DC-block high-pass
+(`--dc-block`), and a manual TX LO-leakage null (`--tx-dc-i/--tx-dc-q`) were all tried and none
+unblock it (details in `SYSTEM_REFERENCE.md` §13).
+
+**The fix is a shared 10 MHz reference:** feed one 10 MHz source (signal generator / GPSDO /
+OctoClock) into both radios' `REF IN` and run both with `--ref external`. That makes CFO ≈ 0 and
+turns the leakage into a removable static DC, so dense QAM decodes. Once that's in place, start from
+`--rx-gain 21 --tx-gain 80`, lower `--rx-gain` / add attenuation until the RX front end isn't
+saturated, keep `--fec true`; higher orders need progressively lower EVM (16-QAM ≲ 12 %, 64-QAM ≲
+6 %, 256-QAM ≲ 3 %).

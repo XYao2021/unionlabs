@@ -640,6 +640,8 @@ with FEC), 16-QAM needs <~12%, 64-QAM <~6%. Render manually with
 | `--samps_per_buff` | `10000` | samples per UHD receive buffer |
 | `--num_recv_request` | `0` | total samples to receive (0 = continuous) |
 | `--AGC_type` | `Feed` | `Feed` (feed-forward) or `Closed` (closed-loop) |
+| `--dc-block` | `false` | experimental RX DC-block high-pass (see §13) |
+| `--tx-dc-i` / `--tx-dc-q` | `0` / `0` | manual TX LO-leakage null, normalized [−1,1] (§13) |
 | `--skip-rate-check` | off | bypass startup rate-consistency check |
 | `--viz` | `true` | capture + auto-save TX/RX figure on exit |
 | `--viz-dir` | `viz` | base dir for figures (per-scheme subfolder made) |
@@ -732,8 +734,55 @@ For **8-DPSK**, same commands with `--scheme 8-DPSK`.
   high for the link SNR, drop a scheme or improve the link. **TX power** is the main EVM lever.
 - Keep `--fec true` on marginal links; it closes the last few % of bit errors.
 
-### Unlocking 16-QAM and higher — the cabled link
-Cable the two radios (SMA + ~30–40 dB attenuator) for a clean, flat channel: EVM drops well below
-10 %, so **16-QAM / 64-QAM / 256-QAM** single-carrier decode. Start from `--rx-gain 21 --tx-gain 80`
-and lower `--rx-gain` / add attenuation until the raw RX front end isn't saturated; keep
-`--fec true`. Higher orders need progressively lower EVM (16-QAM ≲ 12 %, 64-QAM ≲ 6 %, 256-QAM ≲ 3 %).
+### Higher-order QAM (16-QAM and up)
+A clean channel is necessary but **not sufficient** on this two-radio rig — see §13. Over the air
+the ~28–31 % EVM floor blocks it; on a direct cable the SNR is excellent but a carrier-leakage /
+free-running-clock problem blocks it too. **Dense QAM needs a shared reference clock.**
+
+---
+
+## 13. Known limitation — dense QAM needs a shared reference clock
+
+**Validated ceiling on this rig: QPSK and 8-PSK** (both single-carrier and OFDM, over the air and
+over a cable). **16-QAM and higher do not decode** on the two free-running B210s, and the cause is
+understood.
+
+### Symptom
+Over a direct SMA cable the SNR is excellent — the QAM *amplitude* is perfect (clean concentric
+rings at the right radii) and QPSK decodes — yet 16-QAM fails on **both** waveforms: single-carrier
+shows a **phase-rotating ring**, OFDM a **blob at the origin**.
+
+### Root cause
+The two B210s run on **independent TCXOs** (no shared clock), so there is a real carrier frequency
+offset whose estimate jitters ±1200 Hz. On the cable, the **TX carrier / LO leakage couples
+straight into the RX** (a ~40 dB spike near DC) and **beats at that CFO** — a slowly drifting
+near-DC tone. It (a) rotates the constellation, which QPSK's wide decision regions survive but
+16-QAM's don't (and the decision-directed phase PLL can't lock 16 points), and (b) dominates the
+AGC, collapsing the OFDM constellation.
+
+### What we tried (and why each failed)
+- **Static DC / per-burst mean removal** — the leakage is a *drifting tone*, not a static DC, so
+  mean subtraction can't remove it.
+- **RX DC-block high-pass** (`--dc-block`) — a gentle cutoff has no effect; an aggressive cutoff
+  removes the leakage but **distorts the m-sequence preamble** (ACQ correlation peak 69→45) and
+  breaks sync. Left in as an off-by-default option.
+- **Manual TX LO-leakage null** (`--tx-dc-i` / `--tx-dc-q`, via `set_tx_dc_offset`) — only shifts
+  the DC spike ~7 dB, and noisily, so the spike is mostly **RX self-mixing**, not TX feedthrough.
+  The B210 can't self-calibrate either (no cal antenna → `uhd_cal_tx_dc_offset` fails).
+
+### The fix
+Feed a **common 10 MHz reference** into both radios' `REF IN` and run both with `--ref external`
+(a signal generator's 10 MHz output split two ways, a GPSDO, or an OctoClock). That drives
+**CFO ≈ 0** (no residual rotation → dense QAM decodes) *and* turns the leakage into a **true static
+DC** (removed by the RX DC-offset correction / OFDM's nulled DC subcarrier). This is the standard
+requirement for coherent operation between separate SDRs.
+
+Without a shared clock, the alternative is dedicated DSP — most promisingly **OFDM with
+leakage-robust sync** (AGC and CFO estimation that exclude the DC region; OFDM's scattered pilots
+already track residual CFO the WiFi way) or **pilot-aided single-carrier** — a substantial effort
+with no guarantee, versus a ~$100 reference clock that is guaranteed.
+
+**Note:** WiFi radios are *also* free-running and still do 256-/1024-QAM — via per-packet
+preamble CFO estimation + continuous pilot tracking (which we have) *and* factory-calibrated TX LO
+leakage (which the B210, uncalibrated on a direct cable, lacks). Closing that gap is exactly the
+DSP-vs-shared-clock trade-off above.
