@@ -4,8 +4,16 @@ run.py — run the USRP B210 SDR PHY from a JSON config file (clearer than a lon
 command line). Uses the auto-generated sdr.py, so any option name valid there is
 valid here (hyphens or underscores).
 
-    python3 run.py config.json              # run it
+    python3 run.py config.json              # run it (both ends if it's a pair)
     python3 run.py config.json --dry-run    # just print the command(s)
+    python3 run.py config.json --only rx    # run ONLY the RX side (own terminal)
+    python3 run.py config.json --only tx    # run ONLY the TX side (own terminal)
+
+Run TX and RX in separate terminals from one paired config:
+    # terminal 1:
+    python3 run.py configs/qpsk_arq_pair.json --only rx
+    # terminal 2:
+    python3 run.py configs/qpsk_arq_pair.json --only tx
 
 Two config shapes
 -----------------
@@ -58,28 +66,46 @@ def _split(cfg):
     return ("single", sdr.SDR(binary=binary, **cfg))
 
 
-def run(cfg, dry_run=False):
-    """cfg is a dict (or JSON path). Returns the process/return codes."""
+def run(cfg, dry_run=False, only=None):
+    """cfg is a dict (or JSON path). only=None runs both ends of a pair via
+    run_pair; only='rx'/'tx' runs just that side (for a separate terminal)."""
     if isinstance(cfg, str):
         with open(cfg) as f:
             cfg = json.load(f)
     kind, *rest = _split(cfg)
     if kind == "single":
+        if only:
+            print("[run] note: --only ignored (config is a single run)")
         job = rest[0]
         print("[run]", job.command())
         return None if dry_run else job.run()
     rx, tx, pair = rest
+    if only == "rx":
+        print("[run] RX:", rx.command())
+        return None if dry_run else rx.run()
+    if only == "tx":
+        print("[run] TX:", tx.command())
+        return None if dry_run else tx.run()
     print("[run] RX:", rx.command())
     print("[run] TX:", tx.command())
     return None if dry_run else sdr.run_pair(rx, tx, **pair)
 
 
 def main(argv):
-    args = [a for a in argv if not a.startswith("--")]
     dry = "--dry-run" in argv
-    if not args:
-        sys.exit("usage: python3 run.py <config.json> [--dry-run]")
-    rc = run(args[0], dry_run=dry)
+    only = None
+    if "--only" in argv:                       # "--only rx"
+        i = argv.index("--only")
+        only = argv[i + 1] if i + 1 < len(argv) else None
+    for a in argv:                             # "--only=rx"
+        if a.startswith("--only="):
+            only = a.split("=", 1)[1]
+    if only not in (None, "rx", "tx"):
+        sys.exit("--only must be 'rx' or 'tx'")
+    files = [a for a in argv if not a.startswith("--") and a != only]
+    if not files:
+        sys.exit("usage: python3 run.py <config.json> [--dry-run] [--only rx|tx]")
+    rc = run(files[0], dry_run=dry, only=only)
     if isinstance(rc, tuple):
         print("[run] return codes (rx, tx):", rc)
 

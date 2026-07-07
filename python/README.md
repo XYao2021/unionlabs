@@ -64,6 +64,22 @@ python3 run.py configs/qpsk_arq_pair.json              # run it
 python3 run.py configs/qpsk_arq_pair.json --dry-run    # just print the command(s)
 ```
 
+### Separate terminals (watch each process)
+
+`run.py config.json` launches both ends from one command. To run TX and RX in
+their **own terminals** — one paired config, one side each:
+
+```bash
+# terminal 1  (receiver)
+python3 run.py configs/qpsk_arq_pair.json --only rx
+# terminal 2  (transmitter)
+python3 run.py configs/qpsk_arq_pair.json --only tx
+```
+
+(Start the RX first.) You can also just use the single-role configs
+(`rx_only.json` / `tx_only.json`), or the keyword API directly in each terminal:
+`python3 -c "import sdr; sdr.sink_arq(rx_args='serial=...', scheme='QPSK').run()"`.
+
 **Single run** — one object with a `role` (plus any options):
 
 ```json
