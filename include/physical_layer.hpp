@@ -107,6 +107,10 @@ struct PHYSICAL_CONFIG {
     size_t      IIR_window_size        = 20;
     bool        IIR_threshold_adaptive = true;
     float       IIR_threshold_multiplier = 5.0f;
+    // Continuously re-track the noise floor during idle (default), instead of a
+    // single one-shot calibration at startup — far more robust on real links
+    // where the ambient level drifts.
+    bool        det_continuous_track   = true;
 
     // Synchronisation
     int         sps_sync        = 2;   // unused by RX (ACQ times internally at os)
@@ -373,7 +377,8 @@ private:
         threads_.emplace_back([this]() {
             EnergyDetectorIIR det(cfg_.alpha, cfg_.energy_threshold,
                 cfg_.energy_packet_size, cfg_.IIR_window_size,
-                cfg_.IIR_threshold_adaptive, cfg_.IIR_threshold_multiplier);
+                cfg_.IIR_threshold_adaptive, cfg_.IIR_threshold_multiplier,
+                cfg_.det_continuous_track);
             EnergyDetection_thread(recv_fifo_, detected_fifo_,
                                    det, stop_flag_);
         });

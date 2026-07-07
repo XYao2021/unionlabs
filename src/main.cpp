@@ -178,6 +178,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
          "not ambient RF; too high and it misses weak bursts. Alias: --det-mult")
         ("det-mult", po::value<float>(),
          "alias for --IIR_threshold_multiplier (auto-threshold noise multiplier)")
+        ("det-continuous",
+         po::value<bool>(&config.det_continuous_track)->default_value(true),
+         "Continuously re-track the noise floor during idle (default true), vs a "
+         "one-shot startup calibration. Robust to drifting ambient noise.")
 
         // Synchronisation
         ("sps_sync",

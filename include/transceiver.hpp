@@ -152,6 +152,7 @@ private:
     std::vector<float> noise_samples;
     size_t noise_samples_max;
     bool noise_floor_calibrated;
+    bool continuous_track_;   // keep tracking the noise floor during IDLE
 
     // Sliding window for sample-level enery -> use to control the false-alarm probability
     std::vector<std::complex<float>> window_samples;
@@ -179,9 +180,11 @@ private:
 public:
     EnergyDetectorIIR(float alpha = 0.1f, float threshold = 0.5f,
                       size_t packet_size = 10000, size_t window_size = 100,
-                      bool adaptive = true, float threshold_mult = 5.0f)
+                      bool adaptive = true, float threshold_mult = 5.0f,
+                      bool continuous_track = true)
         : alpha(alpha), filtered_energy(0.0f), threshold(threshold), window_size(window_size), use_adaptive_threshold(adaptive),
           noise_floor(0.0f), threshold_multiplier(threshold_mult), noise_samples_max(10000), noise_floor_calibrated(false),
+          continuous_track_(continuous_track),
           state(IDLE), packet_size(packet_size), collected_samples(0), post_samples(0), pre_filtered_enerrgy(0.0f), was_below_threshold(true){
 
             current_packet.reserve(packet_size);
@@ -281,6 +284,18 @@ public:
                 was_below_threshold = (current_filtered_energy <= threshold);
                 pre_filtered_enerrgy = current_filtered_energy;
                 continue;
+            }
+
+            // Continuous noise-floor tracking: after the initial calibration, keep
+            // updating the floor from NOISE-like samples (below threshold, and only
+            // while idle) so the threshold follows a drifting ambient level. This
+            // fixes the one-shot calibration failing for the whole run when the
+            // calibration window happened to be unusually quiet/noisy.
+            if (use_adaptive_threshold && continuous_track_ &&
+                state == IDLE && current_filtered_energy < threshold) {
+                const float beta = 0.003f;               // slow EMA
+                noise_floor = (1.0f - beta) * noise_floor + beta * current_filtered_energy;
+                threshold   = noise_floor * threshold_multiplier;
             }
 
             // Detect the rising and failing energy edge
