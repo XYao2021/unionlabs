@@ -214,12 +214,19 @@ B210's tx-gain 78–86 is far out of range there — start mid-to-high and tune 
 `Peak=` method. For 915 MHz use a card that covers it (SBX 0.4–4.4 GHz, UBX 10 MHz–6 GHz, X410 ZBX
 1 MHz–8 GHz; note **CBX is 1.2–6 GHz and does *not* cover 915 MHz**).
 
-## The big advantage over the B210: these can share a clock → dense QAM works
-Unlike the B210 (see the "16-QAM blocked" note above and `SYSTEM_REFERENCE.md` §13), N210/X310/X410
-all expose a **`REF IN`** (and PPS). Feed one 10 MHz reference (OctoClock / GPSDO / signal-generator
-10 MHz output, split to both units' `REF IN`), add **`--ref external`** to both commands, and the
-CFO goes to ~0 — so **16-QAM / 64-QAM / 256-QAM decode** on these platforms (the X310/X410 also
-offer an internal GPSDO). This is the recommended path to dense QAM.
+## Sharing a clock is easier on these → dense QAM
+An external clock is **not** needed for basic operation and is **not** a per-model requirement —
+every USRP runs standalone on its internal oscillator. It is needed only to make **two separate
+radios frequency-coherent**: two independent oscillators drift apart (that *is* the CFO), and one
+10 MHz reference fed to *both* radios locks them together (CFO → ~0), which is what dense QAM needs.
+That's the B210 §13 limitation — not that the B210 can't (it also supports `--ref external`, via
+small onboard connectors), but that we have **no 10 MHz source**.
+
+The N210/X310/X410 just make this convenient: dedicated **front-panel SMA `REF IN` + `PPS IN`**,
+and the X310/X410 offer an **internal GPSDO** (a self-contained 10 MHz source). Feed one 10 MHz
+reference into both units' `REF IN`, add **`--ref external`** to both commands, and
+**16-QAM / 64-QAM / 256-QAM decode**. (`--ref external` is a standard UHD option on all models,
+including the B210; you always supply the 10 MHz source yourself unless a GPSDO is installed.)
 
 ## Template — QPSK single-carrier
 Swap `--scheme` (BPSK / 8-PSK / DBPSK / DQPSK / …) and add the OFDM flags exactly as in the B210

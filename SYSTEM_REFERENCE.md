@@ -652,7 +652,10 @@ with FEC), 16-QAM needs <~12%, 64-QAM <~6%. Render manually with
 
 Copy-paste **sink / source ARQ** pairs with gains tuned per scheme from over-the-air testing
 (two B210s ~10 cm apart). All use stop-and-wait ARQ (TCP ACK on localhost) + FEC, and auto-save
-plots to `viz/<scheme>/figure.png`. The same set stands alone in the repo as `COMMANDS.md`.
+plots to `viz/<scheme>/figure.png`. The same set stands alone in the repo as `COMMANDS.md`, which
+also carries adapted (untested) command templates for the **N210 / X310 / X410** — only the device
+args, subdev, antenna and gain range change; the DSP flags are identical, and a shared 10 MHz
+reference (`--ref external`) on those platforms lifts the §13 dense-QAM limitation.
 
 **Rig:** RX/sink serial `30CD3F7` (ant `RX2`), TX/source serial `30CD424` (ant `TX/RX`), both
 subdev `A:A`. Common flags: `--rx-freq/--tx-freq 915e6`, `--rx-rate/--tx-rate 1.6e6`,

@@ -1171,7 +1171,12 @@ Copy-paste \textbf{sink / source ARQ} pairs with gains tuned per scheme
 from over-the-air testing (two B210s \textasciitilde10 cm apart). All
 use stop-and-wait ARQ (TCP ACK on localhost) + FEC, and auto-save plots
 to \texttt{viz/\textless{}scheme\textgreater{}/figure.png}. The same set
-stands alone in the repo as \texttt{COMMANDS.md}.
+stands alone in the repo as \texttt{COMMANDS.md}, which also carries
+adapted (untested) command templates for the \textbf{N210 / X310 / X410}
+--- only the device args, subdev, antenna and gain range change; the DSP
+flags are identical, and a shared 10 MHz reference
+(\texttt{-\/-ref\ external}) on those platforms lifts the §13 dense-QAM
+limitation.
 
 \textbf{Rig:} RX/sink serial \texttt{30CD3F7} (ant \texttt{RX2}),
 TX/source serial \texttt{30CD424} (ant \texttt{TX/RX}), both subdev
