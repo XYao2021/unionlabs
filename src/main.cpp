@@ -41,7 +41,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     double      rx_idle_timeout = 8.0;     // role rx: auto-stop after N s of no bursts
     bool        skip_rate_check = false;   // bypass the rate-chain consistency check
     bool        continuous      = false;
-    bool        viz_on          = false;   // dump signals for visualization
+    bool        viz_on          = true;    // dump signals + save plots (default on)
     std::string viz_dir         = "viz";
     std::string preamble_type;
     size_t      bytes_length    = 125;
@@ -72,11 +72,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "TCP ACK: socket port")
         ("skip-rate-check", po::bool_switch(&skip_rate_check),
                      "bypass the startup rate-chain consistency check (run even if rates mismatch)")
-        ("viz", po::bool_switch(&viz_on),
-                     "dump one block of TX/RX signals (waveform + constellation) to "
-                     "--viz-dir for plotting with tools/plot_viz.py")
+        ("viz", po::value<bool>(&viz_on)->default_value(true),
+                     "capture TX/RX signals and auto-save the plot to "
+                     "<viz-dir>/<scheme>/figure.png (default true; --viz false disables)")
         ("viz-dir", po::value<std::string>(&viz_dir)->default_value("viz"),
-                     "directory for --viz output files")
+                     "base directory for --viz output (a per-modulation subfolder is made)")
         ("timeout",  po::value<int>(&timeout_ms)->default_value(3000),
                      "ACK timeout in ms (source)")
         ("timer_interval", po::value<int>(&timer_interval)->default_value(1000),
@@ -292,13 +292,25 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         return EXIT_SUCCESS;
     }
 
-    // Visualization capture: enable and make the output directory.
+    // Visualization capture: per-modulation subfolder, ideal constellation +
+    // metadata (so the plotter can compute EVM and title the figure).
     if (viz_on) {
         viz::enabled = true;
-        viz::dir     = viz_dir;
-        std::error_code ec; std::filesystem::create_directories(viz_dir, ec);
-        std::cout << "[MAIN] --viz on: dumping TX/RX signals to '" << viz_dir
-                  << "/' (plot with tools/plot_viz.py)\n";
+        viz::dir     = viz_dir + "/" + config.scheme;      // e.g. viz/16-QAM
+        std::error_code ec; std::filesystem::create_directories(viz::dir, ec);
+        try {
+            Modulator vmod(string_to_mod_type(config.scheme));
+            viz::save_iq("ideal", vmod.get_constellation());   // ideal points for EVM
+        } catch (...) {}
+        std::ofstream meta(viz::dir + "/meta.txt");
+        if (meta.is_open()) {
+            meta << "scheme " << config.scheme << "\n"
+                 << "waveform " << config.waveform << "\n"
+                 << "fs " << config.rx_rate << "\n"
+                 << "fec " << (config.fec ? 1 : 0) << "\n";
+        }
+        std::cout << "[MAIN] --viz on: capturing to '" << viz::dir
+                  << "/' (figure auto-saved on exit)\n";
     }
 
     // Hyphenated aliases override their underscore originals when given (matches
@@ -796,6 +808,29 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     }
 
     transceiver.stop();
+
+    // Auto-render the figure from the captured signals (best effort — needs
+    // python3 + numpy + matplotlib). Data files remain either way.
+    if (viz_on) {
+        std::string script;
+        for (const char* c : {"tools/plot_viz.py", "../tools/plot_viz.py",
+                              "../../tools/plot_viz.py"})
+            if (std::filesystem::exists(c)) { script = c; break; }
+        if (!script.empty()) {
+            std::string cmd = "MPLBACKEND=Agg python3 \"" + script + "\" \"" + viz::dir
+                + "\" --fs " + std::to_string(config.rx_rate)
+                + " --save \"" + viz::dir + "/figure.png\" 2>/dev/null";
+            int rc = std::system(cmd.c_str());
+            if (rc == 0)
+                std::cout << "[VIZ] figure saved to " << viz::dir << "/figure.png\n";
+            else
+                std::cout << "[VIZ] auto-plot failed (need python3+numpy+matplotlib). "
+                             "Run: python3 " << script << " " << viz::dir << "\n";
+        } else {
+            std::cout << "[VIZ] plot_viz.py not found; run it on " << viz::dir << " to plot.\n";
+        }
+    }
+
     std::cout << "[MAIN] Finished\n";
     return EXIT_SUCCESS;
 }
