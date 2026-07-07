@@ -154,7 +154,7 @@ phase, and differential fights its per-symbol CPE tracking.
 
 # TX / source
 ./sdr_system --role source_arq --tx-args serial=30CD424 --rx-args serial=30CD424 \
-  --tx-subdev A:A --tx-ant TX/RX --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 80 \
+  --tx-subdev A:A --tx-ant TX/RX --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 85 \
   --waveform ofdm --ofdm-fft 64 --ofdm-cp 16 --ofdm-tx-peak 0.5 --scheme QPSK --fec true \
   --ack-transport tcp --ack-host 127.0.0.1 --ack-port 5599 --timeout 3000
 ```

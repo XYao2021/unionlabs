@@ -511,7 +511,12 @@ data so the differential decoder returns exactly \(N\) symbols (not
 \(N-1\)). This keeps the decoded bit count aligned with the fixed
 FEC/CRC/ARQ framing, and these schemes bypass the coherent phase PLL
 (§5.5) --- a decision-directed loop would pin the absolute phase and
-destroy the transitions they carry.
+destroy the transitions they carry. (The equalizer path prepends the
+\emph{ideal} \texttt{preamble.back()} instead, since equalization has
+already normalized the data to the ideal frame.) Hardware-verified
+end-to-end for DBPSK / DQPSK / 8-DPSK; without this the reference
+off-by-one shifted the framing and every packet failed even though sync
+was perfect.
 
 \hypertarget{52-frame-synchronization--acq-correlation}{%
 \subsubsection{5.2 Frame synchronization --- ACQ
@@ -1154,39 +1159,119 @@ subfolder made) \\
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
-\hypertarget{12-verified-command-recipes-915-mhz-vert900-antennas}{%
-\subsection{12. Verified command recipes (915 MHz, VERT900
-antennas)}\label{12-verified-command-recipes-915-mhz-vert900-antennas}}
+\hypertarget{12-command-reference--per-scheme-915-mhz-vert900-antennas}{%
+\subsection{12. Command reference --- per scheme (915 MHz, VERT900
+antennas)}\label{12-command-reference--per-scheme-915-mhz-vert900-antennas}}
 
-\textbf{QPSK OFDM + ARQ (reliable OTA demo).} Start the sink first.
+Copy-paste \textbf{sink / source ARQ} pairs with gains tuned per scheme
+from over-the-air testing (two B210s \textasciitilde10 cm apart). All
+use stop-and-wait ARQ (TCP ACK on localhost) + FEC, and auto-save plots
+to \texttt{viz/\textless{}scheme\textgreater{}/figure.png}. The same set
+stands alone in the repo as \texttt{COMMANDS.md}.
+
+\textbf{Rig:} RX/sink serial \texttt{30CD3F7} (ant \texttt{RX2}),
+TX/source serial \texttt{30CD424} (ant \texttt{TX/RX}), both subdev
+\texttt{A:A}. Common flags: \texttt{-\/-rx-freq/-\/-tx-freq\ 915e6},
+\texttt{-\/-rx-rate/-\/-tx-rate\ 1.6e6},
+\texttt{-\/-ack-transport\ tcp\ -\/-ack-port\ 5599\ -\/-det-mult\ 3\ -\/-fec\ true}.
+\textbf{Start the sink (RX) first.}
+
+\hypertarget{tuned-gains-per-scheme-and-why-they-differ}{%
+\subsubsection{Tuned gains per scheme (and why they
+differ)}\label{tuned-gains-per-scheme-and-why-they-differ}}
+
+\begin{longtable}[]{@{}llllll@{}}
+\toprule
+Scheme & Waveform & \texttt{-\/-rx-gain} & \texttt{-\/-tx-gain} & extra
+& OTA status \\
+\midrule
+\endhead
+BPSK & sc & 20 & 78 & --- & very robust \\
+QPSK & sc & 20 & 78 & --- & solid (5/5) \\
+8-PSK & sc & 16 & 86 & --- & usable --- a few ARQ retransmits (EVM
+\textasciitilde16 \%) \\
+DBPSK & sc & 20 & 78 & --- & solid (5/5) \\
+DQPSK & sc & 20 & 78 & --- & solid (5/5) \\
+8-DPSK & sc & 16 & 86 & --- & usable --- a few ARQ retransmits \\
+BPSK & ofdm & 22 & 80 & \texttt{-\/-ofdm-tx-peak\ 0.5} & robust \\
+QPSK & ofdm & 22 & 85 & \texttt{-\/-ofdm-tx-peak\ 0.5} & solid \\
+\bottomrule
+\end{longtable}
+
+The pattern: \textbf{8-ary schemes need more TX power (86) and lower RX
+gain (16)} --- a stronger signal buys the SNR their tighter decision
+regions demand without overdriving the front end. The key lever is
+\textbf{TX power, not RX gain} (raising TX 76-\textgreater86 roughly
+halved 8-PSK EVM, 28 \%-\textgreater16 \%). Higher-order QAM (16-QAM+)
+is omitted --- the \textasciitilde10 cm OTA link floors at
+\textasciitilde28--31 \% EVM, too noisy; those need the cabled link
+(below). Differential schemes run on the default
+\texttt{-\/-eq\_type\ None}; \textbf{do not combine differential with
+OFDM} (its pilots already handle phase).
+
+\hypertarget{single-carrier---waveform-sc-default}{%
+\subsubsection{\texorpdfstring{Single-carrier
+(\texttt{-\/-waveform\ sc},
+default)}{Single-carrier (-\/-waveform sc, default)}}\label{single-carrier---waveform-sc-default}}
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\CommentTok{\# Sink / RX}
+\CommentTok{\# QPSK — sc   (robust tier: also BPSK / DBPSK / DQPSK, same gains)}
+\CommentTok{\# RX / sink}
 \ExtensionTok{./sdr\_system} \AttributeTok{{-}{-}role}\NormalTok{ sink\_arq }\AttributeTok{{-}{-}rx{-}args}\NormalTok{ serial=30CD3F7 }\AttributeTok{{-}{-}tx{-}args}\NormalTok{ serial=30CD3F7 }\DataTypeTok{\textbackslash{}}
-  \AttributeTok{{-}{-}rx{-}subdev}\NormalTok{ A:A }\AttributeTok{{-}{-}rx{-}ant}\NormalTok{ RX2 }\AttributeTok{{-}{-}rx{-}freq}\NormalTok{ 915e6 }\AttributeTok{{-}{-}rx{-}rate}\NormalTok{ 1.6e6 }\AttributeTok{{-}{-}rx{-}gain}\NormalTok{ 25 }\DataTypeTok{\textbackslash{}}
-  \AttributeTok{{-}{-}waveform}\NormalTok{ ofdm }\AttributeTok{{-}{-}ofdm{-}fft}\NormalTok{ 64 }\AttributeTok{{-}{-}ofdm{-}cp}\NormalTok{ 16 }\AttributeTok{{-}{-}scheme}\NormalTok{ QPSK }\AttributeTok{{-}{-}fec}\NormalTok{ true }\DataTypeTok{\textbackslash{}}
-  \AttributeTok{{-}{-}ack{-}transport}\NormalTok{ tcp }\AttributeTok{{-}{-}ack{-}port}\NormalTok{ 5599 }\AttributeTok{{-}{-}det{-}mult}\NormalTok{ 3 }\AttributeTok{{-}{-}viz{-}dir}\NormalTok{ viz}
-\CommentTok{\# Source / TX}
+  \AttributeTok{{-}{-}rx{-}subdev}\NormalTok{ A:A }\AttributeTok{{-}{-}rx{-}ant}\NormalTok{ RX2 }\AttributeTok{{-}{-}rx{-}freq}\NormalTok{ 915e6 }\AttributeTok{{-}{-}rx{-}rate}\NormalTok{ 1.6e6 }\AttributeTok{{-}{-}rx{-}gain}\NormalTok{ 20 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}scheme}\NormalTok{ QPSK }\AttributeTok{{-}{-}fec}\NormalTok{ true }\AttributeTok{{-}{-}ack{-}transport}\NormalTok{ tcp }\AttributeTok{{-}{-}ack{-}port}\NormalTok{ 5599 }\AttributeTok{{-}{-}det{-}mult}\NormalTok{ 3}
+\CommentTok{\# TX / source}
 \ExtensionTok{./sdr\_system} \AttributeTok{{-}{-}role}\NormalTok{ source\_arq }\AttributeTok{{-}{-}tx{-}args}\NormalTok{ serial=30CD424 }\AttributeTok{{-}{-}rx{-}args}\NormalTok{ serial=30CD424 }\DataTypeTok{\textbackslash{}}
-  \AttributeTok{{-}{-}tx{-}subdev}\NormalTok{ A:A }\AttributeTok{{-}{-}tx{-}ant}\NormalTok{ TX/RX }\AttributeTok{{-}{-}tx{-}freq}\NormalTok{ 915e6 }\AttributeTok{{-}{-}tx{-}rate}\NormalTok{ 1.6e6 }\AttributeTok{{-}{-}tx{-}gain}\NormalTok{ 82 }\DataTypeTok{\textbackslash{}}
-  \AttributeTok{{-}{-}waveform}\NormalTok{ ofdm }\AttributeTok{{-}{-}ofdm{-}fft}\NormalTok{ 64 }\AttributeTok{{-}{-}ofdm{-}cp}\NormalTok{ 16 }\AttributeTok{{-}{-}ofdm{-}tx{-}peak}\NormalTok{ 0.5 }\AttributeTok{{-}{-}scheme}\NormalTok{ QPSK }\AttributeTok{{-}{-}fec}\NormalTok{ true }\DataTypeTok{\textbackslash{}}
-  \AttributeTok{{-}{-}ack{-}transport}\NormalTok{ tcp }\AttributeTok{{-}{-}ack{-}host}\NormalTok{ 127.0.0.1 }\AttributeTok{{-}{-}ack{-}port}\NormalTok{ 5599 }\AttributeTok{{-}{-}timeout}\NormalTok{ 3000 }\AttributeTok{{-}{-}viz{-}dir}\NormalTok{ viz}
+  \AttributeTok{{-}{-}tx{-}subdev}\NormalTok{ A:A }\AttributeTok{{-}{-}tx{-}ant}\NormalTok{ TX/RX }\AttributeTok{{-}{-}tx{-}freq}\NormalTok{ 915e6 }\AttributeTok{{-}{-}tx{-}rate}\NormalTok{ 1.6e6 }\AttributeTok{{-}{-}tx{-}gain}\NormalTok{ 78 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}scheme}\NormalTok{ QPSK }\AttributeTok{{-}{-}fec}\NormalTok{ true }\AttributeTok{{-}{-}ack{-}transport}\NormalTok{ tcp }\AttributeTok{{-}{-}ack{-}host}\NormalTok{ 127.0.0.1 }\AttributeTok{{-}{-}ack{-}port}\NormalTok{ 5599 }\AttributeTok{{-}{-}timeout}\NormalTok{ 3000}
 \end{Highlighting}
 \end{Shaded}
 
-\textbf{Single-carrier QPSK one-way} (swap
-\texttt{-\/-waveform\ ofdm\ \ldots{}} for \texttt{-\/-waveform\ sc},
-roles \texttt{rx}/\texttt{tx}, add \texttt{-\/-tx-reps\ 20}).
+For \textbf{BPSK / DBPSK / DQPSK} on single-carrier, use the identical
+commands with the scheme name swapped (\texttt{-\/-scheme\ BPSK} /
+\texttt{DBPSK} / \texttt{DQPSK}) --- same 20 / 78 gains.
 
-\textbf{16-QAM / 64-QAM}: same as above with \texttt{-\/-scheme\ 16QAM}
-(or \texttt{64QAM}) on both ends --- but needs much higher SNR (EVM
-\textless{} \textasciitilde12\% / 6\%). Use a cabled link (SMA + 30--40
-dB attenuator) or very close antennas; tune \texttt{-\/-rx-gain} so the
-RX \texttt{Peak=} stays under \textasciitilde0.8 (below 1.0 = ADC
-clipping) while \texttt{RMS} is as high as possible. Best OTA point
-found so far:
-\texttt{-\/-rx-gain\ 21\ -\/-tx-gain\ 80\ -\/-ofdm-tx-peak\ 0.45}.
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# 8{-}PSK — sc   (8{-}ary tier: also 8{-}DPSK, same gains — more TX, lower RX)}
+\CommentTok{\# RX / sink}
+\ExtensionTok{./sdr\_system} \AttributeTok{{-}{-}role}\NormalTok{ sink\_arq }\AttributeTok{{-}{-}rx{-}args}\NormalTok{ serial=30CD3F7 }\AttributeTok{{-}{-}tx{-}args}\NormalTok{ serial=30CD3F7 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}rx{-}subdev}\NormalTok{ A:A }\AttributeTok{{-}{-}rx{-}ant}\NormalTok{ RX2 }\AttributeTok{{-}{-}rx{-}freq}\NormalTok{ 915e6 }\AttributeTok{{-}{-}rx{-}rate}\NormalTok{ 1.6e6 }\AttributeTok{{-}{-}rx{-}gain}\NormalTok{ 16 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}scheme}\NormalTok{ 8{-}PSK }\AttributeTok{{-}{-}fec}\NormalTok{ true }\AttributeTok{{-}{-}ack{-}transport}\NormalTok{ tcp }\AttributeTok{{-}{-}ack{-}port}\NormalTok{ 5599 }\AttributeTok{{-}{-}det{-}mult}\NormalTok{ 3}
+\CommentTok{\# TX / source}
+\ExtensionTok{./sdr\_system} \AttributeTok{{-}{-}role}\NormalTok{ source\_arq }\AttributeTok{{-}{-}tx{-}args}\NormalTok{ serial=30CD424 }\AttributeTok{{-}{-}rx{-}args}\NormalTok{ serial=30CD424 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}tx{-}subdev}\NormalTok{ A:A }\AttributeTok{{-}{-}tx{-}ant}\NormalTok{ TX/RX }\AttributeTok{{-}{-}tx{-}freq}\NormalTok{ 915e6 }\AttributeTok{{-}{-}tx{-}rate}\NormalTok{ 1.6e6 }\AttributeTok{{-}{-}tx{-}gain}\NormalTok{ 86 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}scheme}\NormalTok{ 8{-}PSK }\AttributeTok{{-}{-}fec}\NormalTok{ true }\AttributeTok{{-}{-}ack{-}transport}\NormalTok{ tcp }\AttributeTok{{-}{-}ack{-}host}\NormalTok{ 127.0.0.1 }\AttributeTok{{-}{-}ack{-}port}\NormalTok{ 5599 }\AttributeTok{{-}{-}timeout}\NormalTok{ 3000}
+\end{Highlighting}
+\end{Shaded}
+
+For \textbf{8-DPSK}, same commands with \texttt{-\/-scheme\ 8-DPSK}.
+
+\hypertarget{ofdm---waveform-ofdm-64-subcarriers-cp-16}{%
+\subsubsection{\texorpdfstring{OFDM (\texttt{-\/-waveform\ ofdm}, 64
+subcarriers, CP
+16)}{OFDM (-\/-waveform ofdm, 64 subcarriers, CP 16)}}\label{ofdm---waveform-ofdm-64-subcarriers-cp-16}}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# QPSK — OFDM   (BPSK: same, {-}{-}scheme BPSK, {-}{-}tx{-}gain 80)}
+\CommentTok{\# RX / sink}
+\ExtensionTok{./sdr\_system} \AttributeTok{{-}{-}role}\NormalTok{ sink\_arq }\AttributeTok{{-}{-}rx{-}args}\NormalTok{ serial=30CD3F7 }\AttributeTok{{-}{-}tx{-}args}\NormalTok{ serial=30CD3F7 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}rx{-}subdev}\NormalTok{ A:A }\AttributeTok{{-}{-}rx{-}ant}\NormalTok{ RX2 }\AttributeTok{{-}{-}rx{-}freq}\NormalTok{ 915e6 }\AttributeTok{{-}{-}rx{-}rate}\NormalTok{ 1.6e6 }\AttributeTok{{-}{-}rx{-}gain}\NormalTok{ 22 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}waveform}\NormalTok{ ofdm }\AttributeTok{{-}{-}ofdm{-}fft}\NormalTok{ 64 }\AttributeTok{{-}{-}ofdm{-}cp}\NormalTok{ 16 }\AttributeTok{{-}{-}scheme}\NormalTok{ QPSK }\AttributeTok{{-}{-}fec}\NormalTok{ true }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}ack{-}transport}\NormalTok{ tcp }\AttributeTok{{-}{-}ack{-}port}\NormalTok{ 5599 }\AttributeTok{{-}{-}det{-}mult}\NormalTok{ 3}
+\CommentTok{\# TX / source}
+\ExtensionTok{./sdr\_system} \AttributeTok{{-}{-}role}\NormalTok{ source\_arq }\AttributeTok{{-}{-}tx{-}args}\NormalTok{ serial=30CD424 }\AttributeTok{{-}{-}rx{-}args}\NormalTok{ serial=30CD424 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}tx{-}subdev}\NormalTok{ A:A }\AttributeTok{{-}{-}tx{-}ant}\NormalTok{ TX/RX }\AttributeTok{{-}{-}tx{-}freq}\NormalTok{ 915e6 }\AttributeTok{{-}{-}tx{-}rate}\NormalTok{ 1.6e6 }\AttributeTok{{-}{-}tx{-}gain}\NormalTok{ 85 }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}waveform}\NormalTok{ ofdm }\AttributeTok{{-}{-}ofdm{-}fft}\NormalTok{ 64 }\AttributeTok{{-}{-}ofdm{-}cp}\NormalTok{ 16 }\AttributeTok{{-}{-}ofdm{-}tx{-}peak}\NormalTok{ 0.5 }\AttributeTok{{-}{-}scheme}\NormalTok{ QPSK }\AttributeTok{{-}{-}fec}\NormalTok{ true }\DataTypeTok{\textbackslash{}}
+  \AttributeTok{{-}{-}ack{-}transport}\NormalTok{ tcp }\AttributeTok{{-}{-}ack{-}host}\NormalTok{ 127.0.0.1 }\AttributeTok{{-}{-}ack{-}port}\NormalTok{ 5599 }\AttributeTok{{-}{-}timeout}\NormalTok{ 3000}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{One-way (no ACK)} instead of ARQ: use \texttt{-\/-role\ rx} /
+\texttt{-\/-role\ tx\ -\/-tx-reps\ 20} and drop the \texttt{-\/-ack-*}
+flags. Run from \texttt{build/} and prefix \texttt{./}.
 
 \hypertarget{level-tuning-cheatsheet-the-1-cause-of-nothing-decodes}{%
 \subsubsection{Level-tuning cheatsheet (the \#1 cause of "nothing
@@ -1195,19 +1280,35 @@ decodes")}\label{level-tuning-cheatsheet-the-1-cause-of-nothing-decodes}}
 \begin{itemize}
 \tightlist
 \item
-  RX log \texttt{Peak\ \textgreater{}\ 1.0} -\textgreater{}
-  \textbf{clipping}, lower \texttt{-\/-rx-gain} (fatal for QAM).
+  RX \texttt{Peak=} is \textbf{post-AGC PAPR}; \textasciitilde1.2--1.4
+  is normal, \emph{not} ADC clipping. Only lower \texttt{-\/-rx-gain} if
+  chunks never decode \textbf{and} the raw front end is saturated.
 \item
-  No detections (\texttt{bursts=0}) -\textgreater{} signal too weak,
-  raise \texttt{-\/-tx-gain} or \texttt{-\/-rx-gain}, or lower
+  No detections (\texttt{bursts=0}) -\textgreater{} signal too weak:
+  raise \texttt{-\/-tx-gain} (or \texttt{-\/-rx-gain}), or lower
   \texttt{-\/-det-mult}.
 \item
-  Detections but CRC fails -\textgreater{} check the constellation EVM
-  in the figure; if the order is too high for the link SNR, drop to QPSK
-  or improve the link.
+  Detections but CRC always fails -\textgreater{} check the
+  constellation EVM in the figure; if the order is too high for the link
+  SNR, drop a scheme or improve the link. \textbf{TX power} is the main
+  EVM lever.
 \item
   Keep \texttt{-\/-fec\ true} on marginal links; it closes the last few
   \% of bit errors.
 \end{itemize}
+
+\hypertarget{unlocking-16-qam-and-higher--the-cabled-link}{%
+\subsubsection{Unlocking 16-QAM and higher --- the cabled
+link}\label{unlocking-16-qam-and-higher--the-cabled-link}}
+
+Cable the two radios (SMA + \textasciitilde30--40 dB attenuator) for a
+clean, flat channel: EVM drops well below 10 \%, so \textbf{16-QAM /
+64-QAM / 256-QAM} single-carrier decode. Start from
+\texttt{-\/-rx-gain\ 21\ -\/-tx-gain\ 80} and lower \texttt{-\/-rx-gain}
+/ add attenuation until the raw RX front end isn't saturated; keep
+\texttt{-\/-fec\ true}. Higher orders need progressively lower EVM
+(16-QAM \textless\textasciitilde{} 12 \%, 64-QAM
+\textless\textasciitilde{} 6 \%, 256-QAM \textless\textasciitilde{} 3
+\%).
 
 \end{document}

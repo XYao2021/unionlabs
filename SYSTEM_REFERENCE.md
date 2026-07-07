@@ -244,7 +244,10 @@ the TX encodes the first data symbol relative to it, and the RX keeps that one s
 the data so the differential decoder returns exactly $N$ symbols (not $N-1$). This keeps the
 decoded bit count aligned with the fixed FEC/CRC/ARQ framing, and these schemes bypass the
 coherent phase PLL (§5.5) — a decision-directed loop would pin the absolute phase and destroy the
-transitions they carry.
+transitions they carry. (The equalizer path prepends the *ideal* `preamble.back()` instead, since
+equalization has already normalized the data to the ideal frame.) Hardware-verified end-to-end for
+DBPSK / DQPSK / 8-DPSK; without this the reference off-by-one shifted the framing and every packet
+failed even though sync was perfect.
 
 ### 5.2 Frame synchronization — ACQ correlation
 The receiver must find where the packet starts. `ACQSynchronizer::SamplesACQPerformance`
@@ -643,33 +646,94 @@ with FEC), 16-QAM needs <~12%, 64-QAM <~6%. Render manually with
 
 ---
 
-## 12. Verified command recipes (915 MHz, VERT900 antennas)
+## 12. Command reference — per scheme (915 MHz, VERT900 antennas)
 
-**QPSK OFDM + ARQ (reliable OTA demo).** Start the sink first.
+Copy-paste **sink / source ARQ** pairs with gains tuned per scheme from over-the-air testing
+(two B210s ~10 cm apart). All use stop-and-wait ARQ (TCP ACK on localhost) + FEC, and auto-save
+plots to `viz/<scheme>/figure.png`. The same set stands alone in the repo as `COMMANDS.md`.
+
+**Rig:** RX/sink serial `30CD3F7` (ant `RX2`), TX/source serial `30CD424` (ant `TX/RX`), both
+subdev `A:A`. Common flags: `--rx-freq/--tx-freq 915e6`, `--rx-rate/--tx-rate 1.6e6`,
+`--ack-transport tcp --ack-port 5599 --det-mult 3 --fec true`. **Start the sink (RX) first.**
+
+### Tuned gains per scheme (and why they differ)
+
+| Scheme | Waveform | `--rx-gain` | `--tx-gain` | extra | OTA status |
+|---|---|---|---|---|---|
+| BPSK   | sc   | 20 | 78 | — | very robust |
+| QPSK   | sc   | 20 | 78 | — | solid (5/5) |
+| 8-PSK  | sc   | 16 | 86 | — | usable — a few ARQ retransmits (EVM ~16 %) |
+| DBPSK  | sc   | 20 | 78 | — | solid (5/5) |
+| DQPSK  | sc   | 20 | 78 | — | solid (5/5) |
+| 8-DPSK | sc   | 16 | 86 | — | usable — a few ARQ retransmits |
+| BPSK   | ofdm | 22 | 80 | `--ofdm-tx-peak 0.5` | robust |
+| QPSK   | ofdm | 22 | 85 | `--ofdm-tx-peak 0.5` | solid |
+
+The pattern: **8-ary schemes need more TX power (86) and lower RX gain (16)** — a stronger signal
+buys the SNR their tighter decision regions demand without overdriving the front end. The key
+lever is **TX power, not RX gain** (raising TX 76→86 roughly halved 8-PSK EVM, 28 %→16 %).
+Higher-order QAM (16-QAM+) is omitted — the ~10 cm OTA link floors at ~28–31 % EVM, too noisy;
+those need the cabled link (below). Differential schemes run on the default `--eq_type None`;
+**do not combine differential with OFDM** (its pilots already handle phase).
+
+### Single-carrier (`--waveform sc`, default)
+
 ```bash
-# Sink / RX
+# QPSK — sc   (robust tier: also BPSK / DBPSK / DQPSK, same gains)
+# RX / sink
 ./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
-  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 25 \
-  --waveform ofdm --ofdm-fft 64 --ofdm-cp 16 --scheme QPSK --fec true \
-  --ack-transport tcp --ack-port 5599 --det-mult 3 --viz-dir viz
-# Source / TX
+  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \
+  --scheme QPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
+# TX / source
 ./sdr_system --role source_arq --tx-args serial=30CD424 --rx-args serial=30CD424 \
-  --tx-subdev A:A --tx-ant TX/RX --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 82 \
+  --tx-subdev A:A --tx-ant TX/RX --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 78 \
+  --scheme QPSK --fec true --ack-transport tcp --ack-host 127.0.0.1 --ack-port 5599 --timeout 3000
+```
+For **BPSK / DBPSK / DQPSK** on single-carrier, use the identical commands with the scheme name
+swapped (`--scheme BPSK` / `DBPSK` / `DQPSK`) — same 20 / 78 gains.
+
+```bash
+# 8-PSK — sc   (8-ary tier: also 8-DPSK, same gains — more TX, lower RX)
+# RX / sink
+./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
+  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 16 \
+  --scheme 8-PSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
+# TX / source
+./sdr_system --role source_arq --tx-args serial=30CD424 --rx-args serial=30CD424 \
+  --tx-subdev A:A --tx-ant TX/RX --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 86 \
+  --scheme 8-PSK --fec true --ack-transport tcp --ack-host 127.0.0.1 --ack-port 5599 --timeout 3000
+```
+For **8-DPSK**, same commands with `--scheme 8-DPSK`.
+
+### OFDM (`--waveform ofdm`, 64 subcarriers, CP 16)
+
+```bash
+# QPSK — OFDM   (BPSK: same, --scheme BPSK, --tx-gain 80)
+# RX / sink
+./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
+  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 22 \
+  --waveform ofdm --ofdm-fft 64 --ofdm-cp 16 --scheme QPSK --fec true \
+  --ack-transport tcp --ack-port 5599 --det-mult 3
+# TX / source
+./sdr_system --role source_arq --tx-args serial=30CD424 --rx-args serial=30CD424 \
+  --tx-subdev A:A --tx-ant TX/RX --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 85 \
   --waveform ofdm --ofdm-fft 64 --ofdm-cp 16 --ofdm-tx-peak 0.5 --scheme QPSK --fec true \
-  --ack-transport tcp --ack-host 127.0.0.1 --ack-port 5599 --timeout 3000 --viz-dir viz
+  --ack-transport tcp --ack-host 127.0.0.1 --ack-port 5599 --timeout 3000
 ```
 
-**Single-carrier QPSK one-way** (swap `--waveform ofdm …` for `--waveform sc`, roles `rx`/`tx`,
-add `--tx-reps 20`).
-
-**16-QAM / 64-QAM**: same as above with `--scheme 16QAM` (or `64QAM`) on both ends — but needs
-much higher SNR (EVM < ~12% / 6%). Use a cabled link (SMA + 30–40 dB attenuator) or very close
-antennas; tune `--rx-gain` so the RX `Peak=` stays under ~0.8 (below 1.0 = ADC clipping) while
-`RMS` is as high as possible. Best OTA point found so far: `--rx-gain 21 --tx-gain 80 --ofdm-tx-peak 0.45`.
+**One-way (no ACK)** instead of ARQ: use `--role rx` / `--role tx --tx-reps 20` and drop the
+`--ack-*` flags. Run from `build/` and prefix `./`.
 
 ### Level-tuning cheatsheet (the #1 cause of "nothing decodes")
-- RX log `Peak > 1.0` → **clipping**, lower `--rx-gain` (fatal for QAM).
-- No detections (`bursts=0`) → signal too weak, raise `--tx-gain` or `--rx-gain`, or lower `--det-mult`.
-- Detections but CRC fails → check the constellation EVM in the figure; if the order is too high
-  for the link SNR, drop to QPSK or improve the link.
+- RX `Peak=` is **post-AGC PAPR**; ~1.2–1.4 is normal, *not* ADC clipping. Only lower `--rx-gain`
+  if chunks never decode **and** the raw front end is saturated.
+- No detections (`bursts=0`) → signal too weak: raise `--tx-gain` (or `--rx-gain`), or lower `--det-mult`.
+- Detections but CRC always fails → check the constellation EVM in the figure; if the order is too
+  high for the link SNR, drop a scheme or improve the link. **TX power** is the main EVM lever.
 - Keep `--fec true` on marginal links; it closes the last few % of bit errors.
+
+### Unlocking 16-QAM and higher — the cabled link
+Cable the two radios (SMA + ~30–40 dB attenuator) for a clean, flat channel: EVM drops well below
+10 %, so **16-QAM / 64-QAM / 256-QAM** single-carrier decode. Start from `--rx-gain 21 --tx-gain 80`
+and lower `--rx-gain` / add attenuation until the raw RX front end isn't saturated; keep
+`--fec true`. Higher orders need progressively lower EVM (16-QAM ≲ 12 %, 64-QAM ≲ 6 %, 256-QAM ≲ 3 %).
