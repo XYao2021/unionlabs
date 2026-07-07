@@ -239,6 +239,13 @@ correlator (§5.2) gives one sharp, unambiguous peak.
   channel estimate / equalizer, and its constant envelope correlates cleanly even under CFO.
   Preferred for equalizer training and dense QAM.
 
+For **differential** schemes the **last preamble symbol doubles as the differential reference**:
+the TX encodes the first data symbol relative to it, and the RX keeps that one symbol in front of
+the data so the differential decoder returns exactly $N$ symbols (not $N-1$). This keeps the
+decoded bit count aligned with the fixed FEC/CRC/ARQ framing, and these schemes bypass the
+coherent phase PLL (§5.5) — a decision-directed loop would pin the absolute phase and destroy the
+transitions they carry.
+
 ### 5.2 Frame synchronization — ACQ correlation
 The receiver must find where the packet starts. `ACQSynchronizer::SamplesACQPerformance`
 slides the known preamble over the burst and computes, at each candidate offset τ (the

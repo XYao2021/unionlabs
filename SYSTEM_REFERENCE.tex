@@ -504,6 +504,15 @@ unambiguous peak.
   training and dense QAM.
 \end{itemize}
 
+For \textbf{differential} schemes the \textbf{last preamble symbol
+doubles as the differential reference}: the TX encodes the first data
+symbol relative to it, and the RX keeps that one symbol in front of the
+data so the differential decoder returns exactly \(N\) symbols (not
+\(N-1\)). This keeps the decoded bit count aligned with the fixed
+FEC/CRC/ARQ framing, and these schemes bypass the coherent phase PLL
+(§5.5) --- a decision-directed loop would pin the absolute phase and
+destroy the transitions they carry.
+
 \hypertarget{52-frame-synchronization--acq-correlation}{%
 \subsubsection{5.2 Frame synchronization --- ACQ
 correlation}\label{52-frame-synchronization--acq-correlation}}
