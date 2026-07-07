@@ -186,3 +186,86 @@ turns the leakage into a removable static DC, so dense QAM decodes. Once that's 
 `--rx-gain 21 --tx-gain 80`, lower `--rx-gain` / add attenuation until the RX front end isn't
 saturated, keep `--fec true`; higher orders need progressively lower EVM (16-QAM ≲ 12 %, 64-QAM ≲
 6 %, 256-QAM ≲ 3 %).
+
+---
+
+# Other USRP models — N210 / X310 / X410
+
+The **DSP is device-independent**: every `--scheme / --waveform / --fec / --ack-* / --preamble /
+--det-mult / eq / timing / phase` flag is exactly as in the B210 sections above. Only the
+**hardware addressing** changes — device args, subdev, antenna, and (importantly) the **gain
+range**. The blocks below are **templates adapted from the B210 commands and NOT yet tested on
+those models** — confirm the exact subdev / antenna / gain range of your unit first with:
+```bash
+uhd_usrp_probe --args addr=<ip>      # prints subdev names, antenna ports, gain ranges
+```
+
+## What changes per model
+
+| Model | Transport · `--*-args` | `--*-subdev` | `--*-ant` | Gain range* | Reference clock |
+|---|---|---|---|---|---|
+| **B210** (this rig) | USB · `serial=30CD424` | `A:A` | `TX/RX`, `RX2` | 0–89.8 dB | internal TCXO (no ext ref) |
+| **N210** | 1 GbE · `addr=192.168.10.2` | `A:0` | `TX/RX`, `RX2` | ~0–31.5 dB (SBX/WBX/UBX) | `REF IN` 10 MHz + PPS, or MIMO cable |
+| **X310** | 10 GbE / PCIe · `addr=192.168.40.2` | `A:0` (or `B:0`; 2 slots) | `TX/RX`, `RX2` | ~0–31.5 dB (UBX/SBX) | `REF IN` + PPS, GPSDO option |
+| **X410** | 100 GbE (QSFP28) · `addr=192.168.10.2` | integrated ZBX — use `--rx-channel/--tx-channel` | `TX/RX0`, `RX1` (per ch.) | ~0–60 dB (ZBX) | `REF IN` + PPS, internal, White Rabbit |
+
+\*Gain is **daughterboard-specific**. The classic SBX/WBX/UBX cards top out at **31.5 dB**, so the
+B210's tx-gain 78–86 is far out of range there — start mid-to-high and tune by the same EVM /
+`Peak=` method. For 915 MHz use a card that covers it (SBX 0.4–4.4 GHz, UBX 10 MHz–6 GHz, X410 ZBX
+1 MHz–8 GHz; note **CBX is 1.2–6 GHz and does *not* cover 915 MHz**).
+
+## The big advantage over the B210: these can share a clock → dense QAM works
+Unlike the B210 (see the "16-QAM blocked" note above and `SYSTEM_REFERENCE.md` §13), N210/X310/X410
+all expose a **`REF IN`** (and PPS). Feed one 10 MHz reference (OctoClock / GPSDO / signal-generator
+10 MHz output, split to both units' `REF IN`), add **`--ref external`** to both commands, and the
+CFO goes to ~0 — so **16-QAM / 64-QAM / 256-QAM decode** on these platforms (the X310/X410 also
+offer an internal GPSDO). This is the recommended path to dense QAM.
+
+## Template — QPSK single-carrier
+Swap `--scheme` (BPSK / 8-PSK / DBPSK / DQPSK / …) and add the OFDM flags exactly as in the B210
+sections. Each unit has its own IP: the sink uses radio A's address for both `--rx-args` and
+`--tx-args`, the source uses radio B's. Drop `--ref external` if you don't have a shared clock
+(then you're limited to QPSK/8-PSK, same as the B210).
+
+**N210** (two units, shared 10 MHz):
+```bash
+# RX / sink   (radio A = 192.168.10.2)
+./sdr_system --role sink_arq --rx-args addr=192.168.10.2 --tx-args addr=192.168.10.2 \
+  --rx-subdev A:0 --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 --ref external \
+  --scheme QPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
+# TX / source (radio B = 192.168.20.2)
+./sdr_system --role source_arq --tx-args addr=192.168.20.2 --rx-args addr=192.168.20.2 \
+  --tx-subdev A:0 --tx-ant TX/RX --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 28 --ref external \
+  --scheme QPSK --fec true --ack-transport tcp --ack-host 127.0.0.1 --ack-port 5599 --timeout 3000
+```
+
+**X310** (two units, shared 10 MHz — subdev `A:0`, 10 GbE addresses):
+```bash
+# RX / sink   (radio A = 192.168.40.2)
+./sdr_system --role sink_arq --rx-args addr=192.168.40.2 --tx-args addr=192.168.40.2 \
+  --rx-subdev A:0 --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 --ref external \
+  --scheme QPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
+# TX / source (radio B = 192.168.40.3)
+./sdr_system --role source_arq --tx-args addr=192.168.40.3 --rx-args addr=192.168.40.3 \
+  --tx-subdev A:0 --tx-ant TX/RX --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 25 --ref external \
+  --scheme QPSK --fec true --ack-transport tcp --ack-host 127.0.0.1 --ack-port 5599 --timeout 3000
+```
+
+**X410** (RFSoC / ZBX — channel-based; confirm antenna names + subdev with `uhd_usrp_probe`):
+```bash
+# RX / sink   (radio A)
+./sdr_system --role sink_arq --rx-args addr=192.168.10.2 --tx-args addr=192.168.10.2 \
+  --rx-subdev A:0 --rx-channel 0 --rx-ant RX1 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 30 --ref external \
+  --scheme QPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
+# TX / source (radio B)
+./sdr_system --role source_arq --tx-args addr=192.168.10.3 --rx-args addr=192.168.10.3 \
+  --tx-subdev A:0 --tx-channel 0 --tx-ant TX/RX0 --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 30 --ref external \
+  --scheme QPSK --fec true --ack-transport tcp --ack-host 127.0.0.1 --ack-port 5599 --timeout 3000
+```
+
+## Sample-rate note (per master clock)
+The pipeline needs `tx-rate == rx-rate` with an integer samples/symbol (default `0.8e6 sym × U/D 2 =
+1.6e6`). 1.6 MHz divides the **X310** master clock (200 MHz) exactly, but **N210** (100 MHz) and
+**X410** (245.76 / 250 MHz) will snap 1.6 MHz to the nearest valid rate — UHD prints the actual
+rate on start-up. If it snaps, set `--symbol_rate` so that `rate = symbol_rate × U/D` holds at the
+achieved rate (keeping integer sps), and use the same values on both ends.
