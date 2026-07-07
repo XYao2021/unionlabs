@@ -208,12 +208,17 @@ public:
             for (size_t i = 0; i < active_.size(); ++i)
                 eq[i] = (std::abs(H[i]) > 1e-9f) ? Y[active_[i]] / H[i] : ofdm_cf(0, 0);
 
-            // Common-phase-error from the pilots: after equalization a pilot is
-            // ≈ PILOT · e^{jφ}, where φ is this symbol's residual-CFO phase. Average
-            // over all pilots and derotate the whole symbol by −φ.
+            // Common-phase-error from the pilots: Y[k] ≈ H[k]·PILOT·e^{jφ}, where φ
+            // is this symbol's residual-CFO phase. Estimate φ with MRC weighting —
+            // Y·conj(H) contributes |H|²·PILOT·e^{jφ}, so each pilot is weighted by
+            // its channel power. Do NOT use the equalized pilot eq=Y/H: a deep-fade
+            // subcarrier (small |H|) blows Y/H up and a single garbage pilot would
+            // dominate arg(acc), corrupting the derotation for the whole symbol
+            // (invisible in a mild sim channel, fatal over real multipath).
             static const bool no_cpe = std::getenv("OFDM_NO_CPE") != nullptr;
             ofdm_cf acc(0, 0);
-            for (int i : pilot_pos_) acc += eq[i] * std::conj(PILOT);
+            for (int i : pilot_pos_)
+                acc += Y[active_[i]] * std::conj(H[i]) * std::conj(PILOT);
             float phi = (!no_cpe && std::abs(acc) > 1e-12f) ? std::arg(acc) : 0.0f;
             ofdm_cf derot(std::cos(phi), -std::sin(phi));
 
