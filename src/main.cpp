@@ -20,6 +20,7 @@
 
 #include "physical_layer.hpp"
 #include "ACQ_stop_and_wait.hpp"
+#include "fec.hpp"
 
 namespace po = boost::program_options;
 
@@ -212,6 +213,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("scheme",
          po::value<std::string>(&config.scheme)->default_value("QPSK"),
          "Modulation: QPSK / DQPSK / DBPSK / 16-QAM / ...")
+        ("fec",
+         po::value<bool>(&config.fec)->default_value(false),
+         "Forward Error Correction (rate-1/2 K=7 convolutional + Viterbi). "
+         "Corrects bit errors so a noisy link decodes error-free; must match on "
+         "both ends. Halves the payload rate (2x the symbols).")
         ("waveform",
          po::value<std::string>(&config.waveform)->default_value("sc"),
          "Waveform: sc (single-carrier) or ofdm. OFDM handles multipath/CFO "
@@ -303,7 +309,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                                                   config.preamble_length).size();
         const int guard  = 10;                                       // matches modulate()
         int packet_bits  = 16 + static_cast<int>(bytes_length) * 8 + 16;  // header + chunk + CRC-16
-        int data_syms    = (packet_bits + bps - 1) / bps;            // ceil
+        // With FEC, the modulator carries the ENCODED bits (rate 1/2 → ~2x).
+        int coded_bits   = config.fec ? fec_encoded_len(packet_bits) : packet_bits;
+        int data_syms    = (coded_bits + bps - 1) / bps;            // ceil (QAM symbols)
         int total_syms   = guard + preamble_len + data_syms;
 
         if (vm["recv_msg_len"].defaulted())
@@ -636,6 +644,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         for (int r = 0; r < tx_reps && !global_stop_signal.load(); ++r) {
             for (uint8_t idx = 0; idx < total && !global_stop_signal.load(); ++idx) {
                 auto bits = build_packet_bits(chunks[idx], idx, total);
+                if (config.fec) bits = fec_encode_block(bits);   // rate-1/2 K=7
                 transceiver.transmit(bits);
                 std::cout << "[TX] queued chunk " << (int)idx + 1 << "/" << (int)total
                           << "  (rep " << r + 1 << "/" << tx_reps << ")\n";
@@ -678,7 +687,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 got_any = true;
                 rx_bursts++;
                 last_rx = std::chrono::steady_clock::now();
-                auto [idx, tot, payload, crc_ok] = decode_packet_bits(rx.second);
+                // FEC: Viterbi-decode the (encoded) demod bits back to packet
+                // bits before the CRC check. Truncate any symbol padding first.
+                std::vector<uint8_t> raw = rx.second;
+                if (config.fec) {
+                    int coded = fec_encoded_len(16 + (int)bytes_length * 8 + 16);
+                    if ((int)raw.size() >= coded) raw.resize(coded);
+                    raw = fec_decode_block(raw);
+                }
+                auto [idx, tot, payload, crc_ok] = decode_packet_bits(raw);
                 // Accept ONLY error-free frames: CRC must pass, and the header
                 // must be self-consistent (belt-and-suspenders against the ~1/65536
                 // CRC false-accept). A failed CRC means bit errors → drop it and

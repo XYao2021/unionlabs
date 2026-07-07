@@ -125,10 +125,15 @@ private:
     }
 
     void clock_bit(uint8_t b, std::vector<uint8_t>& out) {
+        // Output from the CURRENT state + input bit (reg = state | b<<(K-1)),
+        // THEN shift the register. This must match the Viterbi trellis, which
+        // uses reg = s | (b<<(K-1)) for the current state s. (The old code shifted
+        // first and output from the NEXT state, so encoder ≠ decoder → the code
+        // failed even with no channel errors.)
+        uint8_t reg = static_cast<uint8_t>(shift_reg_ | (b << (K-1)));
+        out.push_back(parity(static_cast<uint8_t>(reg & G1)));
+        out.push_back(parity(static_cast<uint8_t>(reg & G2)));
         shift_reg_ = static_cast<uint8_t>(((shift_reg_ >> 1) | (b << (K-2))) & 0x3Fu);
-        uint8_t reg_with_input = static_cast<uint8_t>(shift_reg_ | (b << (K-1)));
-        out.push_back(parity(static_cast<uint8_t>(reg_with_input & (G1 & 0x7F))));
-        out.push_back(parity(static_cast<uint8_t>(reg_with_input & (G2 & 0x7F))));
     }
 };
 
@@ -205,7 +210,10 @@ private:
         std::vector<float> path_metric(NUM_STATES, INF);
         path_metric[0] = 0.0f;
 
-        // Survivor paths stored as packed bits
+        // Survivor: for each time step and state, store the PREDECESSOR state on
+        // the best path (not just the input bit — two predecessors share the same
+        // (bit,next_state), so a bit-only survivor is ambiguous). The decoded
+        // input bit is recovered as the top bit of the current state.
         std::vector<std::vector<uint8_t>> survivors(num_symbols,
                                                      std::vector<uint8_t>(NUM_STATES, 0));
 
@@ -235,31 +243,21 @@ private:
                     float total = path_metric[s] + branch;
                     if (total < new_metric[e.next_state]) {
                         new_metric[e.next_state] = total;
-                        survivors[t][e.next_state] = static_cast<uint8_t>(b);
+                        survivors[t][e.next_state] = static_cast<uint8_t>(s);  // predecessor
                     }
                 }
             }
             path_metric = new_metric;
         }
 
-        // Traceback from state 0 (encoder was flushed to zero)
+        // Traceback from state 0 (encoder was flushed to zero). The decoded input
+        // bit at step t is the bit shifted into the top of state_{t+1}, i.e. its
+        // top bit; then step back to the stored predecessor.
         std::vector<uint8_t> decoded(num_symbols);
         int state = 0;
         for (int t = num_symbols - 1; t >= 0; --t) {
-            uint8_t b = survivors[t][state];
-            decoded[t] = b;
-            // Reverse the trellis to find the previous state
-            // prev_state: state that transitions to `state` via bit b
-            // shift_reg[t] = state; input b gives next = (state>>1)|(b<<(K-2)) & mask
-            // So prev_state satisfies (prev>>1)|(b<<(K-2)) == state
-            // => prev = ((state ^ (b<<(K-2))) << 1) & mask, with the LSB being free
-            // Search (only 2 candidates)
-            for (int p = 0; p < NUM_STATES; ++p) {
-                if (trellis_[p][b].next_state == state) {
-                    state = p;
-                    break;
-                }
-            }
+            decoded[t] = static_cast<uint8_t>((state >> (K - 2)) & 1);
+            state = survivors[t][state];
         }
 
         // Remove the K-1 flush bits
@@ -338,6 +336,24 @@ private:
     size_t total_bits_;
     size_t error_bits_;
 };
+
+
+// ─────────────────────────────────────────────────────────────
+//  Convenience one-shot helpers (rate-1/2 K=7).
+//  Encode expands N bits → 2*(N+6). Decode (hard) recovers N bits.
+//  Reused static objects (single-threaded application use in main).
+// ─────────────────────────────────────────────────────────────
+inline int fec_encoded_len(int nbits) { return 2 * (nbits + (ConvolutionalEncoder::K - 1)); }
+
+inline std::vector<uint8_t> fec_encode_block(const std::vector<uint8_t>& bits) {
+    static ConvolutionalEncoder enc;
+    enc.reset();
+    return enc.encode(bits);
+}
+inline std::vector<uint8_t> fec_decode_block(const std::vector<uint8_t>& coded) {
+    static ViterbiDecoder dec;
+    return dec.decode_hard(coded);
+}
 
 
 // ─────────────────────────────────────────────────────────────

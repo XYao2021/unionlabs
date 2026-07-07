@@ -124,6 +124,13 @@ struct PHYSICAL_CONFIG {
     std::string scheme          = "QPSK";
     int         sps             = 2;
 
+    // Forward Error Correction (rate-1/2 K=7 convolutional + Viterbi). When on,
+    // packet bits are FEC-encoded before modulation and Viterbi-decoded after
+    // demodulation, so the receiver CORRECTS bit errors instead of dropping the
+    // frame — ~3-4 dB coding gain (hard decision). Applied in main.cpp, so it
+    // works for both single-carrier and OFDM.
+    bool        fec             = false;
+
     // Waveform: "sc" = single-carrier (RRC + match filter + timing + eq),
     //           "ofdm" = OFDM (IFFT/CP; OFDM does its own sync/CFO/equalize).
     std::string waveform        = "sc";
