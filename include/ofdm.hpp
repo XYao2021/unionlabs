@@ -24,17 +24,32 @@
 #include <vector>
 #include <cstdint>
 #include <cmath>
+#include <cstdlib>
 #include <fftw3.h>
 
 using ofdm_cf = std::complex<float>;
 
 class OFDM {
 public:
-    OFDM(int fft_size = 64, int cp_len = 16)
+    OFDM(int fft_size = 64, int cp_len = 16, int pilot_spacing = 8)
         : N_(fft_size), cp_(cp_len)
     {
         for (int k = 1; k < N_; ++k)
             if (k != N_ / 2) active_.push_back(k);      // skip DC + Nyquist
+
+        // Scattered pilots: every `pilot_spacing`-th active subcarrier carries a
+        // known value; the rest carry data. Per data OFDM symbol the pilots let
+        // the RX estimate and remove the COMMON PHASE ERROR (residual-CFO drift
+        // that grows symbol-by-symbol). The channel-est preamble still spans all
+        // active subcarriers.
+        is_pilot_.assign(active_.size(), false);
+        for (size_t i = 0; i < active_.size(); ++i) {
+            if (pilot_spacing > 0 && (int)(i % pilot_spacing) == 0) {
+                is_pilot_[i] = true; pilot_pos_.push_back((int)i);
+            } else {
+                data_pos_.push_back((int)i);
+            }
+        }
 
         // Channel-estimation reference: BPSK on every active subcarrier.
         uint32_t s = 0x2Bu;
@@ -66,7 +81,7 @@ public:
 
     int fft_size()     const { return N_; }
     int cp_len()       const { return cp_; }
-    int data_per_sym() const { return (int)active_.size(); }
+    int data_per_sym() const { return (int)data_pos_.size(); }   // excludes pilots
     int sym_len()      const { return N_ + cp_; }
     // Whole-frame length in wire samples for `nqam` QAM symbols.
     int frame_len(int nqam) const {
@@ -88,9 +103,10 @@ public:
 
         for (int s = 0; s < nsym; ++s) {
             std::vector<ofdm_cf> f(N_, ofdm_cf(0, 0));
-            for (int i = 0; i < D; ++i) {
-                size_t idx = (size_t)s * D + i;
-                if (idx < qam.size()) f[active_[i]] = qam[idx];
+            for (int i : pilot_pos_) f[active_[i]] = PILOT;        // known pilots
+            for (int d = 0; d < D; ++d) {                          // data on the rest
+                size_t idx = (size_t)s * D + d;
+                if (idx < qam.size()) f[active_[data_pos_[d]]] = qam[idx];
             }
             emit_freq(f, out);                          // data symbol
         }
@@ -186,17 +202,36 @@ public:
             int off = (2 + s) * L;
             if (off + N_ > (int)r.size()) break;
             std::vector<ofdm_cf> Y = fft_useful(r, off);
-            for (size_t i = 0; i < active_.size() && (int)qam.size() < num_qam; ++i) {
-                ofdm_cf h = H[i];
-                qam.push_back(std::abs(h) > 1e-9f ? Y[active_[i]] / h : ofdm_cf(0, 0));
+
+            // One-tap equalize every active subcarrier with the preamble channel.
+            std::vector<ofdm_cf> eq(active_.size());
+            for (size_t i = 0; i < active_.size(); ++i)
+                eq[i] = (std::abs(H[i]) > 1e-9f) ? Y[active_[i]] / H[i] : ofdm_cf(0, 0);
+
+            // Common-phase-error from the pilots: after equalization a pilot is
+            // ≈ PILOT · e^{jφ}, where φ is this symbol's residual-CFO phase. Average
+            // over all pilots and derotate the whole symbol by −φ.
+            static const bool no_cpe = std::getenv("OFDM_NO_CPE") != nullptr;
+            ofdm_cf acc(0, 0);
+            for (int i : pilot_pos_) acc += eq[i] * std::conj(PILOT);
+            float phi = (!no_cpe && std::abs(acc) > 1e-12f) ? std::arg(acc) : 0.0f;
+            ofdm_cf derot(std::cos(phi), -std::sin(phi));
+
+            for (int d : data_pos_) {
+                if ((int)qam.size() >= num_qam) break;
+                qam.push_back(eq[d] * derot);
             }
         }
         return qam;
     }
 
 private:
+    static constexpr ofdm_cf PILOT = ofdm_cf(1.0f, 0.0f);  // known scattered-pilot value
     int N_, cp_;
     std::vector<int>     active_;
+    std::vector<bool>    is_pilot_;  // per active subcarrier: pilot or data
+    std::vector<int>     pilot_pos_; // indices into active_ that are pilots
+    std::vector<int>     data_pos_;  // indices into active_ that carry data
     std::vector<ofdm_cf> pre_ref_;   // channel-est reference (all active SC)
     std::vector<ofdm_cf> sc_freq_;   // SC-sync freq-domain symbol (even SC)
     fftwf_complex *in_, *out_;

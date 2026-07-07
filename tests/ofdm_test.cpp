@@ -18,7 +18,8 @@ static std::vector<cf> multipath(const std::vector<cf>& x, const std::vector<cf>
 }
 
 static void run(const char* scheme, const std::vector<cf>& h,
-                float noise_frac, float cfo_sc, int nsym_data, int pad){
+                float noise_frac, float cfo_sc, int nsym_data, int pad,
+                float phase_noise = 0.0f){
     OFDM ofdm(64, 16);
     Modulator mod(string_to_mod_type(scheme));
     int bps = mod.get_bits_per_symbol();
@@ -33,7 +34,11 @@ static void run(const char* scheme, const std::vector<cf>& h,
     auto frame = ofdm.modulate(qam);
     auto ch = multipath(frame, h);
     double fn = (double)cfo_sc / ofdm.fft_size();          // cycles/sample
-    for (size_t n=0;n<ch.size();++n) ch[n]*=cf(std::cos(2*M_PI*fn*n), std::sin(2*M_PI*fn*n));
+    // CFO + phase noise (random walk): phase noise is a per-symbol common phase
+    // the one-shot CFO estimate can't track; scattered pilots correct it.
+    std::mt19937 gp(3); std::normal_distribution<float> pnz(0.f, phase_noise); double pn=0;
+    for (size_t n=0;n<ch.size();++n){ pn += pnz(gp);
+        ch[n]*=cf(std::cos(2*M_PI*fn*n + pn), std::sin(2*M_PI*fn*n + pn)); }
     double pw=0; for(auto&s:ch) pw+=std::norm(s); float rms=std::sqrt(pw/ch.size());
     std::mt19937 gn(1); std::normal_distribution<float> nz(0.f, noise_frac*rms);
     std::uniform_real_distribution<float> lo(-noise_frac*rms, noise_frac*rms);
@@ -57,5 +62,8 @@ int main(){
     for (auto s : {"QPSK","16-QAM","64-QAM","256-QAM"}) run(s, h, 0.0f, 0.20f, 6, 37);
     printf("-- noise 1%% RMS, CFO -0.35 subcarrier --\n");
     for (auto s : {"QPSK","16-QAM","64-QAM"}) run(s, h, 0.01f, -0.35f, 6, 53);
+    printf("-- LONG frame (16 sym) + phase noise 0.03 rad/sample rms + CFO 0.15 --\n");
+    printf("   (set OFDM_NO_CPE=1 to disable pilot phase tracking and compare)\n");
+    for (auto s : {"QPSK","16-QAM"}) run(s, h, 0.005f, 0.15f, 16, 41, 0.03f);
     return 0;
 }

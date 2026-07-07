@@ -325,9 +325,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             // OFDM frame = [SC | chest | data] OFDM symbols on the wire, one
             // sample per wire sample (no RRC). data subcarriers = fft-2 (skip
             // DC + Nyquist). The energy detector gate is ~0.6x the frame length.
-            int dsc  = std::max(1, config.ofdm_fft - 2);
+            OFDM ofdm_probe(config.ofdm_fft, config.ofdm_cp);
+            int dsc  = std::max(1, ofdm_probe.data_per_sym());   // data SC (excl. pilots)
             int nsym = (data_syms + dsc - 1) / dsc;
-            int frame_samples = (2 + nsym) * (config.ofdm_fft + config.ofdm_cp);
+            int frame_samples = ofdm_probe.frame_len(data_syms);
             if (vm["energy_packet_size"].defaulted())
                 config.energy_packet_size = (size_t)std::lround(0.6 * frame_samples);
             std::cout << "[MAIN] OFDM: fft=" << config.ofdm_fft << " cp=" << config.ofdm_cp
