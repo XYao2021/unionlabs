@@ -123,6 +123,21 @@ add_custom_command(TARGET sdr_system POST_BUILD
         ${CMAKE_BINARY_DIR}/received
     COMMENT "Creating output directories")
 
+# ── Auto-generate the Python API from the CLI ────────────────
+# Regenerate python/sdr.py from `sdr_system --help` on every build, so the
+# Python wrapper always exposes exactly the current C++ options. The generator
+# always exits 0, so a hiccup here never breaks the C++ build.
+find_program(PYTHON3_EXE NAMES python3 python)
+if(PYTHON3_EXE)
+    add_custom_command(TARGET sdr_system POST_BUILD
+        COMMAND ${PYTHON3_EXE} ${CMAKE_SOURCE_DIR}/tools/gen_python_api.py
+                --binary $<TARGET_FILE:sdr_system>
+                --out   ${CMAKE_SOURCE_DIR}/python/sdr.py
+        COMMENT "Regenerating python/sdr.py from sdr_system --help")
+else()
+    message(STATUS "python3 not found — skipping python/sdr.py auto-generation")
+endif()
+
 # ── Summary ──────────────────────────────────────────────────
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Compiler:   ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
