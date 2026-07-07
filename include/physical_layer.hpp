@@ -265,6 +265,15 @@ public:
         tx_bits_fifo.push(bits);
     }
 
+    // Push raw complex baseband samples straight to the USRP TX, bypassing the
+    // modulator and pulse-shaper. Used by the sine/cosine test-tone message type.
+    void transmit_samples(const std::vector<std::complex<float>>& samples) {
+        shaped_fifo_.push({tx_raw_id_++, samples});
+    }
+    // Samples still queued for the USRP (lets the tone generator pace itself so
+    // it streams continuously without over-filling the FIFO).
+    size_t tx_pending() { return shaped_fifo_.size(); }
+
     const std::vector<std::complex<float>>& preamble() const {
         return preamble_;
     }
@@ -278,6 +287,7 @@ private:
     uhd::usrp::multi_usrp::sptr rx_usrp_;
 
     std::vector<std::thread> threads_;
+    size_t tx_raw_id_ = 0;   // block id for transmit_samples()
 
     // Internal FIFOs
     MutexFIFO<std::pair<size_t,std::vector<std::complex<float>>>> mod_fifo_;

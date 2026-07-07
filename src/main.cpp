@@ -17,6 +17,7 @@
 #include <memory>
 #include <cmath>
 #include <algorithm>
+#include <random>
 
 #include "physical_layer.hpp"
 #include "ACQ_stop_and_wait.hpp"
@@ -40,7 +41,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     int         tx_reps         = 20;      // one-way (role tx) repetitions
     double      rx_idle_timeout = 8.0;     // role rx: auto-stop after N s of no bursts
     bool        skip_rate_check = false;   // bypass the rate-chain consistency check
-    bool        continuous      = false;
+    std::string tx_mode         = "burst"; // burst (finite, gaps) | continuous (until Ctrl-C)
+    std::string message_type    = "bytes"; // bytes | random | sine | cosine
+    std::string message_str;               // override text for --message-type bytes
+    double      tone_freq       = 100e3;   // sine/cosine baseband freq (Hz)
+    float       tone_amp        = 0.5f;    // sine/cosine amplitude (< 1.0)
     bool        viz_on          = true;    // dump signals + save plots (default on)
     std::string viz_dir         = "viz";
     std::string preamble_type;
@@ -87,6 +92,22 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "Payload bits per packet")
         ("interval", po::value<int>(&interval_ms)->default_value(3000),
                      "TX interval between packets (ms)")
+        ("tx-mode", po::value<std::string>(&tx_mode)->default_value("burst"),
+                     "role tx transmission mode: burst (discrete packets/tone bursts "
+                     "with --interval gaps, repeated --tx-reps times then stop) or "
+                     "continuous (transmit until Ctrl-C — a continuous data loop or "
+                     "an unbroken carrier for sine/cosine)")
+        ("message-type", po::value<std::string>(&message_type)->default_value("bytes"),
+                     "payload: bytes (given text, default Star Wars crawl; set with "
+                     "--message) | random (num_bits random bits) | sine | cosine "
+                     "(raw baseband test tone, role tx only)")
+        ("message", po::value<std::string>(&message_str),
+                     "text payload for --message-type bytes (overrides the default "
+                     "Star Wars crawl)")
+        ("tone-freq", po::value<double>(&tone_freq)->default_value(100e3),
+                     "sine/cosine baseband frequency in Hz (default 100 kHz)")
+        ("tone-amp", po::value<float>(&tone_amp)->default_value(0.5f),
+                     "sine/cosine amplitude, keep < 1.0 to avoid DAC clipping")
         ("preamble", po::value<std::string>(&preamble_type)->default_value("m-sequence"),
                      "Preamble type: m-sequence or zadoff")
         ("m",        po::value<int>(&config.preamble_length)->default_value(5),
@@ -562,7 +583,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::signal(SIGINT, global_sig_int_handler);
 
     // ── Build message ───────────────────────────────────────
-    std::string original_message =
+    static const std::string STAR_WARS =
         "It is a period of civil war.\n"
         "Rebel spaceships, striking\n"
         "from a hidden base, have won\n"
@@ -585,18 +606,44 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         "her people and restore\n"
         "freedom to the galaxy....";
 
-    std::cout << "[MAIN] Message length: "
-              << original_message.size() << " bytes\n";
+    // A test tone (sine/cosine) is a raw waveform, not framed data — no preamble,
+    // chunks or CRC — so it cannot be ACKed. Only role tx (transmit) and role rx
+    // (monitor) make sense; ARQ roles are rejected.
+    const bool is_tone = (message_type == "sine" || message_type == "cosine");
+    if (is_tone && config.role != "tx" && config.role != "rx") {
+        std::cerr << "[ERROR] --message-type " << message_type << " (test tone) needs "
+                  << "--role tx (transmit) or --role rx (monitor); it is not framed "
+                  << "data, so ARQ (source_arq/sink_arq) does not apply.\n";
+        return EXIT_FAILURE;
+    }
 
+    // Framed payload: given bytes (text) or random bits. Both are split into
+    // fixed-size chunks below, so message length / --num_bits drive the chunk count.
+    std::string original_message;
+    if (message_type == "bytes") {
+        original_message = message_str.empty() ? STAR_WARS : message_str;
+    } else if (message_type == "random") {
+        int nbytes = std::max(1, num_bits / 8);          // --num_bits random bits
+        std::mt19937 rng(0xC0FFEEu);                     // fixed seed → reproducible
+        original_message.resize(nbytes);
+        for (auto& ch : original_message) ch = static_cast<char>(rng() & 0xFF);
+        std::cout << "[MAIN] Random payload: " << nbytes << " bytes ("
+                  << num_bits << " bits)\n";
+    } else if (!is_tone) {
+        std::cerr << "[ERROR] unknown --message-type '" << message_type
+                  << "' (use: bytes | random | sine | cosine)\n";
+        return EXIT_FAILURE;
+    }
+
+    // Split into fixed-size chunks (tones carry no framed message → chunks empty).
+    // Pad the final short chunk up to bytes_length so EVERY packet is the same size
+    // (the RX detect/sync path is sized for a full chunk).
     auto chunks = split_message_into_chunks(original_message, bytes_length);
-    // Pad the final (short) chunk up to bytes_length so EVERY packet is the same
-    // size. The RX detect/sync path is sized for a full chunk (fixed data-symbol
-    // count + energy min-length gate), so a short final chunk would otherwise be
-    // rejected and its bytes lost. Padding with spaces is harmless for text.
     for (auto& c : chunks)
         if (c.size() < bytes_length) c.resize(bytes_length, ' ');
-    std::cout << "[MAIN] Split into " << chunks.size()
-              << " chunk(s) of " << bytes_length << " bytes (final chunk padded)\n";
+    if (!is_tone)
+        std::cout << "[MAIN] Message: " << original_message.size() << " bytes -> "
+                  << chunks.size() << " chunk(s) of " << bytes_length << " bytes\n";
 
     // ── Start physical layer ────────────────────────────────
     std::cout << "[MAIN] Mode: " << mode << "\n";
@@ -683,25 +730,81 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         sink.print_received_message();
 
     } else if (config.role == "tx") {
-        // ONE-WAY TRANSMIT (no ARQ). Push every chunk into the TX pipeline and
-        // repeat the whole message tx_reps times so the RX — which may be started
-        // at any moment — has several chances to acquire each burst.
-        uint8_t total = static_cast<uint8_t>(chunks.size());
-        std::cout << "[TX] One-way transmit: " << (int)total << " chunk(s), scheme "
-                  << config.scheme << ", " << tx_reps << " reps. Ctrl-C to stop.\n";
-        for (int r = 0; r < tx_reps && !global_stop_signal.load(); ++r) {
-            for (uint8_t idx = 0; idx < total && !global_stop_signal.load(); ++idx) {
-                auto bits = build_packet_bits(chunks[idx], idx, total);
-                if (config.fec) bits = fec_encode_block(bits);   // rate-1/2 K=7
-                transceiver.transmit(bits);
-                std::cout << "[TX] queued chunk " << (int)idx + 1 << "/" << (int)total
-                          << "  (rep " << r + 1 << "/" << tx_reps << ")\n";
-                std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+        // ONE-WAY TRANSMIT (no ARQ).  --tx-mode burst = a finite number of
+        // transmissions (--tx-reps) with --interval gaps; --tx-mode continuous =
+        // transmit until Ctrl-C (a repeating data loop, or an unbroken carrier for
+        // the sine/cosine test tone).
+        const bool continuous = (tx_mode == "continuous");
+        if (is_tone) {
+            // ── Raw test-tone generator: push samples straight to the USRP,
+            //    bypassing modulation & pulse-shaping. ──
+            const bool   cosine = (message_type == "cosine");
+            const int    N      = 8000;                                // ~5 ms/block @ 1.6 MHz
+            const double dphi   = 2.0 * M_PI * tone_freq / config.tx_rate;
+            double phase = 0.0;
+            std::cout << "[TX] Test tone: " << message_type << " @ " << tone_freq/1e3
+                      << " kHz  amp=" << tone_amp << "  (" << tx_mode
+                      << ").  Ctrl-C to stop.\n";
+            auto gen = [&](std::vector<std::complex<float>>& blk) {
+                blk.resize(N);
+                for (int n = 0; n < N; ++n) {
+                    float s = tone_amp * static_cast<float>(cosine ? std::cos(phase)
+                                                                   : std::sin(phase));
+                    blk[n] = std::complex<float>(s, 0.0f);
+                    phase += dphi; if (phase > 2.0 * M_PI) phase -= 2.0 * M_PI;
+                }
+            };
+            std::vector<std::complex<float>> blk;
+            if (continuous) {                                          // unbroken carrier
+                while (!global_stop_signal.load()) {
+                    if (transceiver.tx_pending() < 8) {                // keep the FIFO fed
+                        gen(blk); transceiver.transmit_samples(blk);
+                    } else std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                }
+            } else {                                                   // tone bursts
+                for (int r = 0; r < tx_reps && !global_stop_signal.load(); ++r) {
+                    gen(blk); transceiver.transmit_samples(blk);
+                    std::cout << "[TX] tone burst " << r + 1 << "/" << tx_reps << "\n";
+                    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+                }
+            }
+        } else {
+            // ── Framed data (bytes / random): burst = tx_reps cycles then stop,
+            //    continuous = loop the message until Ctrl-C. ──
+            uint8_t total = static_cast<uint8_t>(chunks.size());
+            std::cout << "[TX] One-way transmit: " << (int)total << " chunk(s), scheme "
+                      << config.scheme << "  ("
+                      << (continuous ? std::string("continuous")
+                                     : std::to_string(tx_reps) + " reps")
+                      << ").  Ctrl-C to stop.\n";
+            for (int r = 0; (continuous || r < tx_reps) && !global_stop_signal.load(); ++r) {
+                for (uint8_t idx = 0; idx < total && !global_stop_signal.load(); ++idx) {
+                    auto bits = build_packet_bits(chunks[idx], idx, total);
+                    if (config.fec) bits = fec_encode_block(bits);   // rate-1/2 K=7
+                    transceiver.transmit(bits);
+                    std::cout << "[TX] queued chunk " << (int)idx + 1 << "/" << (int)total
+                              << (continuous ? "  (continuous)"
+                                             : "  (rep " + std::to_string(r + 1) + "/"
+                                               + std::to_string(tx_reps) + ")") << "\n";
+                    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+                }
             }
         }
         // let the final burst drain out of the TX pipeline before shutting down
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         std::cout << "[TX] Done.\n";
+
+    } else if (config.role == "rx" && is_tone) {
+        // TONE MONITOR. The received signal is a raw tone — not framed data — so
+        // there is nothing to decode. The RX pipeline still captures it and the
+        // spectrum (with the tone peak) is auto-saved to the viz figure on exit.
+        // Use --tx-mode burst on the transmitter so each tone burst is cleanly
+        // detected and plotted.
+        std::cout << "[RX] Tone monitor: capturing the received signal — no data to "
+                     "decode.\n[RX] The spectrum (tone peak) is saved to " << viz::dir
+                  << "/figure.png on exit.  Ctrl-C to stop.\n";
+        while (!global_stop_signal.load())
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     } else if (config.role == "rx") {
         // ONE-WAY RECEIVE (no ARQ). Pull decoded packets from the RX pipeline,
@@ -791,9 +894,22 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                              " or link margin).\n";
         }
         std::string full; for (auto& p : parts) full += p;
-        std::cout << "\n================ DECODED MESSAGE ================\n"
-                  << full << "\n"
-                  << "=================================================\n";
+        std::cout << "\n================ DECODED MESSAGE ================\n";
+        if (message_type == "random") {
+            // Random bytes aren't readable — show a byte count + hex preview.
+            static const char* HX = "0123456789ABCDEF";
+            std::string hs;
+            for (size_t i = 0; i < full.size() && i < 32; ++i) {
+                unsigned char c = static_cast<unsigned char>(full[i]);
+                hs += HX[c >> 4]; hs += HX[c & 0xF]; hs += ' ';
+            }
+            std::cout << "[random payload] " << full.size()
+                      << " bytes, all CRC-verified (bit-error free).\n"
+                      << "hex: " << hs << (full.size() > 32 ? "..." : "") << "\n";
+        } else {
+            std::cout << full << "\n";
+        }
+        std::cout << "=================================================\n";
 
     } else if (mode == "source") {   // role both (legacy single-box loopback ARQ)
         RfAckLink ack(transceiver, bytes_length, config.fec);   // ACK over RF (loopback)
