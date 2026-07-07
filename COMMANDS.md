@@ -171,6 +171,39 @@ phase, and differential fights its per-symbol CPE tracking.
 - **One-way (no ACK)** instead of ARQ: use `--role rx` / `--role tx --tx-reps 20`
   (drop the `--ack-*` flags).
 
+## Payload type & transmission mode
+
+`--message-type` selects what is sent; `--tx-mode` (role tx) selects burst (finite,
+`--tx-reps` cycles with `--interval` gaps) vs continuous (until Ctrl-C). Works with
+any scheme/waveform above.
+
+| `--message-type` | Payload | RX prints | ARQ? |
+|---|---|---|---|
+| `bytes` (default) | given text — default Star Wars crawl, override with `--message "..."` | the text | yes |
+| `random` | `--num_bits` random bits (→ bytes, chunked like text) | byte count + hex, CRC-verified | yes |
+| `sine` / `cosine` | raw baseband test tone (`--tone-freq`, `--tone-amp`) | spectrum plot (monitor) | no (role tx/rx only) |
+
+```bash
+# Custom text
+./sdr_system --role source_arq ... --message-type bytes --message "hello world"
+
+# Random-bit throughput test (2000 bits → 250 bytes → 2 chunks), ARQ terminates normally
+./sdr_system --role sink_arq   ... --message-type random --num_bits 2000
+./sdr_system --role source_arq ... --message-type random --num_bits 2000
+
+# Continuous data loop (never stops until Ctrl-C)
+./sdr_system --role tx ... --scheme QPSK --tx-mode continuous
+
+# Test tone: TX a continuous 200 kHz cosine carrier; monitor it on the other radio
+./sdr_system --role tx ... --message-type cosine --tone-freq 200e3 --tone-amp 0.5 --tx-mode continuous
+./sdr_system --role rx ... --message-type cosine     # monitor: captures + plots the spectrum
+```
+
+Notes: `random` uses a fixed seed (reproducible) and rides the same CRC/FEC/ARQ path
+as text, so the payload arrives bit-error-free or not at all. Tones are raw waveforms
+(no preamble/CRC) — for a clean RX capture use `--tx-mode burst` so each burst triggers
+detection, and set both ends to `--message-type sine|cosine`.
+
 ## 16-QAM and higher — blocked without a shared clock
 **Validated ceiling on this rig is QPSK / 8-PSK.** 16-QAM+ does **not** decode, and a clean cable
 is necessary but not sufficient. On a direct cable the SNR is excellent and QPSK works, but the two
