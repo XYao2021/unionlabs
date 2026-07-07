@@ -53,3 +53,36 @@ the RX self-terminate (or stops it).
 
 See `example.py` for the four role modes, scheme sweeps, a random-bit test, and a tone.
 Run it to print the commands without touching hardware.
+
+## JSON config files (recommended — clearer than a long command line)
+
+`run.py` runs the PHY from a JSON file. Every key is an option name from `sdr.py`
+(hyphens or underscores). Ready-made configs are in `configs/`.
+
+```bash
+python3 run.py configs/qpsk_arq_pair.json              # run it
+python3 run.py configs/qpsk_arq_pair.json --dry-run    # just print the command(s)
+```
+
+**Single run** — one object with a `role` (plus any options):
+
+```json
+{ "role": "tx", "tx_args": "serial=30CD424", "scheme": "8-PSK",
+  "tx_gain": 86, "fec": true, "tx_reps": 20 }
+```
+
+**Paired run (both ends at once)** — `rx` and `tx` objects; `common` is merged into
+both; optional `pair` tunes `run_pair()`:
+
+```json
+{
+  "common": { "rx_freq": 915e6, "tx_freq": 915e6, "scheme": "QPSK", "fec": true },
+  "rx": { "role": "sink_arq",   "rx_args": "serial=30CD3F7", "rx_gain": 20 },
+  "tx": { "role": "source_arq", "tx_args": "serial=30CD424", "tx_gain": 78 },
+  "pair": { "rx_head_start": 4, "rx_grace": 30 }
+}
+```
+
+Keys starting with `_` (e.g. `"_comment"`) are ignored. `binary` at the top level
+overrides the `sdr_system` path. Provided configs: `qpsk_arq_pair`, `ofdm_qpsk_pair`,
+`random_pair`, `tx_only`, `rx_only`, `tx_tone`.
