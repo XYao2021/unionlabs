@@ -55,6 +55,18 @@ Default physical parameters: symbol rate `0.8 MHz`, `U/D = 2/1` → sample rate 
   offset / no PLL, at a ~3 dB SNR penalty. `PI4-QPSK` rotates the constellation by π/4 each
   symbol to avoid zero-crossings (lower envelope variation).
 
+**Detection & why constellation order costs SNR.** The demodulator makes a **minimum-distance
+decision** — pick the constellation point `ŝ = argmin_c |y − c|` nearest the received symbol `y`
+(optimal for equiprobable symbols in AWGN). An error happens when noise/distortion pushes `y`
+past the halfway line to a neighbor, i.e. beyond half the **minimum distance** `d_min/2`. For a
+fixed average power `Es`, packing more points shrinks `d_min`: QPSK has `d_min = √(2Es)` with the
+whole plane split into 4 quadrants, while 16-QAM squeezes 16 points into the same power so
+`d_min` is ~3× smaller and its decision cells ~3× tighter. The **error vector magnitude**
+`EVM = rms(y − ŝ)/rms(c)` measures how far symbols land from ideal; reliable decoding needs
+`EVM ≲ d_min/(2·rms)`, which is why QPSK survived ~37 % EVM over the air but 16-QAM (needing
+≲ 12 %) did not. **Gray coding** the bit→point map (adjacent points differ by one bit) makes each
+symbol error cost only ~1 bit error.
+
 **Bits↔symbols detail.** Gray-like index mapping; `bits_to_index` zero-fills a partial final
 group so schemes whose bits/symbol don't divide the frame (32-QAM, 128-QAM) still align — a
 bug fixed early in this project.
@@ -126,9 +138,19 @@ windowed-OFDM / filtered-OFDM / OTFS for spectral containment.
 The RX runs continuously; the energy detector decides *when a burst is present* so downstream
 sync isn't run on noise.
 
-**Math.** An IIR (EMA) smoother tracks instantaneous power:
-`filtered = (1−α)·inst + α·prev` (`--alpha 0.95`, larger α = more smoothing, ~20-sample time
-constant). A burst is declared when `filtered > threshold`.
+**Math.** This is a **binary hypothesis test** per sample — `H0`: noise only, `H1`: signal
+present — on the received power. The instantaneous power `|r[n]|²` is smoothed by a one-pole IIR
+(exponential moving average) to reduce variance:
+
+```
+filtered[n] = (1−α)·|r[n]|² + α·filtered[n−1]      (--alpha 0.95)
+```
+
+Larger α = more averaging (time constant ≈ `1/(1−α)` ≈ 20 samples), which trades detection
+latency for a lower false-alarm rate — the smoothing collapses the variance of the noise power
+estimate so a single threshold cleanly separates the two hypotheses. Declare a burst when
+`filtered[n] > threshold`. (α = 0.02 barely smoothed → the detector fired on every noise spike
+and even chopped real bursts apart on the RRC envelope; α = 0.95 gives one clean capture/burst.)
 
 - **Adaptive threshold** (`--det-adaptive true`, default): `threshold = noise_floor × multiplier`,
   with `--det-mult 5` (raise to 10–30 over the air so ambient RF doesn't trigger it; too high
@@ -148,56 +170,199 @@ detectors, cyclostationary feature detection (works below the noise floor).
 
 ---
 
-## 5. Synchronization
+## 5. Synchronization, frequency & phase offset
 
-Three things must be recovered: **frame start** (where the packet begins), **symbol timing**
-(the optimal sampling instant), and **carrier frequency/phase**.
+### 5.0 The received-signal model (what every block below is undoing)
 
-### 5.1 Preamble
-`--preamble m-sequence` (default) or `--preamble zadoff`; `--m 5` sets m-sequence order
-(length `2^m − 1 = 31`).
+After the RX front-end down-converts to baseband, the transmitted symbol stream `s[m]`
+(pulse-shaped, sampled at `fs`) arrives distorted by four separable impairments:
 
-- **m-sequence** — a maximal-length binary (BPSK) shift-register sequence with an almost-ideal
-  two-valued autocorrelation (sharp peak, −1 floor). Real-valued.
-- **Zadoff-Chu** — a complex **constant-envelope** CAZAC sequence (constant amplitude, zero
-  autocorrelation). Better for driving a complex channel estimate / equalizer training and for
-  clean correlation under CFO. Preferred when training the equalizer or for dense QAM
-  (used with LS equalizer training in this project).
+```
+r[n] = A · e^{ j( 2π (Δf/fs) n + φ0 ) } · Σ_m s[m] · g(nTs − mT − τ)  +  w[n]
+        └────────── carrier ──────────┘   └──── timing (delay τ) ────┘   └ noise
+```
 
-### 5.2 Frame sync (single-carrier) — ACQ correlation
-`SamplesACQPerformance` cross-correlates the incoming samples against the known preamble; the
-correlation **peak location** is the frame start and the peak **magnitude** gates false alarms.
-`--sync_threshold 15` — set below the true preamble peak (~preamble length ≈ 31 after AGC) but
-above the noise-correlation floor. Watch the `[ACQ] Peak correlation` log lines to tune.
+- **A** — unknown gain → removed by the **AGC** (§9).
+- **Δf** — **carrier frequency offset (CFO)**: the two radios' oscillators differ (each B210
+  TCXO is ±2 ppm, so up to ~4 ppm ≈ 3.6 kHz at 915 MHz). A constant Δf produces a phase that
+  **grows linearly with time**, `θ[n] = 2π(Δf/fs)n` — it *spins* the constellation. Left
+  uncorrected it turns the constellation into a ring.
+- **φ0** — **static carrier phase offset**: the oscillators' phase difference at acquisition
+  plus the channel's phase. A constant *rotation* of the whole constellation.
+- **τ** — **timing offset**: the ADC sampling grid isn't aligned to the symbol centers, so the
+  matched filter is sampled off its peak → inter-symbol interference (ISI).
+- **w[n]** — AWGN.
 
-**Math.** For received `r` and preamble `p`, the correlator computes
-`R[d] = Σ r[d+n]·conj(p[n])`; a true preamble gives `|R|≈Σ|p|²` at the right offset, noise gives
-much less → threshold in between. Joint frame + coarse symbol timing come from the peak.
+Note the coupling: **residual CFO becomes a phase ramp `φ[n] = φ0 + 2π(Δf/fs)n`**, which is
+why §5.5 uses a *second-order* loop (tracks a constant phase **and** its constant rate) and why
+OFDM needs per-symbol CPE tracking (§3.2). The recovery order is:
+**frame sync → timing → CFO → phase**.
+
+### 5.1 Preamble (the known reference all estimators key off)
+`--preamble m-sequence` (default) or `--preamble zadoff`; `--m 5` sets the m-sequence order
+(length `L = 2^m − 1 = 31`).
+
+A good preamble `p` has a **thumbtack autocorrelation** `Σ_n p[n]·conj(p[n+k]) ≈ E·δ[k]`
+(large at zero lag, near-zero elsewhere) so the correlator (§5.2) gives one sharp, unambiguous peak.
+
+- **m-sequence** — maximal-length binary (BPSK ±1) shift-register sequence. Periodic
+  autocorrelation is two-valued: `L` at zero lag, `−1` otherwise. Real-valued.
+- **Zadoff-Chu** — complex **CAZAC** sequence `p[n] = exp(−jπ u n(n+1)/L)`: *constant amplitude*
+  and *zero cyclic autocorrelation*. The flat spectrum makes it ideal for training a complex
+  channel estimate / equalizer, and its constant envelope correlates cleanly even under CFO.
+  Preferred for equalizer training and dense QAM.
+
+### 5.2 Frame synchronization — ACQ correlation
+The receiver must find where the packet starts. `ACQSynchronizer::SamplesACQPerformance`
+slides the known preamble over the burst and computes, at each candidate offset τ (the
+`ComputeCorrelation` routine), the **matched-filter / cross-correlation** magnitude:
+
+```
+R(τ) = | Σ_{n=0}^{L−1}  conj(p[n]) · r[ τ + n·os ] |            (os = samples/symbol)
+```
+
+By the matched-filter theorem this is the optimal detector for a known sequence in AWGN.
+At the true start `τ*`, all `L` terms add coherently → `R(τ*) ≈ Σ|p[n]|²`; at any wrong offset
+the terms add with random phases → `R ~ √L` (much smaller). Detection:
+
+- **Coarse pass**: find `τ` where `R(τ)` first crosses `--sync_threshold` (default 15), then
+- **Fine pass**: search ±a few samples around it for the true maximum.
+- **Noise floor / CFAR**: `EstimateNoiseFloor` correlates *away* from the peak (excluding a guard
+  zone) to measure the off-peak floor, so the threshold can be set relative to it. Set
+  `--sync-threshold` below the real peak (≈ preamble length ~31 after AGC) but above that floor;
+  watch the `[ACQ] Peak correlation` log lines.
+
+Because the search tests **every sample** (not every `os`-th), the peak location simultaneously
+gives **coarse symbol timing** — the correct sub-symbol sampling phase. (Striding by `os` would
+test only one of the `os` phases and could lock a half-symbol off → catastrophic ISI, BER ≈ 0.5.
+This was an actual bug; the brute-force search fixed it.)
 
 ### 5.3 Symbol-timing recovery — Gardner TED
-A **Gardner timing-error detector** in a second-order loop tracks the sampling phase:
-`--timing_loop_bw 0.015` (loop bandwidth BnT), `--timing_damping 0.707`, `--sps_sync 5`
-(samples/symbol at matched-filter output).
+The ACQ peak gets timing right to the nearest sample; the **Gardner timing-error detector**
+(`GardnerTED`) then tracks the residual *fractional* delay continuously.
+`--timing_loop_bw 0.015` (loop bandwidth `Bn·T`), `--timing_damping 0.707`, `--sps_sync 5`.
 
-**Math.** Gardner error `e = Re{ (y[k] − y[k−1])·conj(y[k−½]) }` uses the sample *between*
-symbols; it is **decision- and carrier-phase-independent** (works before the constellation is
-resolved), which is why it's popular. The error drives an NCO/interpolator via a
-proportional-integral loop (bandwidth vs jitter trade-off set by `timing_loop_bw`).
-Alternatives: Mueller & Müller (decision-directed, 1 sample/sym), early-late gate, Zero-crossing TED.
+**Error detector.** With two samples per symbol — one at the symbol center `y[k]` and one at the
+half-symbol midpoint `y[k−½]` — the Gardner error is
 
-### 5.4 Carrier recovery
-- **Phase PLL** (`--phase_loop_bw 0.02`, `--phase_damping 0.707`) — a second-order
-  phase-locked loop derotates residual carrier phase for single-carrier.
-- **OFDM CFO** — Schmidl-Cox estimates fractional carrier frequency offset from the repeated
-  half-symbol preamble: `ε = angle(P)/π`, where `P = Σ r[n]·conj(r[n+N/2])` over the identical
-  halves. The whole burst is derotated by `exp(−j·2π·ε·n/N)`. Range ±½ subcarrier spacing;
-  residual is mopped up per-symbol by the pilot CPE (§3.2).
+```
+e[k] = Re{ ( y[k] − y[k−1] ) · conj( y[k−½] ) }
+```
 
-**Math (Schmidl-Cox).** The sync symbol is two identical halves `[A A]`. The timing metric
-`M[d] = |P[d]|² / R[d]²` (P = correlation of the two halves, R = energy) plateaus where the
-halves align; the plateau left-edge (plus a small guard into the CP) is the frame start, and
-`arg(P)` gives the CFO. Alternatives: Minn/Park variants (sharper timing metric), CP-based
-(blind, pilotless) sync.
+Intuition: if sampling is early or late, the midpoint sample `y[k−½]` (sitting on the transition
+between symbols) correlates with the slope `y[k]−y[k−1]`; at perfect timing the midpoint is a
+true zero-crossing and `e = 0`. It is **decision-independent and carrier-phase-independent**
+(the `Re{·}` with the difference term cancels a constant rotation), so it works *before* CFO/phase
+are resolved — the reason Gardner is the default choice for QAM.
+
+**Loop.** The NCO advances `ω = 2/sps` per input sample (two strobes/symbol — using `1/sps`
+gives only one strobe and the "midpoint" lands a full symbol away → the loop tracks garbage;
+this was a fixed bug). A **Farrow interpolator** produces the fractional-delay sample at offset
+`μ`, and a **proportional-integral (PI) loop filter** drives `μ`:
+
+```
+freq_adj += K2 · e        (integrator — tracks a constant timing rate, i.e. sample-clock offset)
+μ        −= K1 · e        (proportional — corrects instantaneous phase)
+```
+
+with `freq_adj` clamped to ±10 % of `ω`. The PI coefficients come from the standard second-order
+design (same `θn`/`ζ` formulas as §5.5). Only the symbol-center strobes are emitted → exactly one
+sample per symbol out.
+
+*Alternatives:* Mueller & Müller (decision-directed, needs only 1 sample/sym but needs carrier
+first), early-late gate, zero-crossing TED.
+
+### 5.4 Carrier frequency offset (CFO) estimation & correction
+A constant CFO spins the constellation at `2π·Δf/fs` rad/sample. Two estimators are provided
+(`CFOEstimator`), both **data-aided** off the preamble, then `FrequencyShifter` removes it by
+multiplying sample `n` by `exp(−j·2π·(Δf/fs)·n)` (a running phase accumulator, so blocks join
+seamlessly).
+
+**(A) Pilot-aided (phase-slope across preamble symbols).** For preamble symbols `p[k]` received at
+`r[k·sps]`, the phase advance per symbol is measured with the known data stripped off:
+
+```
+φ_k = arg( r[k·sps] · conj(r[(k−1)·sps]) · conj(p[k]) · p[k−1] )
+Δf  = ( mean_k φ_k ) · fs / ( 2π · sps )
+```
+
+Averaging over the preamble reduces noise. Unambiguous range `|Δf| < fs/(2·sps)` (one symbol of
+phase must not wrap).
+
+**(B) Auto-correlation (Moose / Schmidl-Cox).** With a preamble made of two identical halves of
+length `L`, the second half equals the first times the CFO phase accrued over `L` samples:
+
+```
+P  = Σ_{n=0}^{L−1}  r[n+L] · conj(r[n])        (≈ |A|²·L · e^{ j·2π·(Δf/fs)·L })
+Δf = arg(P) · fs / ( 2π · L )
+```
+
+Unambiguous range `|Δf| < fs/(2L)` — smaller `L` → wider capture range but noisier. This is the
+same estimator OFDM uses (§5.6), where `L = N/2`.
+
+**Why residual CFO still matters.** `arg(·)` limits the estimate; whatever is left is a slow
+phase ramp the **phase tracker (§5.5)** or **OFDM pilot CPE (§3.2)** cleans up. Getting this
+balance wrong is exactly what smeared 16-QAM/OFDM over the air.
+
+### 5.5 Carrier phase offset — estimation & PLL tracking
+After timing + CFO the symbols still carry a residual phase `φ[n] = φ0 + (residual ramp)`. For
+**absolute** constellations (BPSK/QPSK/QAM) all of it must be removed before hard decisions; for
+**differential** schemes the static `φ0` cancels automatically (demod uses phase *differences*).
+
+**One-shot estimators** (`PhaseOffsetEstimator`):
+
+- **ML / preamble correlation** — optimal given the known preamble:
+  `φ̂ = arg( Σ_n r[n]·conj(p[n]) )`.
+- **M-th power (blind, for M-PSK)** — raising to the `M`-th power collapses all `M` data phases
+  onto one, removing the modulation: `φ̂ = (1/M)·arg( Σ_n r[n]^M )`.
+- **Decision-directed** — `φ̂ = arg( Σ_n r[n]·conj(ŝ[n]) )` against the nearest constellation
+  points `ŝ` (used for QAM, after a coarse lock).
+
+**Tracking PLL** (`PhaseTracker`) — a second-order digital PLL that follows a static offset **and**
+a constant frequency ramp (residual CFO). Per symbol: form the phase error against the nearest
+decision, then update an integrator (frequency) and the phase:
+
+```
+e[n]   = arg( corrected[n] · conj(ŝ[n]) )      (phase-detector, exact angle in [−π,π])
+freq  += β · e[n]                              (integrator — tracks the residual CFO ramp)
+φ     += α · e[n] + freq                       (NCO phase)
+```
+
+The loop coefficients come from the standard proportional-integral design for loop bandwidth
+`Bn·T` (`--phase_loop_bw 0.02`) and damping `ζ` (`--phase_damping 0.707`):
+
+```
+θn = (Bn·T) / ( ζ + 1/(4ζ) )
+α  = 4ζ·θn / ( 1 + 2ζ·θn + θn² )               (proportional gain)
+β  = 4·θn² / ( 1 + 2ζ·θn + θn² )               (integral gain; β = 0 → first-order loop)
+```
+
+Smaller `Bn·T` = less jitter but slower pull-in; `ζ = 0.707` is the critically-damped standard.
+*Alternatives:* Costas loop (joint carrier recovery on the raw samples), block Viterbi-Viterbi
+phase estimation, pilot-symbol-aided interpolation.
+
+### 5.6 OFDM synchronization — Schmidl & Cox
+OFDM recovers frame timing and CFO jointly from a sync symbol built as two identical time halves
+`[A A]` (generated by loading only the **even** subcarriers). Sliding a window of length `N/2`:
+
+```
+P(d) = Σ_{n=0}^{N/2−1} r[d+n]·conj(r[d+n+N/2])      (half-to-half correlation)
+R(d) = Σ_{n=0}^{N/2−1} |r[d+n+N/2]|²                (energy normaliser)
+M(d) = |P(d)|² / R(d)²                              (timing metric ∈ [0,1])
+```
+
+`M(d)` forms a **plateau** where the two halves align; the frame start is the plateau's left edge
+plus a small guard into the CP (any offset inside the CP is just a per-subcarrier phase the
+channel estimate absorbs). The **fractional CFO** falls out of the same correlation:
+
+```
+ε = arg( P ) / π        (in subcarrier-spacing units, range ±1 subcarrier)
+```
+
+and the burst is derotated by `exp(−j·2π·ε·n/N)`. Residual CFO / phase drift across the frame is
+then tracked per symbol by the scattered-pilot CPE of §3.2. An energy gate (`R ≥ 0.30·max R`)
+stops the metric from locking onto the low-power noise pad before the burst.
+*Alternatives:* Minn and Park metrics (sharper, no plateau ambiguity), CP-based blind sync.
 
 ---
 
@@ -206,10 +371,31 @@ halves align; the plateau left-edge (plus a small guard into the CP) is the fram
 `--eq_type None` (default) | `LMS` | `RLS` | `DFE`. `--eq_taps 11`, `--eq_mu 0.3` (NLMS step),
 `--eq_dd false` (decision-directed tracking after training).
 
-**Math.** A linear FIR equalizer `w` inverts channel ISI: `ŝ = wᴴ·r`. Trained on the known
-preamble by **least-squares (LS/MMSE)**: `w = (RᴴR + λI)⁻¹ Rᴴs`, which is exact for a complex
-(Zadoff-Chu) preamble. **NLMS** updates `w ← w + μ·e·r*/‖r‖²` sample-by-sample (used for a real
-preamble or DD tracking). A center-tap delay must be compensated (fixed in this project).
+**Math.** A length-`T` linear FIR equalizer `w` estimates each symbol from a window of received
+samples: `ŝ[k] = wᴴ·r[k] = Σ_i conj(w_i)·r[k−i]`, choosing `w` to invert the channel `h`
+(ideally `w * h ≈ δ`). Two ways to find `w`:
+
+- **Least-squares / MMSE training** (used, exact for the complex Zadoff-Chu preamble). Stack the
+  preamble windows into a matrix `R` and the known symbols into `s`; minimize `‖R·w − s‖²`:
+
+  ```
+  w = (Rᴴ R + λI)⁻¹ Rᴴ s          (λ = diagonal loading / MMSE regularization)
+  ```
+
+  solved here by Gaussian elimination. `λI` = Tikhonov regularization: it bounds noise
+  enhancement at channel nulls (the MMSE, not zero-forcing, solution).
+
+- **NLMS adaptive update** (real preamble / decision-directed tracking): step down the
+  instantaneous-error gradient, normalized by input power for stability:
+
+  ```
+  e[k] = s[k] − ŝ[k]
+  w   ← w + μ · e[k]* · r[k] / (‖r[k]‖² + ε)          (--eq_mu 0.3, 0 < μ < 2 for convergence)
+  ```
+
+The LS solution places the main tap at the equalizer center, so a **center-tap group delay** of
+`(T−1)/2` samples must be compensated when aligning the output — mishandling this looked like
+"divergence" and was a fixed bug.
 
 **Status / why default None.** On a clean cabled link no equalizer is needed. The LMS
 decision-directed loop currently **diverges on the real hardware signal** (DD error grows and
@@ -225,13 +411,31 @@ RLS (faster convergence than LMS, O(n²) cost), MLSE/Viterbi equalization (optim
 `--fec true` (default off) — rate-1/2, constraint-length-7 **convolutional code** with
 **Viterbi** hard-decision decoding. Must match on both ends; halves the payload rate (2× symbols).
 
-**Math.** Encoder: two generator polynomials `G1 = 0171₈`, `G2 = 0133₈` (the standard
-NASA / 802.11a code) produce 2 output bits per input bit from a 6-stage shift register, spreading
-each bit's influence over `K = 7` bits (memory). The **Viterbi** decoder finds the
-maximum-likelihood path through the 64-state trellis (survivor path per state, traceback of the
-predecessor), correcting scattered bit errors. Validated to ~100% CRC-OK up to ~2% raw BER.
-Two original bugs (encoder output taken from the *next* state; traceback storing the bit not the
-predecessor) were fixed.
+**Math.** Encoder: a 6-stage shift register holds the last `K−1 = 6` input bits (state
+`σ ∈ {0..63}`); each input bit `u` emits two coded bits as mod-2 (XOR) taps of the register per
+the generator polynomials `G1 = 171₈`, `G2 = 133₈` (the standard NASA / 802.11a code):
+
+```
+c1 = G1 · [u, state]   (mod 2),   c2 = G2 · [u, state]   (mod 2)
+```
+
+Each input bit thus influences `K = 7` output-bit pairs (the constraint length / memory), which
+is what lets the decoder recover it even when some of those bits are flipped.
+
+**Viterbi decoding** finds the maximum-likelihood transmitted sequence by the most-likely path
+through the 64-state trellis. For hard decisions the branch metric is the **Hamming distance**
+between the received pair and each branch's expected `(c1,c2)`; the decoder keeps, per state, the
+survivor path with the smallest cumulative metric:
+
+```
+PM_t(σ') = min over predecessors σ  [ PM_{t−1}(σ) + Hamming( r_t , c(σ→σ') ) ]
+```
+
+then traces the survivors back to output the bits. It corrects any error pattern up to roughly
+`⌊(d_free−1)/2⌋` — `d_free = 10` for this code — per window; validated ~100 % CRC-OK up to ~2 %
+raw BER. (Two original bugs — encoder emitting from the *next* state, traceback storing the bit
+instead of the predecessor state — were fixed.) **Soft-decision** Viterbi (Euclidean instead of
+Hamming metric, using the raw symbol distances) would add ~2 dB but isn't implemented.
 
 **Common alternatives:** LDPC and Turbo codes (near-Shannon, used in Wi-Fi/5G), Reed-Solomon
 (burst errors), Polar codes (5G control), soft-decision Viterbi (~2 dB better than the
@@ -253,11 +457,18 @@ hard-decision decoder here).
     share one host.
   - `rf` — ACK sent back over the air on the second RF path (needs a clean reverse link).
 
-**Math/theory.** CRC = remainder of the message polynomial divided (mod-2) by the CRC-16-CCITT
-generator `x¹⁶+x¹²+x⁵+1`; catches all 1–2 bit errors, all odd-count errors, and all bursts ≤16
-bits. Stop-and-wait is the simplest ARQ (low throughput on long links because it idles waiting
-for each ACK). Alternatives: Go-Back-N and Selective-Repeat ARQ (pipelined, higher throughput),
-Hybrid ARQ (FEC + ARQ combined, as used here when `--fec` is on).
+**Math/theory.** Treat the message bits as coefficients of a polynomial `M(x)` over GF(2);
+append 16 zeros (`M(x)·x¹⁶`) and divide by the CRC-16-CCITT generator
+`G(x) = x¹⁶+x¹²+x⁵+1` (mod-2 / XOR long division). The 16-bit remainder is the CRC; the RX
+recomputes it and flags any nonzero mismatch. Because an undetected error requires the error
+polynomial `E(x)` to be an exact multiple of `G(x)`, this structure guarantees detection of: all
+single- and double-bit errors, any odd number of errors (G has the factor `x+1`), and all burst
+errors of length ≤ 16. Residual undetected probability ≈ `2⁻¹⁶` for random errors.
+
+Stop-and-wait is the simplest ARQ (throughput limited by idling one round-trip per chunk).
+*Alternatives:* Go-Back-N / Selective-Repeat (pipelined, higher throughput), Hybrid-ARQ
+(FEC + ARQ combined — what you get here with `--fec` on: FEC corrects most errors, CRC+retransmit
+catches the rest).
 
 **One-way mode** (`--role tx` / `rx`, no ACK): the TX cycles all chunks `--tx-reps` times; the RX
 reassembles from CRC-verified chunks and auto-stops `--rx-idle-timeout 8` s after the last burst.
