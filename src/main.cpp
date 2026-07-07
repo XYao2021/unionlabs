@@ -597,11 +597,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                       << ":" << config.ack_port << "\n";
             ack.reset(new TcpAckLink(fd));
         } else {
-            ack.reset(new RfAckLink(transceiver, bytes_length));
+            ack.reset(new RfAckLink(transceiver, bytes_length, config.fec));
         }
         std::cout << "[SOURCE-ARQ] " << chunks.size() << " chunks, timeout "
-                  << timeout_ms << " ms, ACK via " << ack->name() << ". Ctrl-C to abort.\n";
-        SOURCE source(transceiver, *ack, timeout_ms, num_bits);
+                  << timeout_ms << " ms, ACK via " << ack->name()
+                  << (config.fec ? ", FEC on" : "") << ". Ctrl-C to abort.\n";
+        SOURCE source(transceiver, *ack, timeout_ms, num_bits, 50, config.fec);
         source.start(chunks);
         while (!source.done() && !global_stop_signal.load())
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -623,11 +624,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             std::cout << "[SINK-ARQ] ACK socket connected\n";
             ack.reset(new TcpAckLink(fd));
         } else {
-            ack.reset(new RfAckLink(transceiver, bytes_length));
+            ack.reset(new RfAckLink(transceiver, bytes_length, config.fec));
         }
         std::cout << "[SINK-ARQ] Waiting for chunks; ACKing verified ones via "
-                  << ack->name() << ". Ctrl-C to stop.\n";
-        SINK sink(transceiver, *ack, timer_interval);
+                  << ack->name() << (config.fec ? ", FEC on" : "") << ". Ctrl-C to stop.\n";
+        SINK sink(transceiver, *ack, timer_interval, config.fec, bytes_length);
         sink.start();
         while (!sink.done() && !global_stop_signal.load())
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -752,8 +753,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                   << "=================================================\n";
 
     } else if (mode == "source") {   // role both (legacy single-box loopback ARQ)
-        RfAckLink ack(transceiver, bytes_length);   // ACK over RF (loopback)
-        SOURCE source(transceiver, ack, timeout_ms, num_bits);
+        RfAckLink ack(transceiver, bytes_length, config.fec);   // ACK over RF (loopback)
+        SOURCE source(transceiver, ack, timeout_ms, num_bits, 50, config.fec);
         source.start(chunks);
 
         std::cout << "[SOURCE] Running — Ctrl-C to stop\n";
@@ -763,8 +764,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         source.stop();
 
     } else {   // role both, mode sink (legacy single-box loopback ARQ)
-        RfAckLink ack(transceiver, bytes_length);   // ACK over RF (loopback)
-        SINK sink(transceiver, ack, timer_interval);
+        RfAckLink ack(transceiver, bytes_length, config.fec);   // ACK over RF (loopback)
+        SINK sink(transceiver, ack, timer_interval, config.fec, bytes_length);
         sink.start();
 
         std::cout << "[SINK] Running — Ctrl-C to stop\n";

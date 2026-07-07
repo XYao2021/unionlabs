@@ -21,6 +21,7 @@
 #include "physical_layer.hpp"
 #include "messages.hpp"
 #include "ack_transport.hpp"
+#include "fec.hpp"
 
 // ─────────────────────────────────────────────────────────────
 //  SOURCE
@@ -31,9 +32,9 @@ public:
     // max_attempts: give up on a chunk after this many un-ACKed transmissions
     // (0 = retry forever). Prevents a dead reverse link from hanging the run.
     SOURCE(PHYSICAL_LAYER& phy, AckLink& ack, int timeout_ms,
-           int num_bits_per_packet, int max_attempts = 50)
+           int num_bits_per_packet, int max_attempts = 50, bool fec = false)
         : phy_(phy), ack_(ack), timeout_ms_(timeout_ms),
-          num_bits_(num_bits_per_packet), max_attempts_(max_attempts)
+          num_bits_(num_bits_per_packet), max_attempts_(max_attempts), fec_(fec)
     {}
 
     void start(const std::vector<std::string>& chunks) {
@@ -57,6 +58,7 @@ private:
     int                  timeout_ms_;
     int                  num_bits_;
     int                  max_attempts_;
+    bool                 fec_;
     std::vector<std::string> chunks_;
     std::atomic<bool>    running_{false};
     std::atomic<bool>    done_{false};
@@ -74,6 +76,7 @@ private:
 
         for (uint8_t idx = 0; idx < total && running_; ++idx) {
             auto bits = build_packet_bits(chunks_[idx], idx, total);
+            if (fec_) bits = fec_encode_block(bits);   // rate-1/2 K=7
 
             bool acked = false;
             int  tries = 0;
@@ -144,8 +147,12 @@ private:
 class SINK {
 public:
     // ack: ACK channel (RF or TCP) used to acknowledge each verified chunk.
-    SINK(PHYSICAL_LAYER& phy, AckLink& ack, int ack_interval_ms)
-        : phy_(phy), ack_(ack), ack_interval_ms_(ack_interval_ms)
+    // fec/payload_bytes: if fec, Viterbi-decode the received bits (truncated to
+    // the coded length for a `payload_bytes`-byte chunk) before the CRC check.
+    SINK(PHYSICAL_LAYER& phy, AckLink& ack, int ack_interval_ms,
+         bool fec = false, size_t payload_bytes = 0)
+        : phy_(phy), ack_(ack), ack_interval_ms_(ack_interval_ms),
+          fec_(fec), payload_bytes_(payload_bytes)
     {}
 
     void start() {
@@ -186,6 +193,8 @@ private:
     PHYSICAL_LAYER&  phy_;
     AckLink&         ack_;
     int              ack_interval_ms_;
+    bool             fec_{false};
+    size_t           payload_bytes_{0};
     std::atomic<bool> running_{false};
     std::atomic<bool> done_{false};
     std::thread      worker_;
@@ -202,7 +211,13 @@ private:
                 continue;
             }
 
-            auto [idx, tot, payload, crc_ok] = decode_packet_bits(rx.second);
+            std::vector<uint8_t> raw = rx.second;
+            if (fec_) {                                   // Viterbi-decode first
+                int coded = fec_encoded_len(16 + (int)payload_bytes_ * 8 + 16);
+                if ((int)raw.size() >= coded) raw.resize(coded);
+                raw = fec_decode_block(raw);
+            }
+            auto [idx, tot, payload, crc_ok] = decode_packet_bits(raw);
 
             // Only accept (and ACK) error-free frames: a failed CRC means bit
             // errors, so drop it and let the source retransmit.
