@@ -456,7 +456,8 @@ void receive_thread(uhd::usrp::multi_usrp::sptr usrp,
 
 void AGC_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& received_fifo,
                 MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& agc_fifo,
-                std::atomic<bool>& stop_sign, const std::string& AGC);
+                std::atomic<bool>& stop_sign, const std::string& AGC,
+                bool dc_block = true);
 
 void EnergyDetection_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& input_fifo,
                             MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& output_fifo,

@@ -123,6 +123,9 @@ struct PHYSICAL_CONFIG {
 
     // AGC
     std::string AGC_type        = "Feed";
+    bool        dc_block        = false;  // per-burst DC-block high-pass (experimental; off by default)
+    float       tx_dc_i         = 0.0f;   // manual TX LO-leakage null (normalized I)
+    float       tx_dc_q         = 0.0f;   // manual TX LO-leakage null (normalized Q)
 
     // Modulation
     std::string scheme          = "QPSK";
@@ -300,6 +303,16 @@ private:
         tx_usrp_->set_tx_gain(cfg_.tx_gain);
         tx_usrp_->set_tx_antenna(cfg_.tx_ant);
         tx_usrp_->set_tx_bandwidth(cfg_.tx_bw);
+        // Manual TX LO-leakage null. The B210 can't self-calibrate DC offset
+        // (no cal antenna), so on a direct cable — where TX carrier leakage
+        // couples strongly into the RX and blocks dense QAM — inject a baseband
+        // DC that cancels the LO feedthrough. Tune --tx-dc-i / --tx-dc-q
+        // (normalized, [-1,1]) to minimize the RX DC spike in the viz figure.
+        if (cfg_.tx_dc_i != 0.0f || cfg_.tx_dc_q != 0.0f) {
+            tx_usrp_->set_tx_dc_offset(std::complex<double>(cfg_.tx_dc_i, cfg_.tx_dc_q));
+            std::cout << "[PHY] TX DC-offset null: (" << cfg_.tx_dc_i << ", "
+                      << cfg_.tx_dc_q << ")\n";
+        }
         std::cout << "[PHY] TX: " << cfg_.tx_freq/1e9 << " GHz  "
                   << cfg_.tx_rate/1e6 << " Msps  gain=" << cfg_.tx_gain << "\n";
     }
@@ -383,10 +396,10 @@ private:
                                    det, stop_flag_);
         });
 
-        // 3. AGC
+        // 3. AGC  (with per-burst DC-block high-pass to kill cable TX leakage)
         threads_.emplace_back(AGC_thread,
             std::ref(detected_fifo_), std::ref(agc_fifo_),
-            std::ref(stop_flag_), std::ref(cfg_.AGC_type));
+            std::ref(stop_flag_), std::ref(cfg_.AGC_type), cfg_.dc_block);
 
         // ── OFDM waveform: energy/AGC burst → OFDM demod → bits.
         //    OFDM::receive() does frame sync, CFO and per-subcarrier equalization

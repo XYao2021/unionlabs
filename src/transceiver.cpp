@@ -770,7 +770,8 @@ void EnergyDetection_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex
 
 void AGC_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& received_fifo,
                 MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& agc_fifo,
-                std::atomic<bool>& stop_sign, const std::string& AGC)
+                std::atomic<bool>& stop_sign, const std::string& AGC,
+                bool dc_block)
 {
     // Setup the AGC
     FeedforwardAGC FF_AGC(1.0f);  // target_rms
@@ -786,6 +787,29 @@ void AGC_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             tried_time++;
             continue;
+        }
+
+        // ── DC-block high-pass (per burst) ────────────────────────────────
+        // On a direct cable the TX carrier/LO leakage couples into the RX as a
+        // strong tone near DC (it beats at the free-running CFO, a few hundred Hz
+        // to ~1.5 kHz). Left in, it dominates the AGC and corrupts the CFO
+        // estimate, smearing dense QAM into rings/blobs (QPSK survives, 16-QAM+
+        // does not). A static mean subtraction can't remove a *tone*, so use a
+        // first-order DC-blocker  y[n] = x[n] - x[n-1] + a*y[n-1]  (a=0.98,
+        // ~5 kHz cutoff): it kills everything below ~5 kHz (the leakage) while
+        // passing the signal — single-carrier is broadband and OFDM's lowest
+        // data subcarrier sits at 25 kHz (fs/N = 1.6 MHz/64), so the loss is
+        // negligible. The DC subcarrier is already nulled.
+        if (dc_block) {
+            auto& v = message.second;
+            const float a = 0.999f;
+            std::complex<float> xprev(0.f, 0.f), yprev(0.f, 0.f);
+            for (auto& s : v) {
+                std::complex<float> x = s;
+                std::complex<float> y = x - xprev + a * yprev;
+                xprev = x; yprev = y;
+                s = y;
+            }
         }
         // compute_instant_energy(message.second.size(), message.first, message.second);
         if (AGC == "Feed"){

@@ -221,6 +221,18 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("AGC_type",
          po::value<std::string>(&config.AGC_type)->default_value("Feed"),
          "AGC type: Feed or Closed")
+        ("dc-block",
+         po::value<bool>(&config.dc_block)->default_value(false),
+         "Experimental per-burst DC-block high-pass on the RX (default false). "
+         "A gentle cutoff barely dents the cable leakage; an aggressive one "
+         "distorts the preamble and breaks sync — prefer --tx-dc-i/--tx-dc-q.")
+        ("tx-dc-i",
+         po::value<float>(&config.tx_dc_i)->default_value(0.0f),
+         "Manual TX LO-leakage null, I component (normalized [-1,1]). Tune with "
+         "--tx-dc-q to minimize the RX DC spike on a direct cable (dense QAM).")
+        ("tx-dc-q",
+         po::value<float>(&config.tx_dc_q)->default_value(0.0f),
+         "Manual TX LO-leakage null, Q component (normalized [-1,1]).")
 
         // Modulation
         ("scheme",
