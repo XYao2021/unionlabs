@@ -566,6 +566,16 @@ void channel_eq_thread(
     size_t processed = 0;
     int plen = static_cast<int>(preamble.size());
 
+    // Differential schemes need the last preamble symbol as the decoder's phase
+    // reference (the TX encoded the first data symbol relative to preamble.back()).
+    // After equalization the data is back in the IDEAL constellation frame, so the
+    // correct reference is the ideal preamble.back() — we prepend it to the
+    // equalized data so differential_decode returns exactly N symbols (not N-1),
+    // keeping the FEC/CRC framing aligned. Mirrors the no-equalizer path.
+    const bool differential = mod.is_differential_scheme();
+    const std::complex<float> diff_ref =
+        preamble.empty() ? std::complex<float>(1.0f, 0.0f) : preamble.back();
+
     std::cout << "[channel_eq_thread] Started  type="
               << (eq_type==EqType::LMS?"LMS":eq_type==EqType::RLS?"RLS":"DFE")
               << "  taps=" << num_taps << "\n";
@@ -639,7 +649,12 @@ void channel_eq_thread(
                 eq_data.assign(y.begin() + D, y.begin() + D + ndata);
         }
 
-        // Forward exactly ndata equalized, delay-aligned DATA symbols.
+        // Forward the equalized, delay-aligned DATA symbols. For differential
+        // schemes prepend the ideal reference so the decoder sees [ref | data]
+        // and returns exactly ndata symbols.
+        if (differential) {
+            eq_data.insert(eq_data.begin(), diff_ref);
+        }
         output_fifo.push({msg.first, std::move(eq_data)});
         ++processed;
     }
