@@ -12,6 +12,46 @@ from pptx.dml.color import RGBColor
 HERE = os.path.dirname(__file__)
 A = lambda p: os.path.join(HERE, "assets", p)
 
+
+def render_equations():
+    """Render the key equations to assets/equations.png via matplotlib mathtext."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig = plt.figure(figsize=(12.4, 5.7)); fig.patch.set_facecolor("white")
+    NV, BL, AC, GY = "#0F2E4E", "#1F6FB2", "#E8781E", "#555F6A"
+    H = lambda x, y, t, c=BL: fig.text(x, y, t, fontsize=15, color=c, weight="bold")
+    E = lambda x, y, t, s=15: fig.text(x, y, t, fontsize=s, color=NV)
+    # full-width signal model
+    fig.text(0.5, 0.95, "Received-signal model — what every RX block undoes",
+             fontsize=15, color=NV, weight="bold", ha="center")
+    fig.text(0.5, 0.85,
+        r"$r[n]=A\,e^{\,j\left(2\pi\frac{\Delta f}{f_s}n+\varphi_0\right)}"
+        r"\sum_m s[m]\,g(nT_s-mT-\tau)+w[n]$",
+        fontsize=17, color=NV, ha="center")
+    # left column
+    xL = 0.035
+    H(xL, 0.70, "Detection  &  OFDM")
+    E(xL+0.02, 0.61, r"$\hat{s}=\arg\min_{c}\;|\,y-c\,|$")
+    E(xL+0.02, 0.51, r"$x[n]=\dfrac{1}{N}\sum_{k}X[k]\,e^{\,j2\pi kn/N}$")
+    E(xL+0.02, 0.40, r"$Y[k]=H[k]X[k]+W[k]\;\Rightarrow\;\hat{X}=Y/H$")
+    H(xL, 0.27, "Equalizer  &  FEC")
+    E(xL+0.02, 0.18, r"$w=(R^{H}R+\lambda I)^{-1}R^{H}s$", 14)
+    E(xL+0.02, 0.08, r"Viterbi ML path, $d_{\mathrm{free}}=10$;  CRC-16-CCITT", 13)
+    # right column
+    xR = 0.53
+    H(xR, 0.70, "Synchronization")
+    E(xR+0.02, 0.61, r"$R(\tau)=\left|\,\sum_{n}p^{*}[n]\,r[\tau+n\,o_s]\,\right|$")
+    E(xR+0.02, 0.50, r"$e_k=\mathrm{Re}\{(y_k-y_{k-1})\,y_{k-1/2}^{*}\}$")
+    H(xR, 0.37, "Carrier recovery")
+    E(xR+0.02, 0.28, r"$P=\sum_n r[n]\,r^{*}[n+L],\;\;\widehat{\Delta f}=\dfrac{f_s}{2\pi L}\arg P$", 14)
+    E(xR+0.02, 0.17, r"$\hat{\varphi}=\arg\left(\sum_{\mathrm{pilots}}Y[k]\,H^{*}[k]\,\mathrm{PILOT}^{*}\right)$", 14)
+    E(xR+0.02, 0.07, r"$\varphi\leftarrow\varphi+\alpha\,e+\mathrm{freq},\;\;\mathrm{freq}\leftarrow\mathrm{freq}+\beta\,e$", 13)
+    fig.savefig(A("equations.png"), dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+render_equations()
+
 # palette
 NAVY   = RGBColor(0x0F, 0x2E, 0x4E)
 BLUE   = RGBColor(0x1F, 0x6F, 0xB2)
@@ -340,6 +380,50 @@ bullets(s, [
     ("Reproducible: 19-page reference w/ math & figures, command sets, tests", 0, True),
     ("Next step: add a 10 MHz reference → unlock 16-QAM and above", 0, True, ACCENT),
 ], l=0.7, t=1.55, w=12.0, size=18, gap=9)
+
+# ── 15. Live demo commands ─────────────────────────────────────────────────
+def code_box(s, l, t, w, h, lines, size=11):
+    sp = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(l), Inches(t), Inches(w), Inches(h))
+    sp.fill.solid(); sp.fill.fore_color.rgb = RGBColor(0x1B, 0x25, 0x33)
+    sp.line.color.rgb = RGBColor(0x3A, 0x4A, 0x5E); sp.line.width = Pt(0.75)
+    sp.shadow.inherit = False
+    tf = sp.text_frame; tf.word_wrap = True
+    tf.margin_left = Inches(0.15); tf.margin_top = Inches(0.08); tf.margin_right = Inches(0.1)
+    for i, ln in enumerate(lines):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        p.text = ln; r = p.runs[0]
+        r.font.name = "Consolas"; r.font.size = Pt(size)
+        r.font.color.rgb = RGBColor(0xDCE, 0xDCE, 0xDCE) if False else RGBColor(0xD6, 0xE6, 0xF2)
+        if ln.strip().startswith("#"):
+            r.font.color.rgb = RGBColor(0x86, 0xC5, 0x91)   # comment green
+
+s = slide(); header(s, "Live Demo — Run Commands", "15")
+_, tf = box(s, 0.6, 1.35, 12.2, 0.5)
+setp(tf.paragraphs[0], "QPSK single-carrier + FEC + stop-and-wait ARQ.  Start the SINK (RX) first, then the SOURCE (TX).",
+     16, NAVY, True)
+code_box(s, 0.6, 1.95, 12.15, 1.55, [
+    "# TERMINAL 1 — Sink / RX   (auto-stops when all chunks verified; saves the figure)",
+    "./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \\",
+    "  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \\",
+    "  --scheme QPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3",
+], size=11)
+code_box(s, 0.6, 3.65, 12.15, 1.7, [
+    "# TERMINAL 2 — Source / TX   (retransmits until every chunk is ACKed)",
+    "./sdr_system --role source_arq --tx-args serial=30CD424 --rx-args serial=30CD424 \\",
+    "  --tx-subdev A:A --tx-ant TX/RX --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 78 \\",
+    "  --scheme QPSK --fec true --ack-transport tcp --ack-host 127.0.0.1 \\",
+    "  --ack-port 5599 --timeout 3000",
+], size=11)
+bullets(s, [
+    ("Other schemes: swap --scheme  (BPSK · 8-PSK · DBPSK · DQPSK)", 0),
+    ("OFDM: add  --waveform ofdm --ofdm-fft 64 --ofdm-cp 16 --ofdm-tx-peak 0.5", 0),
+    ("8-PSK needs more TX power: --rx-gain 16 --tx-gain 86", 0),
+    ("Live output: per-chunk CRC-OK, then the auto-saved constellation figure", 0),
+], l=0.7, t=5.5, w=12.0, h=1.6, size=14, gap=5)
+
+# ── 16. Appendix: equations ────────────────────────────────────────────────
+s = slide(); header(s, "Appendix — Key Equations", "16")
+pic(s, A("equations.png"), 1.5, 1.5, h=5.8)   # size by height; ~10.4in wide, centered
 
 out = os.path.join(HERE, "SDR_System_Overview.pptx")
 prs.save(out)
