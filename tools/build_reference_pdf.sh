@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TMP="$(mktemp -t ref_pre_XXXX).md"
 python3 tools/md_glyph_fix.py SYSTEM_REFERENCE.md "$TMP"
-OPTS=(--from gfm --toc --toc-depth=3 -V geometry:margin=0.9in
+OPTS=(--from gfm+tex_math_dollars+implicit_figures --toc --toc-depth=3 --resource-path=. -V geometry:margin=0.9in
       -V mainfont="Charter" -V monofont="Menlo" -V monofontoptions="Scale=0.80"
       -V colorlinks=true -V linkcolor=RoyalBlue -V urlcolor=RoyalBlue
       -V fontsize=10pt --highlight-style=tango
