@@ -10,6 +10,7 @@
 # include "messages.hpp"
 # include "modulator_extended.hpp"   // string_to_mod_type(), PI4QPSKModulator, APSK helpers
 # include "transceiver.hpp"
+# include "viz.hpp"
 
 // Constructor IMPLMENTATION
 // Modulator::Modulator(ModulationType type) : mod_type(type) {  // called a memeber initializer list mod_type before the constructor body runs
@@ -617,6 +618,15 @@ void modulation_thread(MutexFIFO<std::vector<uint8_t>>& fifo,
         // std::cout << "[CHECK AFTER MODULATION] Stage MODULATION: RMS=" << rms << " Peak=" << peak << std::endl;
 
 
+        // TX constellation: capture the DATA symbols only (skip the guard+preamble,
+        // whose ZC/BPSK points would clutter the plot) so it shows clean clusters.
+        if (viz::enabled) {
+            int ds = add_preamble ? 10 + (int)preamble_sequence.size() : 0;
+            if ((int)symbols.size() > ds)
+                viz::capture("tx_symbols",
+                    std::vector<std::complex<float>>(symbols.begin() + ds, symbols.end()));
+        }
+
         // push the FIFO out for further filtering
         // Push to fifo_out successfully
         fifo_out.push({message_block_id, symbols});
@@ -658,6 +668,7 @@ void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
 
         // std::cout << "[DEMODULATION] Original bits length is: " << symbols.second.size() << std::endl;
         tried_time = 0;
+        viz::capture("rx_symbols", symbols.second);   // RX constellation (equalized)
         if (is_pi4) {
             pi4.reset();
             bits = pi4.decode(symbols.second);   // differential phase → bits

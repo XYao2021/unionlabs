@@ -17,6 +17,7 @@
 # include <fftw3.h>
 # include <fstream>
 # include <sstream>
+# include "viz.hpp"
 
 // ---------------------------------------------------- Helper functions for transceiver -------------------------------------------//
 void save_block_to_txt(const std::vector<std::complex<float>>& recv_block,
@@ -790,6 +791,7 @@ void AGC_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& 
         if (AGC == "Feed"){
             // std::cout << "[AGC] FeedFoward AGC applied!"<< std::endl;
             std::vector<std::complex<float>> agc_message = FF_AGC.process(message.second);
+            viz::capture("rx_wave", agc_message, 2000);   // RX burst waveform
             agc_fifo.push({message.first, agc_message});
 
             float rms=0, peak=0;

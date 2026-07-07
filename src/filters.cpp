@@ -7,6 +7,7 @@
 #include "FIFO.hpp"
 #include "taps.hpp"
 #include "transceiver.hpp"
+#include "viz.hpp"
 #include <fftw3.h>
 #include <fstream>
 
@@ -474,6 +475,7 @@ void pulse_shaping_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::co
         // rms1 = std::sqrt(rms1 / filtered.size());
         // std::cout << "[CHECK AFTER FILTER SCALE] Stage FILTER SCALE: RMS=" << rms1 << " Peak=" << peak1 << std::endl;
 
+        viz::capture("tx_wave", filtered, 2000);   // TX pulse-shaped waveform
         filtered_fifo.push({block_id, filtered});
         // std::cout << "[FILTER] Output FIFO size: " << filtered_fifo.size() << std::endl;
 

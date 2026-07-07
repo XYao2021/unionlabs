@@ -21,6 +21,8 @@
 #include "physical_layer.hpp"
 #include "ACQ_stop_and_wait.hpp"
 #include "fec.hpp"
+#include "viz.hpp"
+#include <filesystem>
 
 namespace po = boost::program_options;
 
@@ -39,6 +41,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     double      rx_idle_timeout = 8.0;     // role rx: auto-stop after N s of no bursts
     bool        skip_rate_check = false;   // bypass the rate-chain consistency check
     bool        continuous      = false;
+    bool        viz_on          = false;   // dump signals for visualization
+    std::string viz_dir         = "viz";
     std::string preamble_type;
     size_t      bytes_length    = 125;
 
@@ -68,6 +72,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "TCP ACK: socket port")
         ("skip-rate-check", po::bool_switch(&skip_rate_check),
                      "bypass the startup rate-chain consistency check (run even if rates mismatch)")
+        ("viz", po::bool_switch(&viz_on),
+                     "dump one block of TX/RX signals (waveform + constellation) to "
+                     "--viz-dir for plotting with tools/plot_viz.py")
+        ("viz-dir", po::value<std::string>(&viz_dir)->default_value("viz"),
+                     "directory for --viz output files")
         ("timeout",  po::value<int>(&timeout_ms)->default_value(3000),
                      "ACK timeout in ms (source)")
         ("timer_interval", po::value<int>(&timer_interval)->default_value(1000),
@@ -281,6 +290,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     if (vm.count("help")) {
         std::cout << desc << "\n";
         return EXIT_SUCCESS;
+    }
+
+    // Visualization capture: enable and make the output directory.
+    if (viz_on) {
+        viz::enabled = true;
+        viz::dir     = viz_dir;
+        std::error_code ec; std::filesystem::create_directories(viz_dir, ec);
+        std::cout << "[MAIN] --viz on: dumping TX/RX signals to '" << viz_dir
+                  << "/' (plot with tools/plot_viz.py)\n";
     }
 
     // Hyphenated aliases override their underscore originals when given (matches

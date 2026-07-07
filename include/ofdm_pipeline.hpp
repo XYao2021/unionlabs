@@ -22,6 +22,7 @@
 #include "modulator.hpp"
 #include "modulator_extended.hpp"
 #include "ofdm.hpp"
+#include "viz.hpp"
 
 // bits → QAM symbols → OFDM frame (time-domain baseband) → out_fifo.
 // The frame is scaled so its peak ≈ tx_peak (OFDM has high PAPR; keep the DAC
@@ -46,6 +47,9 @@ inline void ofdm_modulation_thread(
         bool add = false;                          // no single-carrier preamble
         auto qam   = mod.modulate(bits, ep, add);  // bits → QAM symbols
         auto frame = ofdm.modulate(qam);           // → [SC | chest | data] time samples
+
+        viz::capture("tx_symbols", qam);           // TX constellation
+        viz::capture("tx_wave", frame, 2000);      // TX waveform (time/spectrum)
 
         float peak = 0.0f;
         for (auto& s : frame) peak = std::max(peak, std::abs(s));
@@ -79,6 +83,8 @@ inline void ofdm_demodulation_thread(
         }
         int start = -1; float cfo = 0.0f;
         auto qam  = ofdm.receive(msg.second, num_qam, &start, &cfo);
+        viz::capture("rx_wave", msg.second, 2000);   // RX burst (time/spectrum)
+        viz::capture("rx_symbols", qam);             // RX constellation (equalized)
         if ((int)qam.size() < num_qam) {
             std::cout << "[OFDM DEMOD] block " << msg.first << ": short ("
                       << qam.size() << "/" << num_qam << ") — skipping\n";
