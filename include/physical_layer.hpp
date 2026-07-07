@@ -448,12 +448,20 @@ private:
 
         // 8. Carrier phase offset correction (required for QPSK / QAM) — AFTER
         //    time sync and CFO. Preamble-ML bulk estimate + optional PLL tracking.
+        //    Differential schemes (DBPSK/DQPSK/8-DPSK/pi4-QPSK) carry data in the
+        //    phase *transition*, so the decision-directed PLL is turned OFF for
+        //    them (it would pin the absolute phase to fixed constellation points
+        //    and scramble the transitions). The one-shot preamble de-rotation
+        //    still runs (a constant rotation, harmless for differential), and the
+        //    differential decoder + CFO stage handle the rest.
         Modulator mod(string_to_mod_type(cfg_.scheme));
-        threads_.emplace_back([this, mod, preamble_copy]() mutable {
+        const bool differential   = mod.is_differential_scheme();
+        const bool use_phase_track = !differential;
+        threads_.emplace_back([this, mod, preamble_copy, use_phase_track]() mutable {
             phase_offset_thread(cfo_fifo_, phase_fifo_,
                 mod, preamble_copy,
                 (int)preamble_copy.size(),
-                true,
+                use_phase_track,
                 cfg_.phase_loop_bw, cfg_.phase_damping,
                 PhaseOffsetCorrector::EstimationMethod::PREAMBLE,
                 stop_flag_);
@@ -478,7 +486,12 @@ private:
         } else {
             // No equaliser: still strip the leading preamble here (the equaliser
             // path does this internally) so the demodulator receives data only.
-            int plen = static_cast<int>(preamble_copy.size());
+            // Differential schemes keep the LAST preamble symbol as the decoder's
+            // phase reference (the TX encoder used preamble.back() as its
+            // reference), so the differential decode returns exactly N symbols
+            // instead of N-1 — otherwise the 1-symbol shortfall shifts the
+            // FEC/CRC framing and every packet fails (verified OTA).
+            int plen = static_cast<int>(preamble_copy.size()) - (differential ? 1 : 0);
             threads_.emplace_back([this, plen]() {
                 std::pair<size_t, std::vector<std::complex<float>>> msg;
                 while (!stop_flag_ || phase_fifo_.size() > 0) {

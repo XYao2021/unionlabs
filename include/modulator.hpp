@@ -74,6 +74,14 @@ public:
     int get_bits_per_symbol() const;  // const ensure the function won't modify the project (afterward only works for member function)
     std::string get_modulation_name() const;
     int get_constellation_size() const;
+    // True for schemes that carry information in the phase *transition* between
+    // symbols (differential PSK + pi/4-DQPSK). The RX handles these differently:
+    // it keeps the last preamble symbol as the differential reference (so the
+    // decoded symbol count is exact) and bypasses the coherent phase PLL (which
+    // would pin the absolute phase and destroy the transitions).
+    bool is_differential_scheme() const {
+        return is_differential || mod_type == ModulationType::PI4QPSK;
+    }
     const std::vector<std::complex<float>>& get_constellation() const;
     void print_constellation_info();
 
