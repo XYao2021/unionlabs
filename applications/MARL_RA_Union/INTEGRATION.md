@@ -1,0 +1,169 @@
+# MARL-RA ↔ SDR PHY — integration design note
+
+How the `MARL_RA_Union` multi-agent RL random-access code hooks onto the USRP B210
+PHY in this repo. The RL is the *brain* (when to transmit); the SDR is the *body*
+(the real channel). Today the MARL code simulates the channel; integration means
+replacing that simulated channel with our radios.
+
+---
+
+## 1. What maps to what
+
+| MARL simulator (now, in software) | SDR system (integration target) |
+|---|---|
+| `ch_usage` flag in the observation | **`channel_sense.py`** — real energy detection (`--role sense` / `SenseStream`) |
+| agent action `transmit=1` | **one real burst** on the TX path (`--payload-file` + source, single attempt) |
+| `update_channel` collision test (≥2 t_flag) | the **real RF channel** — simultaneous transmitters actually collide |
+| ACK after a clean slot | **one real ACK** from the receiver iff it decoded the frame (CRC OK) |
+| `wireless_channel()` SNR→capacity | the real link SNR / EVM (already measured by the PHY) |
+| `since_success`, queue (local state) | kept in Python, updated from real ACK/timeout outcomes |
+| neighbours' AoI via consensus gossiping | needs a **side channel** (TCP) between agents, or local-only observation |
+
+The RL loop is unchanged in spirit: `observe → actor picks {defer, transmit} → act →
+reward`. Only the `act` and the observation's channel/collision parts move from
+simulation to the radio.
+
+---
+
+## 2. The ARQ mismatch — and how to resolve it  ⭐
+
+This is the central issue. **Our ARQ and the MARL channel model want opposite things.**
+
+- **Our stop-and-wait ARQ** (`source_arq`/`sink_arq`, `--max-attempts 0`) is built for
+  *reliable delivery*: it **retransmits every chunk until the whole message arrives**,
+  0 unacked. Collisions/losses are *hidden* by retransmission — the caller only ever
+  sees success.
+- **MARL random access** is the opposite: each transmit decision is **one burst**, and
+  whether it succeeds (ACK) or fails (collision → no ACK) **is the learning signal**. If
+  we retransmit until success, every packet "succeeds," the collision signal vanishes,
+  and there is nothing for the policy to learn. The whole point of the RL is to learn to
+  *avoid* collisions — which requires *experiencing* them.
+
+**Resolution — run the PHY in single-shot mode for MARL:**
+
+1. **One burst per decision, no PHY retransmission.** Transmit the packet exactly once
+   and wait for an ACK up to a timeout. This is directly available: **`--max-attempts 1`**
+   on the source. Outcome:
+   - ACK within timeout → **success** (`Unacked chunks=0`).
+   - No ACK → **collision / loss** (`Unacked chunks=1`).
+   That boolean *is* the reward input. (We do **not** use `--max-attempts 0`.)
+
+2. **The policy replaces ARQ's retransmit logic.** A failed packet is **not** auto-resent;
+   it stays in the agent's queue, and the *policy* decides whether/when to try again on a
+   future slot. That learned "when to retry" is exactly the collision-avoidance / backoff
+   behaviour the MARL is designed to discover — it must live in the agent, not in the PHY.
+
+3. **The receiver becomes a persistent Access Point, not a message reassembler.** Our
+   `sink_arq` reassembles one multi-chunk message and *terminates* when complete. For
+   MARL the AP must **listen forever and ACK each independently-decoded frame** (one ACK
+   per good frame, no reassembly, no "done"). Each transmission is a standalone packet.
+   → *needs a small PHY addition* (see §5): an "AP" receive mode that keeps serving.
+
+4. **Collisions come from the real channel — we do not simulate them.** When two agents
+   transmit in the same window on the same frequency, their signals genuinely collide at
+   the AP; the AP fails CRC and sends no ACK. That is the "real channel problem" you
+   noted, and it's *better* than the sim: the sim declares any 2+ overlap a total loss,
+   whereas real RF has the **capture effect** — the AP may still decode the stronger
+   signal and ACK it. So a collision doesn't always mean *both* fail. The policy will
+   learn against the true channel, capture effect included.
+
+5. **Packet = one ARQ unit.** Size `--bytes-length` so a MARL packet is **one chunk**
+   (their model = 1500 B/packet; set bytes-length accordingly, or send a few chunks but
+   treat the whole packet as a single `max_attempts=1` attempt). "Success" = the packet
+   got through in that single attempt.
+
+**Summary:** keep the reliable ARQ for data transfer (the MNIST demo), but for MARL use
+**single-shot ARQ (`--max-attempts 1`) + a persistent per-frame-ACK AP**, and let the
+learned policy — not the PHY — own retransmission.
+
+---
+
+## 3. Collision realism vs. radio count (2 × B210)
+
+Real collisions need **≥2 simultaneous transmitters + 1 AP = ≥3 radios**. With two B210s:
+
+- **1 agent + 1 AP** — validate the full loop end-to-end (sense → decide → one burst →
+  ACK/timeout → reward). No self-collision is possible with a single transmitter, so
+  create the "busy/collision" signal with a **scripted interferer** (e.g. the tone/burst
+  TX we already have) or ambient traffic. This proves the mechanics and the reward wiring.
+- **True N-agent collision learning** needs N+1 radios (or emulating other agents' RF).
+  Interim option: keep the *multi-agent dynamics in simulation* but feed the agent-under-
+  test's **real** link outcomes (real sense + real ACK/timeout) — a hardware-in-the-loop
+  single agent among simulated peers.
+
+---
+
+## 4. Timescale reconciliation
+
+The sim runs **9 µs slots** with a transmit decision every few slots — thousands/sec. Our
+real loop is far slower per decision (radio init, burst, ACK RTT ≈ 0.2 s even tuned). So:
+
+- **Do not** map one sim slot to one real slot. Redefine a "decision epoch" as **one
+  real sense→decide→(maybe TX)→outcome cycle** (~100–300 ms with the persistent
+  `SenseStream` + `--max-attempts 1`, or slower if the process re-inits each time).
+- Keep the radio **persistent** across decisions (the `SenseStream` pattern, and an
+  always-on AP) so each epoch is ~one burst + one ACK window, not a ~2 s re-init.
+- The RL is timescale-agnostic (it optimises per-epoch reward); only the *wall-clock* and
+  the AoI/throughput *units* change. Report AoI in epochs (or seconds), not 9 µs slots.
+
+---
+
+## 5. Reward reconciliation
+
+The sim computes reward from simulated success/delay. On hardware, compute the same
+quantities from **real** outcomes:
+
+| objective | sim reward | real-channel reward |
+|---|---|---|
+| 0 fair AoI | `-since_success` | `-epochs_since_last_ACK` (age grows until a real ACK) |
+| 1 max throughput | simulated bytes/s | real delivered bytes / elapsed (ACKed frames only) |
+| 2 fair throughput | α-fair of sim tput | α-fair of real per-agent ACKed throughput |
+
+Key change: **"success" is now a real ACK, "collision" is a real timeout.** `since_success`
+resets on a real ACK; the queue drains on a real ACK and grows on real arrivals. Everything
+the reward needs is already produced by the single-shot source (ACK vs timeout) — no PHY
+change beyond §2.
+
+---
+
+## 6. Concrete PHY changes needed
+
+Most hooks already exist; two small additions:
+
+1. **Single-shot transmit that returns success/fail** — *mostly done*: `--max-attempts 1`
+   already sends once and reports `Unacked chunks`. Add a thin Python `transmit_once(bytes)
+   -> bool` that runs the source with `--max-attempts 1 --payload-file <tmp>` and returns
+   `acked = (Unacked chunks == 0)`. (Reuse the reused-scratch-file trick from the trainer.)
+2. **Persistent Access-Point receiver** — new: a receive mode that listens forever and
+   sends one ACK per CRC-verified frame **without** reassembling-to-done. Simplest form:
+   a `sink_arq` variant with a `--serve-forever` flag (don't set `done_` after N chunks;
+   keep ACKing each decoded frame). Pairs with a persistent process like `SenseStream`.
+
+Already available and reused as-is: `channel_sense.py` (sense / `SenseStream` /
+`should_transmit`), `--payload-file`/`--out-file` byte-pipe, `--timeout`, `--bytes-length`,
+the actor networks in `MARL_learning_Union.py`.
+
+The neighbour-AoI observation (shared via gossiping in the sim) needs a **TCP side channel**
+between agents on real hardware — analogous to the ARQ ACK socket — or restrict the agent
+to **local-only observation** (own queue + own AoI + sensed channel) for a first cut.
+
+---
+
+## 7. Phased plan
+
+1. **Bridge layer (Python).** `marl_phy.py`: `sense()` (→ `channel_sense`), `transmit_once()`
+   (→ source `--max-attempts 1`), and an AP runner. Expose them so the MARL env can call
+   real hardware instead of the simulator.
+2. **Swap the sim env's channel** for the bridge — one agent + one AP, scripted interferer
+   for the busy/collision signal. Validate: sense flag, ACK-on-success, timeout-on-collision,
+   reward moves the right way.
+3. **Run a trained policy on the radio** (inference only): load the actor, feed real
+   observations, act via `transmit_once`. Confirm it beats fixed-`p` q-ALOHA on the real link.
+4. **(Optional) online learning on hardware** and/or **more radios** for true multi-agent
+   collisions; add the AoI side channel if using neighbour observations.
+
+**Bottom line on your question:** don't retransmit for MARL. Send **one burst**, treat
+**ACK = success / timeout = collision** as the reward, and let the **learned policy** decide
+when to retry. Keep reliable ARQ only for bulk data (the MNIST path); add a single-shot mode
+(`--max-attempts 1`, already there) and a persistent per-frame-ACK AP (small addition) for
+the random-access path.
