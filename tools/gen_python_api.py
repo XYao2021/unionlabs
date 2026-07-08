@@ -18,18 +18,20 @@ def parse_help(text):
     opts, cur = [], None
     for raw in text.splitlines():
         line = raw.rstrip()
-        m = re.match(r'^  (--\S.*?)(?:\s{2,}(.*\S))?\s*$', line)
+        # name, optional " arg", optional " (=default)", then the description.
+        # Boost sometimes leaves only a single space before the description when
+        # the option+default is long, so parse it all in one pass (not a 2-space
+        # column split) — otherwise long-default options get dropped.
+        m = re.match(
+            r'^  (--[A-Za-z0-9_-]+)(\s+arg)?(?:\s+\(=(.*?)\))?(?:\s+(.*\S))?\s*$',
+            line)
         if m:
             if cur:
                 opts.append(cur)
-            tok, desc = m.group(1), (m.group(2) or "")
-            om = re.match(r'^--([A-Za-z0-9_-]+)(?:\s+arg)?(?:\s+\(=(.*)\))?$', tok)
-            if not om:                      # unparseable token — skip
-                cur = None
-                continue
-            name = om.group(1)
-            has_arg = bool(re.search(r'\barg\b', tok))
-            default = om.group(2)
+            name = m.group(1)[2:]
+            has_arg = bool(m.group(2))
+            default = m.group(3)
+            desc = m.group(4) or ""
             cur = [name, has_arg, default, desc]
         elif cur is not None and re.match(r'^\s{10,}\S', line):
             cur[3] = (cur[3] + " " + line.strip()).strip()
@@ -246,8 +248,10 @@ def emit_md(opts):
              "Energy detection", "Synchronization", "Timing & phase recovery",
              "Equalizer", "Visualization", "RF, clock & misc"]
     buckets = {}
+    defmap = {}
     for name, ha, h, d in opts:
         buckets.setdefault(_group(name), []).append((name, ha, h, d))
+        defmap[name] = d
     L = []
     L.append("# All controllable options")
     L.append("")
@@ -264,6 +268,11 @@ def emit_md(opts):
     L.append('quoted. **Flags** (Type = _flag_) take no value on the command line (just')
     L.append("`--name`); in JSON/Python set them to `true`.")
     L.append("")
+    L.append("The **Default** column is the value used when you omit the option: flags "
+             "default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick "
+             "the device, or use the built-in message); `_(alias)_` marks an option that "
+             "inherits its primary option's default.")
+    L.append("")
     L.append("> Auto-generated from `sdr_system --help` — always lists every current "
              "option (**%d** total). Do not edit by hand." % len(opts))
     L.append("")
@@ -277,7 +286,19 @@ def emit_md(opts):
         L.append("|---|---|---|---|")
         for name, ha, h, d in rows:
             typ = "value" if ha else "flag"
-            dflt = "—" if not ha else ("_(none)_" if d is None else "`%s`" % d)
+            if not ha:
+                # bool_switch flags are off unless the flag is given
+                dflt = "`false`"
+            elif d is not None:
+                dflt = "`%s`" % d
+            else:
+                # No default shown by --help. Aliases take their primary's
+                # default; the rest (--message, --tx-args, --rx-args) are empty.
+                m = re.search(r"alias for --(\S+)", h)
+                if m and defmap.get(m.group(1)) is not None:
+                    dflt = "`%s` _(alias)_" % defmap[m.group(1)]
+                else:
+                    dflt = "`(empty)`"
             desc = h.replace("|", "\\|")
             L.append("| `--%s` | %s | %s | %s |" % (name, typ, dflt, desc))
         L.append("")

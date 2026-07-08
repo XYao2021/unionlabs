@@ -13,7 +13,9 @@ In JSON: booleans are `true`/`false`, numbers are bare (`915e6`), strings are
 quoted. **Flags** (Type = _flag_) take no value on the command line (just
 `--name`); in JSON/Python set them to `true`.
 
-> Auto-generated from `sdr_system --help` — always lists every current option (**82** total). Do not edit by hand.
+The **Default** column is the value used when you omit the option: flags default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick the device, or use the built-in message); `_(alias)_` marks an option that inherits its primary option's default.
+
+> Auto-generated from `sdr_system --help` — always lists every current option (**83** total). Do not edit by hand.
 
 ## Mode, message & transmission
 
@@ -27,7 +29,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 | `--interval` | value | `3000` | TX interval between packets (ms) |
 | `--tx-mode` | value | `burst` | role tx transmission mode: burst (discrete packets/tone bursts with --interval gaps, repeated --tx-reps times then stop) or continuous (transmit until Ctrl-C — a continuous data loop or an unbroken carrier for sine/cosine) |
 | `--message-type` | value | `bytes` | payload: bytes (given text, default Star Wars crawl; set with --message) \| random (num_bits random bits) \| sine \| cosine (raw baseband test tone, role tx only) |
-| `--message` | value | _(none)_ | text payload for --message-type bytes (overrides the default Star Wars crawl) |
+| `--message` | value | `(empty)` | text payload for --message-type bytes (overrides the default Star Wars crawl) |
 | `--tone-freq` | value | `100000` | sine/cosine baseband frequency in Hz (default 100 kHz) |
 | `--tone-amp` | value | `0.5` | sine/cosine amplitude, keep < 1.0 to avoid DAC clipping |
 
@@ -62,7 +64,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--tx-args` | value | _(none)_ | UHD TX device args (e.g. serial=XXXXXXX) |
+| `--tx-args` | value | `(empty)` | UHD TX device args (e.g. serial=XXXXXXX) |
 | `--tx-rate` | value | `1600000` | TX sample rate (Hz) = symbol_rate * U/D |
 | `--tx-freq` | value | `2412000000` | TX centre frequency (Hz) |
 | `--tx-gain` | value | `20` | TX gain (dB) |
@@ -77,7 +79,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--rx-args` | value | _(none)_ | UHD RX device args |
+| `--rx-args` | value | `(empty)` | UHD RX device args |
 | `--rx-rate` | value | `1600000` | RX sample rate (Hz) = tx_rate (integer samples/symbol) |
 | `--rx-freq` | value | `2412000000` | RX centre frequency (Hz) |
 | `--rx-gain` | value | `30` | RX gain (dB) |
@@ -101,13 +103,14 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--alpha` | value | `0.949999988` | Energy-detector IIR smoothing: filtered = (1-alpha)*inst + alpha*prev, so LARGER alpha = MORE smoothing. The old 0.02 barely smoothed, so the detector fired on every noise spike (thousands of false bursts) and cut real bursts apart on the RRC envelope. 0.95 (~20-sample time constant) gives one clean capture per burst. |
-| `--det-threshold` | value | _(none)_ | alias for --energy_threshold (fixed detector threshold) |
+| `--energy_threshold` | value | `1.00000001e-07` | Fixed energy threshold (used only if the adaptive detector is off). Alias: --det-threshold |
+| `--det-threshold` | value | `1.00000001e-07` _(alias)_ | alias for --energy_threshold (fixed detector threshold) |
 | `--energy_packet_size` | value | `3300` | Samples to collect after energy detection |
 | `--IIR_window_size` | value | `20` | IIR window size |
 | `--IIR_threshold_adaptive` | value | `1` | Use the auto (adaptive) detection threshold = noise_floor × multiplier. Alias: --det-adaptive |
-| `--det-adaptive` | value | _(none)_ | alias for --IIR_threshold_adaptive (use the auto detector threshold) |
+| `--det-adaptive` | value | `1` _(alias)_ | alias for --IIR_threshold_adaptive (use the auto detector threshold) |
 | `--IIR_threshold_multiplier` | value | `5` | Auto detector threshold = measured noise_floor × this. RAISE it over-the-air (e.g. 10-30) so the detector fires only on real bursts, not ambient RF; too high and it misses weak bursts. Alias: --det-mult |
-| `--det-mult` | value | _(none)_ | alias for --IIR_threshold_multiplier (auto-threshold noise multiplier) |
+| `--det-mult` | value | `5` _(alias)_ | alias for --IIR_threshold_multiplier (auto-threshold noise multiplier) |
 | `--det-continuous` | value | `1` | Continuously re-track the noise floor during idle (default true), vs a one-shot startup calibration. Robust to drifting ambient noise. |
 
 ## Synchronization
@@ -116,7 +119,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 |---|---|---|---|
 | `--sps_sync` | value | `5` | Samples per symbol at match-filter output |
 | `--sync_threshold` | value | `15` | ACQ correlation threshold — raise it over-the-air so ambient-noise bursts are rejected (a real preamble peaks near the preamble length ~31 after AGC; noise correlates far lower). Watch the '[ACQ] Peak correlation' lines and set it below the true peak but above the noise. Alias: --sync-threshold |
-| `--sync-threshold` | value | _(none)_ | alias for --sync_threshold (hyphenated spelling) |
+| `--sync-threshold` | value | `15` _(alias)_ | alias for --sync_threshold (hyphenated spelling) |
 | `--recv_msg_len` | value | `508` | Data symbols to extract (QPSK: 1016bits/2bps=508) |
 | `--samps_per_buff` | value | `10000` | Samples per UHD receive buffer |
 | `--num_recv_request` | value | `0` | Total samples to receive (0=continuous) |
@@ -150,7 +153,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--skip-rate-check` | flag | — | bypass the startup rate-chain consistency check (run even if rates mismatch) |
+| `--skip-rate-check` | flag | `false` | bypass the startup rate-chain consistency check (run even if rates mismatch) |
 | `--ref` | value | `internal` | Clock reference: internal / external / mimo |
 | `--settling` | value | `0.20000000000000001` | Settling time (s) |
 | `--uhd_timeout` | value | `1000` | UHD TX timeout (ms) |

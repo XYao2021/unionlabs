@@ -67,6 +67,7 @@ OPTIONS = {
     "settling": (True, '0.20000000000000001', "Settling time (s)"),
     "uhd_timeout": (True, '1000', "UHD TX timeout (ms)"),
     "alpha": (True, '0.949999988', "Energy-detector IIR smoothing: filtered = (1-alpha)*inst + alpha*prev, so LARGER alpha = MORE smoothing. The old 0.02 barely smoothed, so the detector fired on every noise spike (thousands of false bursts) and cut real bursts apart on the RRC envelope. 0.95 (~20-sample time constant) gives one clean capture per burst."),
+    "energy_threshold": (True, '1.00000001e-07', "Fixed energy threshold (used only if the adaptive detector is off). Alias: --det-threshold"),
     "det-threshold": (True, None, "alias for --energy_threshold (fixed detector threshold)"),
     "energy_packet_size": (True, '3300', "Samples to collect after energy detection"),
     "IIR_window_size": (True, '20', "IIR window size"),
@@ -153,6 +154,7 @@ PY2CPP = {
     "settling": "settling",
     "uhd_timeout": "uhd_timeout",
     "alpha": "alpha",
+    "energy_threshold": "energy_threshold",
     "det_threshold": "det-threshold",
     "energy_packet_size": "energy_packet_size",
     "IIR_window_size": "IIR_window_size",
@@ -251,6 +253,7 @@ class SDR:
                  settling=_UNSET, # =0.20000000000000001  Settling time (s)
                  uhd_timeout=_UNSET, # =1000  UHD TX timeout (ms)
                  alpha=_UNSET, # =0.949999988  Energy-detector IIR smoothing: filtered = (1-alpha)*inst +...
+                 energy_threshold=_UNSET, # =1.00000001e-07  Fixed energy threshold (used only if the adaptive detector...
                  det_threshold=_UNSET, # alias for --energy_threshold (fixed detector threshold)
                  energy_packet_size=_UNSET, # =3300  Samples to collect after energy detection
                  IIR_window_size=_UNSET, # =20  IIR window size
@@ -337,6 +340,7 @@ class SDR:
             settling=settling,
             uhd_timeout=uhd_timeout,
             alpha=alpha,
+            energy_threshold=energy_threshold,
             det_threshold=det_threshold,
             energy_packet_size=energy_packet_size,
             IIR_window_size=IIR_window_size,
