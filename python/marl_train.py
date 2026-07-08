@@ -147,6 +147,8 @@ def main(argv):
     a.add_argument("--mock", action="store_true", help="offline: MockChannel, no radio")
     a.add_argument("--tx-args", default="serial=30CD424")
     a.add_argument("--sense-rx-args", default=None)
+    a.add_argument("--tx-gain", type=float, default=78)
+    a.add_argument("--rx-gain", type=float, default=30)
     a.add_argument("--steps", type=int, default=150)
     a.add_argument("--lr", type=float, default=4e-4)
     a.add_argument("--objective", type=int, default=0)
@@ -164,7 +166,8 @@ def main(argv):
                              objective=args.objective, num_S=args.steps)
     else:
         from real_channel import RealChannel
-        ch = RealChannel(tx_args=args.tx_args, sense_rx_args=args.sense_rx_args)
+        ch = RealChannel(tx_args=args.tx_args, sense_rx_args=args.sense_rx_args,
+                         tx_gain=args.tx_gain, rx_gain=args.rx_gain)
         if args.sense_rx_args:
             ch.calibrate()
         env = RealChannelEnv(ch, objective=args.objective, num_S=args.steps)
