@@ -141,7 +141,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "exceeds this. Calibrate to your gain/noise floor (channel_sense.py "
                      "can auto-calibrate).")
         ("sense-count", po::value<int>(&sense_count)->default_value(1),
-                     "role sense: number of consecutive windows to measure/report")
+                     "role sense: number of consecutive windows to measure/report "
+                     "(0 = stream forever until Ctrl-C — for a persistent sensing feed)")
         ("tone-freq", po::value<double>(&tone_freq)->default_value(100e3),
                      "sine/cosine baseband frequency in Hz (default 100 kHz)")
         ("tone-amp", po::value<float>(&tone_amp)->default_value(0.5f),

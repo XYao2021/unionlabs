@@ -186,11 +186,25 @@ if should_transmit(p=0.5, rx_args="serial=30CD3F7", threshold_db=thr):
     ...  # transmit
 ```
 
+**Persistent feed for a tight sense→decide loop** — `SenseStream` runs
+`--sense-count 0` (stream forever) with **one** radio init and keeps the latest
+reading fresh via a background thread, so each decision is instant:
+
+```python
+from channel_sense import SenseStream
+with SenseStream(rx_args="serial=30CD3F7") as s:
+    thr = s.calibrate()                       # idle floor + margin, from the feed
+    while ...:
+        go, r = s.should_transmit(p=0.5, threshold_db=thr)   # no re-init
+        if go: ...transmit...
+```
+
 CLI: `python3 channel_sense.py --calibrate` (measure floor) /
-`python3 channel_sense.py --count 10` (auto-calibrate then sense) /
-`--threshold-db -5.5 --p 0.5` (run the transmit decision). Validated on hardware:
-idle ~−10 dB → not busy, an active tone ~−4 dB → busy. Each call re-inits the
-radio (~1–2 s); `--sense-count` / `calibrate_floor` do N windows in one init.
+`--count 10` (auto-calibrate then sense) /
+`--p 0.5 --count 8` (p-persistent sense→decide loop over the persistent feed).
+Validated on hardware: idle ~−12 dB → not busy → ~50% transmit at p=0.5; an active
+tone ~−3 dB → busy → defer every time. One-shot calls re-init the radio (~1–2 s);
+`SenseStream` / `--sense-count`/ `calibrate_floor` pay that once.
 
 ## Learning over the radio — `mnist_sgd_over_sdr.py`
 

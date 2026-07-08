@@ -161,7 +161,7 @@ The **Default** column is the value used when you omit the option: flags default
 | `--out-file` | value | `(empty)` | RX (rx / sink_arq): write the decoded payload as raw bytes to this file (pairs with --payload-file for a binary byte-pipe). |
 | `--sense-window` | value | `10` | role sense: energy-integration window in ms (default 10) |
 | `--sense-threshold-db` | value | `-30` | role sense: channel is 'busy' when the window's avg power (dB) exceeds this. Calibrate to your gain/noise floor (channel_sense.py can auto-calibrate). |
-| `--sense-count` | value | `1` | role sense: number of consecutive windows to measure/report |
+| `--sense-count` | value | `1` | role sense: number of consecutive windows to measure/report (0 = stream forever until Ctrl-C — for a persistent sensing feed) |
 | `--ref` | value | `internal` | Clock reference: internal / external / mimo |
 | `--settling` | value | `0.20000000000000001` | Settling time (s) |
 | `--uhd_timeout` | value | `1000` | UHD TX timeout (ms) |

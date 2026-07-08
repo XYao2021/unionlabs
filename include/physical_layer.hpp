@@ -319,7 +319,7 @@ public:
         const double fs   = cfg_.rx_rate;
         const size_t need = std::max<size_t>(N, (size_t)(window_s * fs));  // samples/window
         rx_usrp_->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
-        for (int c = 0; c < count && !global_stop_signal.load(); ++c) {
+        for (int c = 0; (count <= 0 || c < count) && !global_stop_signal.load(); ++c) {
             double sum = 0.0, peak = 0.0; size_t n = 0;
             while (n < need && !global_stop_signal.load()) {
                 size_t got = rx->recv(&buf.front(), N, md, 1.0);

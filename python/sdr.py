@@ -42,7 +42,7 @@ OPTIONS = {
     "out-file": (True, None, "RX (rx / sink_arq): write the decoded payload as raw bytes to this file (pairs with --payload-file for a binary byte-pipe)."),
     "sense-window": (True, '10', "role sense: energy-integration window in ms (default 10)"),
     "sense-threshold-db": (True, '-30', "role sense: channel is 'busy' when the window's avg power (dB) exceeds this. Calibrate to your gain/noise floor (channel_sense.py can auto-calibrate)."),
-    "sense-count": (True, '1', "role sense: number of consecutive windows to measure/report"),
+    "sense-count": (True, '1', "role sense: number of consecutive windows to measure/report (0 = stream forever until Ctrl-C — for a persistent sensing feed)"),
     "tone-freq": (True, '100000', "sine/cosine baseband frequency in Hz (default 100 kHz)"),
     "tone-amp": (True, '0.5', "sine/cosine amplitude, keep < 1.0 to avoid DAC clipping"),
     "preamble": (True, 'm-sequence', "Preamble type: m-sequence or zadoff"),
@@ -244,7 +244,7 @@ class SDR:
                  out_file=_UNSET, # RX (rx / sink_arq): write the decoded payload as raw bytes...
                  sense_window=_UNSET, # =10  role sense: energy-integration window in ms (default 10)
                  sense_threshold_db=_UNSET, # =-30  role sense: channel is 'busy' when the window's avg power...
-                 sense_count=_UNSET, # =1  role sense: number of consecutive windows to measure/report
+                 sense_count=_UNSET, # =1  role sense: number of consecutive windows to measure/report...
                  tone_freq=_UNSET, # =100000  sine/cosine baseband frequency in Hz (default 100 kHz)
                  tone_amp=_UNSET, # =0.5  sine/cosine amplitude, keep < 1.0 to avoid DAC clipping
                  preamble=_UNSET, # =m-sequence  Preamble type: m-sequence or zadoff
