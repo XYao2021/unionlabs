@@ -71,6 +71,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "Operation mode: source or sink")
         ("role",     po::value<std::string>(&config.role)->default_value("both"),
                      "tx = transmit only (one B210), rx = receive only (other B210), "
+                     "source_arq / sink_arq = the two ends of stop-and-wait ARQ, "
+                     "sense = channel-occupancy sensing (RX energy over a window, no decode), "
                      "both = original single-box full-duplex/loopback")
         ("tx-reps",  po::value<int>(&tx_reps)->default_value(20),
                      "role tx: how many times to cycle through all chunks (one-way, no ACK)")

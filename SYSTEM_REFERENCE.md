@@ -195,6 +195,42 @@ bursts apart on the RRC envelope; $\alpha=0.95$ gives one clean capture/burst.)
 rather than energy — more sensitive but needs the template), constant-false-alarm-rate (CFAR)
 detectors, cyclostationary feature detection (works below the noise floor).
 
+### 4.1 Channel sensing (occupancy / listen-before-talk)
+
+The same energy measurement, used for a different decision: not *"is a burst starting now"* but
+*"is the channel occupied over this window"* — the basis for carrier-sense multiple access (CSMA).
+`--role sense` streams samples (no decode pipeline), integrates the average power over a window of
+`--sense-window` ms, and declares the band **busy** when it exceeds a threshold:
+
+$$ \bar{P} = \frac{1}{N}\sum_{n=0}^{N-1} |r[n]|^2, \qquad N = f_s \cdot T_\text{window}, \qquad
+   \text{busy if } 10\log_{10}\bar{P} > \gamma_\text{dB}. $$
+
+It reports one machine-parseable line per window —
+`[SENSE] busy=.. power_db=.. peak_db=.. samples=..` — for `--sense-count` windows
+(**`0` = stream forever**, a persistent feed). It is the same $H_0/H_1$ power test as §4, but
+integrated over a *fixed window* the caller chooses rather than gated to a burst envelope.
+
+**Calibration matters.** The absolute power depends on `--rx-gain` and the ambient/DC-leakage
+floor, so $\gamma_\text{dB}$ must be set *relative to the measured idle floor*, not hard-coded.
+The Python layer (`channel_sense.py`) auto-calibrates: it measures the idle floor over N windows
+and sets $\gamma_\text{dB} = \operatorname{median}(P_\text{idle,dB}) + \text{margin}$ (default
++6 dB). Validated on this rig: idle floor ≈ **−12 dB**, an active carrier ≈ **−3 dB** (a clean
++9 dB separation), threshold auto-placed between them.
+
+**Reusable API** (`channel_sense.py`, importable from any script):
+
+- `sense_channel(...)` — one measurement → `{busy, power_db, …}` (re-inits the radio).
+- `calibrate_floor(...)` — idle floor → busy threshold.
+- `SenseStream` — a **persistent** feed (`--sense-count 0`) with one radio init and a background
+  reader that keeps the latest window fresh; `.should_transmit(p, thr)` is an instant decision with
+  no per-call re-init (Python owns the threshold; the feed streams raw `power_db`).
+- `should_transmit(p, …)` — **p-persistent access**: if the channel is idle, transmit with
+  probability $p$; if busy, defer. The scaffold for CSMA/collision-avoidance on top of the PHY.
+
+**Common alternatives:** full CSMA/CA with randomized exponential backoff, RTS/CTS handshaking,
+energy detection with hysteresis (separate busy/idle thresholds to avoid chattering), and — for
+sensing *below* the noise floor — matched-filter or cyclostationary detection as in §4.
+
 ---
 
 ## 5. Synchronization, frequency & phase offset

@@ -22,7 +22,7 @@ The **Default** column is the value used when you omit the option: flags default
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--mode` | value | `source` | Operation mode: source or sink |
-| `--role` | value | `both` | tx = transmit only (one B210), rx = receive only (other B210), both = original single-box full-duplex/loopback |
+| `--role` | value | `both` | tx = transmit only (one B210), rx = receive only (other B210), source_arq / sink_arq = the two ends of stop-and-wait ARQ, sense = channel-occupancy sensing (RX energy over a window, no decode), both = original single-box full-duplex/loopback |
 | `--tx-reps` | value | `20` | role tx: how many times to cycle through all chunks (one-way, no ACK) |
 | `--rx-idle-timeout` | value | `8` | role rx: auto-stop and print the message after this many seconds with no new bursts (TX has finished). 0 = run until Ctrl-C |
 | `--num_bits` | value | `1000` | Payload bits per packet |

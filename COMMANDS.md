@@ -204,6 +204,40 @@ as text, so the payload arrives bit-error-free or not at all. Tones are raw wave
 (no preamble/CRC) — for a clean RX capture use `--tx-mode burst` so each burst triggers
 detection, and set both ends to `--message-type sine|cosine`.
 
+## Channel sensing (occupancy / listen-before-talk)
+
+`--role sense` integrates received power over a `--sense-window` (ms) and prints
+`[SENSE] busy=.. power_db=..` per window; `--sense-count 0` streams forever. The
+busy threshold is gain-dependent — calibrate it to your idle floor (Python does this
+automatically).
+
+```bash
+# one 5-window measurement (raw CLI). Busy if avg power > --sense-threshold-db
+./sdr_system --role sense --rx-args serial=30CD3F7 --rx-freq 915e6 --rx-rate 1.6e6 \
+  --rx-gain 30 --sense-window 10 --sense-count 5 --sense-threshold-db -6 --viz false
+
+# persistent feed (stream until Ctrl-C) — for a live occupancy monitor
+./sdr_system --role sense --rx-args serial=30CD3F7 --rx-gain 30 --sense-count 0 --viz false
+```
+
+Python wrapper (recommended — auto-calibrates the threshold, importable helpers):
+
+```bash
+python3 channel_sense.py --calibrate                     # measure the idle floor
+python3 channel_sense.py --count 10                      # calibrate, then sense 10 windows
+python3 channel_sense.py --p 0.5 --count 8               # p-persistent sense->decide loop
+```
+
+```python
+from channel_sense import SenseStream           # persistent feed, one radio init
+with SenseStream(rx_args="serial=30CD3F7") as s:
+    thr = s.calibrate()
+    go, r = s.should_transmit(p=0.5, threshold_db=thr)   # idle -> TX w.p. p; busy -> defer
+```
+
+Validated: idle ≈ −12 dB → not busy; an active carrier ≈ −3 dB → busy. See
+`SYSTEM_REFERENCE.md` §4.1.
+
 ## 16-QAM and higher — blocked without a shared clock
 **Validated ceiling on this rig is QPSK / 8-PSK.** 16-QAM+ does **not** decode, and a clean cable
 is necessary but not sufficient. On a direct cable the SNR is excellent and QPSK works, but the two

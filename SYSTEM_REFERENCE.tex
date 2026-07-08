@@ -426,6 +426,68 @@ sensitive but needs the template), constant-false-alarm-rate (CFAR)
 detectors, cyclostationary feature detection (works below the noise
 floor).
 
+\hypertarget{41-channel-sensing-occupancy--listen-before-talk}{%
+\subsubsection{4.1 Channel sensing (occupancy /
+listen-before-talk)}\label{41-channel-sensing-occupancy--listen-before-talk}}
+
+The same energy measurement, used for a different decision: not
+\emph{"is a burst starting now"} but \emph{"is the channel occupied over
+this window"} --- the basis for carrier-sense multiple access (CSMA).
+\texttt{-\/-role\ sense} streams samples (no decode pipeline),
+integrates the average power over a window of \texttt{-\/-sense-window}
+ms, and declares the band \textbf{busy} when it exceeds a threshold:
+
+\[ \bar{P} = \frac{1}{N}\sum_{n=0}^{N-1} |r[n]|^2, \qquad N = f_s \cdot T_\text{window}, \qquad
+\text{busy if } 10\log_{10}\bar{P} > \gamma_\text{dB}. \]
+
+It reports one machine-parseable line per window ---
+\texttt{{[}SENSE{]}\ busy=..\ power\_db=..\ peak\_db=..\ samples=..} ---
+for \texttt{-\/-sense-count} windows (\textbf{\texttt{0} = stream
+forever}, a persistent feed). It is the same \(H_0/H_1\) power test as
+§4, but integrated over a \emph{fixed window} the caller chooses rather
+than gated to a burst envelope.
+
+\textbf{Calibration matters.} The absolute power depends on
+\texttt{-\/-rx-gain} and the ambient/DC-leakage floor, so
+\(\gamma_\text{dB}\) must be set \emph{relative to the measured idle
+floor}, not hard-coded. The Python layer (\texttt{channel\_sense.py})
+auto-calibrates: it measures the idle floor over N windows and sets
+\(\gamma_\text{dB} = \operatorname{median}(P_\text{idle,dB}) + \text{margin}\)
+(default +6 dB). Validated on this rig: idle floor ≈ \textbf{−12 dB}, an
+active carrier ≈ \textbf{−3 dB} (a clean +9 dB separation), threshold
+auto-placed between them.
+
+\textbf{Reusable API} (\texttt{channel\_sense.py}, importable from any
+script):
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{sense\_channel(...)} --- one measurement -\textgreater{}
+  \texttt{\{busy,\ power\_db,\ \ldots{}\}} (re-inits the radio).
+\item
+  \texttt{calibrate\_floor(...)} --- idle floor -\textgreater{} busy
+  threshold.
+\item
+  \texttt{SenseStream} --- a \textbf{persistent} feed
+  (\texttt{-\/-sense-count\ 0}) with one radio init and a background
+  reader that keeps the latest window fresh;
+  \texttt{.should\_transmit(p,\ thr)} is an instant decision with no
+  per-call re-init (Python owns the threshold; the feed streams raw
+  \texttt{power\_db}).
+\item
+  \texttt{should\_transmit(p,\ \ldots{})} --- \textbf{p-persistent
+  access}: if the channel is idle, transmit with probability \(p\); if
+  busy, defer. The scaffold for CSMA/collision-avoidance on top of the
+  PHY.
+\end{itemize}
+
+\textbf{Common alternatives:} full CSMA/CA with randomized exponential
+backoff, RTS/CTS handshaking, energy detection with hysteresis (separate
+busy/idle thresholds to avoid chattering), and --- for sensing
+\emph{below} the noise floor --- matched-filter or cyclostationary
+detection as in §4.
+
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
 \hypertarget{5-synchronization-frequency--phase-offset}{%

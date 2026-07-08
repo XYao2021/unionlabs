@@ -19,7 +19,7 @@ DEFAULT_BINARY = os.environ.get("SDR_SYSTEM_BIN") or \
 # cpp-option-name -> (has_arg, default, help)
 OPTIONS = {
     "mode": (True, 'source', "Operation mode: source or sink"),
-    "role": (True, 'both', "tx = transmit only (one B210), rx = receive only (other B210), both = original single-box full-duplex/loopback"),
+    "role": (True, 'both', "tx = transmit only (one B210), rx = receive only (other B210), source_arq / sink_arq = the two ends of stop-and-wait ARQ, sense = channel-occupancy sensing (RX energy over a window, no decode), both = original single-box full-duplex/loopback"),
     "tx-reps": (True, '20', "role tx: how many times to cycle through all chunks (one-way, no ACK)"),
     "rx-idle-timeout": (True, '8', "role rx: auto-stop and print the message after this many seconds with no new bursts (TX has finished). 0 = run until Ctrl-C"),
     "stop-on-complete": (True, '1', "role rx: stop as soon as every chunk of a finite message (bytes / fixed-length random) is CRC-verified (default true). false = keep receiving (collect duplicates / measure the link) until the idle timeout or Ctrl-C. Ignored for continuous TX."),
