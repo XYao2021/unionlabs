@@ -19,7 +19,7 @@ DEFAULT_BINARY = os.environ.get("SDR_SYSTEM_BIN") or \
 # cpp-option-name -> (has_arg, default, help)
 OPTIONS = {
     "mode": (True, 'source', "Operation mode: source or sink"),
-    "role": (True, 'both', "tx = transmit only (one B210), rx = receive only (other B210), both = original single-box full-duplex/loopbac k"),
+    "role": (True, 'both', "tx = transmit only (one B210), rx = receive only (other B210), both = original single-box full-duplex/loopback"),
     "tx-reps": (True, '20', "role tx: how many times to cycle through all chunks (one-way, no ACK)"),
     "rx-idle-timeout": (True, '8', "role rx: auto-stop and print the message after this many seconds with no new bursts (TX has finished). 0 = run until Ctrl-C"),
     "ack-transport": (True, 'tcp', "ARQ ACK channel: tcp (default, ACK over a socket — no reverse RF needed) or rf (ACK over the second RF path, RF B)"),
@@ -64,10 +64,9 @@ OPTIONS = {
     "rx-channel": (True, '0', "RX channel index"),
     "rx-subdev": (True, 'A:A', "RX subdev spec"),
     "ref": (True, 'internal', "Clock reference: internal / external / mimo"),
-    "settling": (True, '0.20000000000000001) Settling time (s', ""),
+    "settling": (True, '0.20000000000000001', "Settling time (s)"),
     "uhd_timeout": (True, '1000', "UHD TX timeout (ms)"),
     "alpha": (True, '0.949999988', "Energy-detector IIR smoothing: filtered = (1-alpha)*inst + alpha*prev, so LARGER alpha = MORE smoothing. The old 0.02 barely smoothed, so the detector fired on every noise spike (thousands of false bursts) and cut real bursts apart on the RRC envelope. 0.95 (~20-sample time constant) gives one clean capture per burst."),
-    "energy_threshold": (True, '1.00000001e-07', "Fixed energy threshold (used only if the adaptive detector is off). Alias: --det-threshold"),
     "det-threshold": (True, None, "alias for --energy_threshold (fixed detector threshold)"),
     "energy_packet_size": (True, '3300', "Samples to collect after energy detection"),
     "IIR_window_size": (True, '20', "IIR window size"),
@@ -154,7 +153,6 @@ PY2CPP = {
     "settling": "settling",
     "uhd_timeout": "uhd_timeout",
     "alpha": "alpha",
-    "energy_threshold": "energy_threshold",
     "det_threshold": "det-threshold",
     "energy_packet_size": "energy_packet_size",
     "IIR_window_size": "IIR_window_size",
@@ -250,10 +248,9 @@ class SDR:
                  rx_channel=_UNSET, # =0  RX channel index
                  rx_subdev=_UNSET, # =A:A  RX subdev spec
                  ref=_UNSET, # =internal  Clock reference: internal / external / mimo
-                 settling=_UNSET, # =0.20000000000000001) Settling time (s  
+                 settling=_UNSET, # =0.20000000000000001  Settling time (s)
                  uhd_timeout=_UNSET, # =1000  UHD TX timeout (ms)
                  alpha=_UNSET, # =0.949999988  Energy-detector IIR smoothing: filtered = (1-alpha)*inst +...
-                 energy_threshold=_UNSET, # =1.00000001e-07  Fixed energy threshold (used only if the adaptive detector...
                  det_threshold=_UNSET, # alias for --energy_threshold (fixed detector threshold)
                  energy_packet_size=_UNSET, # =3300  Samples to collect after energy detection
                  IIR_window_size=_UNSET, # =20  IIR window size
@@ -340,7 +337,6 @@ class SDR:
             settling=settling,
             uhd_timeout=uhd_timeout,
             alpha=alpha,
-            energy_threshold=energy_threshold,
             det_threshold=det_threshold,
             energy_packet_size=energy_packet_size,
             IIR_window_size=IIR_window_size,

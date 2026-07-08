@@ -52,7 +52,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     size_t      bytes_length    = 125;
 
     // ── CLI options ─────────────────────────────────────────
-    po::options_description desc("Allowed options");
+    // Wide line_length (200) so --help doesn't hard-break long words mid-token
+    // (keeps each description clean for the auto-generated Python API / OPTIONS.md).
+    po::options_description desc("Allowed options", 200);
     desc.add_options()
         ("help", "show this help message")
 

@@ -133,7 +133,8 @@ if(PYTHON3_EXE)
         COMMAND ${PYTHON3_EXE} ${CMAKE_SOURCE_DIR}/tools/gen_python_api.py
                 --binary $<TARGET_FILE:sdr_system>
                 --out   ${CMAKE_SOURCE_DIR}/python/sdr.py
-        COMMENT "Regenerating python/sdr.py from sdr_system --help")
+                --md    ${CMAKE_SOURCE_DIR}/python/OPTIONS.md
+        COMMENT "Regenerating python/sdr.py + OPTIONS.md from sdr_system --help")
 else()
     message(STATUS "python3 not found — skipping python/sdr.py auto-generation")
 endif()

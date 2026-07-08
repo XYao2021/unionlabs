@@ -48,6 +48,7 @@ python/
 │   ├── tx_tone.json           continuous cosine test tone (signal generator)
 │   ├── tx_tone_burst.json     same tone, transmitted in bursts
 │   └── rx_tone_monitor.json   raw tone monitor (prints freq + power, no decode)
+├── OPTIONS.md        AUTO-GENERATED reference of every option (JSON/CLI/Python).
 ├── README.md         Usage guide (API + JSON config).
 └── STRUCTURE.md      This file.
 

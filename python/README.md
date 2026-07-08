@@ -8,6 +8,11 @@ launches it as a subprocess.
 which runs as a CMake post-build step — so whenever you rebuild the C++, the Python
 wrapper picks up any new/changed options automatically. **Don't edit `sdr.py` by hand.**
 
+> **[`OPTIONS.md`](OPTIONS.md) lists every controllable option** (grouped, with type,
+> default, and description) and how to set it via JSON / command line / Python. It is
+> auto-generated too, so it is always complete and current. Start there to see what you
+> can change.
+
 ## Quick start
 
 ```python

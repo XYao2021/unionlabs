@@ -211,10 +211,84 @@ def _flag(name, opts):
     return False
 
 
+def _group(name):
+    if name.startswith("ofdm") or name in ("scheme", "fec", "waveform"):
+        return "Modulation & waveform"
+    if name.startswith("ack") or name in ("timeout", "timer_interval"):
+        return "ARQ / ACK"
+    if name in ("role", "mode", "tx-reps", "tx-mode", "rx-idle-timeout", "interval",
+                "num_bits", "message-type", "message", "tone-freq", "tone-amp"):
+        return "Mode, message & transmission"
+    if name in ("preamble", "m", "add_preamble", "filter_type", "roll_off", "num_taps",
+                "U", "D", "symbol_rate", "num_threads", "sps"):
+        return "Preamble & pulse shaping"
+    if name.startswith("det") or name.startswith("energy") or name.startswith("IIR") or name == "alpha":
+        return "Energy detection"
+    if name.startswith("sync") or name in ("sps_sync", "recv_msg_len",
+                                           "samps_per_buff", "num_recv_request"):
+        return "Synchronization"
+    if name.startswith("timing") or name.startswith("phase"):
+        return "Timing & phase recovery"
+    if name.startswith("eq"):
+        return "Equalizer"
+    if name.startswith("tx-") or name.startswith("tx_"):
+        return "TX radio"
+    if name.startswith("rx-") or name.startswith("rx_"):
+        return "RX radio"
+    if name.startswith("viz"):
+        return "Visualization"
+    return "RF, clock & misc"
+
+
+def emit_md(opts):
+    order = ["Mode, message & transmission", "Modulation & waveform",
+             "Preamble & pulse shaping", "TX radio", "RX radio", "ARQ / ACK",
+             "Energy detection", "Synchronization", "Timing & phase recovery",
+             "Equalizer", "Visualization", "RF, clock & misc"]
+    buckets = {}
+    for name, ha, h, d in opts:
+        buckets.setdefault(_group(name), []).append((name, ha, h, d))
+    L = []
+    L.append("# All controllable options")
+    L.append("")
+    L.append("Every option below can be set three equivalent ways — all reach the same")
+    L.append("`sdr_system` binary. Option names accept **hyphens or underscores**.")
+    L.append("")
+    L.append("| Where | How | Example |")
+    L.append("|---|---|---|")
+    L.append('| JSON config (`run.py`) | `"name": value` | `"scheme": "16-QAM"` |')
+    L.append('| Command line (overrides JSON) | `--name value` | `--scheme 16-QAM` |')
+    L.append('| Python (`sdr.py`) | `SDR(name=value)` | `SDR(scheme="16-QAM")` |')
+    L.append("")
+    L.append("In JSON: booleans are `true`/`false`, numbers are bare (`915e6`), strings are")
+    L.append('quoted. **Flags** (Type = _flag_) take no value on the command line (just')
+    L.append("`--name`); in JSON/Python set them to `true`.")
+    L.append("")
+    L.append("> Auto-generated from `sdr_system --help` — always lists every current "
+             "option (**%d** total). Do not edit by hand." % len(opts))
+    L.append("")
+    for g in order + [k for k in buckets if k not in order]:
+        rows = buckets.get(g)
+        if not rows:
+            continue
+        L.append("## " + g)
+        L.append("")
+        L.append("| Option | Type | Default | Description |")
+        L.append("|---|---|---|---|")
+        for name, ha, h, d in rows:
+            typ = "value" if ha else "flag"
+            dflt = "—" if not ha else ("_(none)_" if d is None else "`%s`" % d)
+            desc = h.replace("|", "\\|")
+            L.append("| `--%s` | %s | %s | %s |" % (name, typ, dflt, desc))
+        L.append("")
+    return "\n".join(L)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--binary", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--md", help="also write a Markdown options reference here")
     a = ap.parse_args()
     try:
         help_txt = subprocess.run([a.binary, "--help"], capture_output=True,
@@ -227,6 +301,11 @@ def main():
         with open(a.out, "w") as f:
             f.write(code)
         print("[gen_python_api] wrote %s (%d options)" % (a.out, len(opts)))
+        if a.md:
+            os.makedirs(os.path.dirname(os.path.abspath(a.md)), exist_ok=True)
+            with open(a.md, "w") as f:
+                f.write(emit_md(opts) + "\n")
+            print("[gen_python_api] wrote %s" % a.md)
     except Exception as e:                              # never break the build
         sys.stderr.write("[gen_python_api] WARNING: skipped (%s)\n" % e)
     sys.exit(0)
