@@ -128,16 +128,26 @@ change beyond §2.
 
 ## 6. Concrete PHY changes needed
 
-Most hooks already exist; two small additions:
+Bridge built: **`python/marl_phy.py`** (`sense()`, `transmit_once() -> bool`, `AccessPoint`,
+`MarlRadio`). Hardware findings that reshaped the plan:
 
-1. **Single-shot transmit that returns success/fail** — *mostly done*: `--max-attempts 1`
-   already sends once and reports `Unacked chunks`. Add a thin Python `transmit_once(bytes)
-   -> bool` that runs the source with `--max-attempts 1 --payload-file <tmp>` and returns
-   `acked = (Unacked chunks == 0)`. (Reuse the reused-scratch-file trick from the trainer.)
-2. **Persistent Access-Point receiver** — new: a receive mode that listens forever and
-   sends one ACK per CRC-verified frame **without** reassembling-to-done. Simplest form:
-   a `sink_arq` variant with a `--serve-forever` flag (don't set `done_` after N chunks;
-   keep ACKing each decoded frame). Pairs with a persistent process like `SenseStream`.
+1. **Single-shot transmit — DONE and validated.** `--max-attempts 1` sends one burst and
+   reports `Unacked chunks`; `transmit_once()` returns `acked = (Unacked == 0)`. Confirmed
+   on the radios: a warm AP ACKs a single 32-byte burst on the first attempt
+   (`Sent=1 Retransmissions=0 Unacked=0`). ACK = success, timeout = collision/loss. ✓
+2. **Persistent Access-Point receiver — now REQUIRED, not optional.** The MVP `AccessPoint`
+   re-inits a `sink_arq` per packet; a *cold* sink isn't settled when the lone burst
+   arrives, so its round-trip overruns the ACK window and the packet is missed (0 decoded).
+   A warm sink, by contrast, ACKs reliably (proven: one warm sink ACKed 15/16 and 1/1
+   single bursts). So the AP must stay **warm and persistent**.
+   - **Minimum:** a `sink_arq --serve-forever` mode (don't terminate after N chunks; keep
+     the RX pipeline warm and ACK each decoded frame).
+   - **But the source must persist too:** a per-attempt source subprocess pays cold-start
+     each packet. The clean design is a **session**: one long-lived source↔sink connection
+     over which the agent injects packets on demand (a control channel — stdin or a socket —
+     feeds the live source successive payloads; it reports each ACK/timeout). A warm session
+     already ACKs many successive bursts (the 16-chunk message test), so this is the natural
+     shape. This is the next build item and gates reliable MARL operation.
 
 Already available and reused as-is: `channel_sense.py` (sense / `SenseStream` /
 `should_transmit`), `--payload-file`/`--out-file` byte-pipe, `--timeout`, `--bytes-length`,
