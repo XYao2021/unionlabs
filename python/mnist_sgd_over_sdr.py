@@ -193,7 +193,7 @@ def phy_common(a):
         rx_freq=915e6, tx_freq=915e6, rx_rate=1.6e6, tx_rate=1.6e6,
         rx_subdev="A:A", tx_subdev="A:A", rx_ant="RX2", tx_ant="TX/RX",
         det_mult=3, ack_transport="tcp", ack_port=a.ack_port,
-        bytes_length=a.chunk, viz=False,
+        bytes_length=a.chunk, timer_interval=a.timer_interval, viz=False,
     )
 
 
@@ -203,7 +203,7 @@ def send_payload(a, payload, tmp_path):
         f.write(payload)
     sdr.source_arq(
         tx_args=a.tx_args, rx_args=a.tx_args, tx_gain=a.tx_gain,
-        ack_host=a.ack_host, timeout=3000,
+        ack_host=a.ack_host, timeout=a.timeout,
         payload_file=tmp_path, **phy_common(a),
     ).run()
 
@@ -312,7 +312,12 @@ def main():
     p.add_argument("--topk", type=float, default=0.05, help="top-k fraction (default 5%%)")
     # PHY
     p.add_argument("--scheme", default="QPSK")
-    p.add_argument("--chunk", type=int, default=512, help="payload bytes per chunk")
+    p.add_argument("--chunk", type=int, default=512, help="payload bytes per chunk "
+                   "(bigger = fewer round-trips, but longer bursts fail more under CFO)")
+    p.add_argument("--timeout", type=int, default=400,
+                   help="source ACK timeout (ms) — must exceed the ~170ms ACK round-trip")
+    p.add_argument("--timer-interval", type=int, default=20,
+                   help="sink FIFO poll interval (ms) — SETS the ACK latency (was 1000)")
     p.add_argument("--tx-args", default="serial=30CD424")
     p.add_argument("--rx-args", default="serial=30CD3F7")
     p.add_argument("--tx-gain", type=float, default=78)

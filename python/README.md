@@ -190,5 +190,20 @@ python3 mnist_sgd_over_sdr.py worker --rounds 30 --tx-args serial=30CD424
 Both ends start from the same seed and apply the identical sparse update, so their
 models track exactly — matching accuracy proves the gradient crossed the link
 error-free. Relies on the PHY's `--payload-file` / `--out-file` byte-pipe and
-`--bytes-length` (large chunks). Tune with `--hidden`, `--batch`, `--lr`, `--topk`,
-`--scheme`, `--chunk`.
+`--bytes-length` (chunk size). Tune with `--hidden`, `--batch`, `--lr`, `--topk`,
+`--scheme`, `--chunk`, `--timeout`, `--timer-interval`.
+
+**Throughput (measured, 32 KB over the air, marginal free-running link).** The two
+big levers are the **sink poll interval** (`--timer-interval`, was 1000 ms → the ACK
+latency) and the **ACK timeout** (`--timeout`):
+
+| `timer-interval` / `timeout` | rate | note |
+|---|---|---|
+| 1000 / 3000 ms (old PHY default) | 0.21 KB/s | ~1.3 s ACK latency |
+| 20 / 800 ms | 0.88 KB/s | fast poll → ~0.17 s ACK |
+| **20 / 400 ms (default here)** | **1.38 KB/s** | safe above the ~170 ms ACK |
+
+So a top-k MLP gradient (~31.8 KB) is ~22 s/round. The remaining cost is ~30%
+retransmits from the free-running-clock CFO — a **shared 10 MHz reference** removes
+them (~3 KB/s), after which **bigger `--chunk`** finally helps (under CFO, long bursts
+drift past the decision boundary and fail, so 512 B is kept here).
