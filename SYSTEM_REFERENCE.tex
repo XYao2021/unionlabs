@@ -945,6 +945,79 @@ TX/RX \textbf{time domain}, \textbf{spectrum} (FFT), and
 manually with
 \texttt{python3\ tools/plot\_viz.py\ \textless{}dir\textgreater{}\ -\/-fs\ 1.6e6\ -\/-save\ out.png}.
 
+\hypertarget{101-why-a-messy-constellation-can-still-decode-perfectly}{%
+\subsubsection{\texorpdfstring{10.1 Why a \emph{messy} constellation can
+still decode
+perfectly}{10.1 Why a messy constellation can still decode perfectly}}\label{101-why-a-messy-constellation-can-still-decode-perfectly}}
+
+A common and important surprise: the saved RX constellation can look
+like a smeared ring --- the clusters visibly overlapping --- yet the
+message decodes with zero errors. This is not a contradiction; it is the
+whole point of the error-control stack. Four facts reconcile it.
+
+\textbf{1. The plot is a single snapshot, not the data that decoded.}
+\texttt{viz.hpp} writes each figure \textbf{once, from the \emph{first}
+captured burst of the run} (\texttt{written\ once} / "only the FIRST
+time called"). The message, by contrast, is assembled from \emph{many}
+bursts (§8). So the picture you are staring at is one --- possibly poor
+--- burst, while the message may have been built from later, cleaner
+bursts you never see plotted. The snapshot over-represents the worst
+moment.
+
+\textbf{2. "Messy" is not "random."} A \emph{truly uniform} circle ---
+phase spread evenly over \([0, 2\pi)\) --- genuinely cannot be decoded:
+for \(M\)-PSK it gives an \(\approx (M-1)/M\) symbol-error rate, far
+past any code's reach. The fact that decoding \emph{succeeds} is itself
+proof the constellation is \textbf{not} uniform: the \(M\) clusters are
+spread and overlapping but still statistically centred on the right
+points, so \textbf{most} symbol decisions are still correct (often
+80--90\%). The eye exaggerates the mess --- a scatter of thousands of
+alpha-blended points plus a few outliers reads as a ring even when the
+modes dominate.
+
+\textbf{3. Three layers turn "mostly right" into "exactly right."} The
+decision slicer's raw output is only the first stage:
+
+\[\text{symbol decisions (some wrong)} \;\to\; \underbrace{\text{Viterbi FEC}}_{\text{rate-}1/2,\,K=7} \;\to\; \underbrace{\text{CRC-16}}_{\text{detect residual}} \;\to\; \underbrace{\text{ARQ / }\texttt{--tx-reps}}_{\text{retransmit}}\]
+
+FEC (§7) corrects a large fraction of the bit errors; CRC (§8) rejects
+any chunk that still contains one; ARQ / repetition then retransmits
+until a clean copy lands. The last layer is decisive: \textbf{you need
+only ONE CRC-clean copy of each chunk.} A link that fails 80\% of bursts
+still delivers a perfect message --- the passing 20\% are kept, the rest
+dropped. The message is built from the \emph{lucky} bursts, not the
+average one.
+
+\textbf{4. Two different quantities.} The constellation/EVM measures the
+\textbf{raw, uncoded} channel quality --- how hard the demod's job is.
+The decoded message reports what survives \textbf{after} the coding
+layers. They are \emph{allowed} to disagree, and the gap between them is
+exactly the margin that FEC + CRC + retransmission buys:
+
+\begin{longtable}[]{@{}ll@{}}
+\toprule
+Quantity & What it reflects \\
+\midrule
+\endhead
+Constellation / EVM & raw link quality (pre-coding) \\
+Decoded message & result after FEC + CRC + ARQ \\
+\bottomrule
+\end{longtable}
+
+Note the 8-PSK mapping here is \emph{natural binary}, \textbf{not}
+Gray-coded (\texttt{modulator.cpp}
+\texttt{create\_8psk\_constellation}), so none of this robustness comes
+from a benign bit-assignment --- the coding layers do all of the work.
+Switching to Gray coding (adjacent symbols differing by one bit) would
+widen this margin further, a cheap future improvement.
+
+This is also the precise mechanism behind the dense-QAM wall (§13):
+there, even a \emph{single} clean copy never lands --- the raw symbol
+errors exceed what FEC can carry and no burst passes CRC --- so
+retransmission has nothing good to keep. 8-PSK sits right at the edge
+where the raw symbols are borderline but the stack still closes the gap;
+dense QAM/APSK is past it.
+
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
 \hypertarget{11-complete-command-line-reference}{%
