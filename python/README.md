@@ -64,6 +64,21 @@ python3 run.py configs/qpsk_arq_pair.json              # run it
 python3 run.py configs/qpsk_arq_pair.json --dry-run    # just print the command(s)
 ```
 
+### Override config values on the command line (CLI wins)
+
+Keep a base config and change just what you need — any `--option value` overrides
+the file (and applies to both ends of a pair). Great for sweeping modulation or
+tweaking gains without editing JSON:
+
+```bash
+python3 run.py configs/qpsk_arq_pair.json --scheme 16-QAM --tx-gain 82 --rx-gain 18
+python3 run.py configs/qpsk_arq_pair.json --scheme=8-PSK --waveform ofdm
+```
+
+`--dry-run` shows the final command(s) after overrides; unknown options are
+rejected with a clear message; bool-switch flags (e.g. `--skip-rate-check`) take
+no value.
+
 ### Separate terminals (watch each process)
 
 `run.py config.json` launches both ends from one command. To run TX and RX in
