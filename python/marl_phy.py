@@ -70,9 +70,12 @@ def _scratch(tag):
 #  Agent side: transmit exactly one burst, report ACK (success) vs timeout
 # ─────────────────────────────────────────────────────────────────────────────
 def transmit_once(payload=None, tx_args="serial=30CD424", tx_gain=78,
-                  ack_host="127.0.0.1", timeout_ms=1500, binary=None, **opts):
-    """Send ONE frame; return True iff it was ACKed (no collision/loss). No PHY
-    retransmission — `--max-attempts 1`. `payload` defaults to a fixed-size token."""
+                  ack_host="127.0.0.1", timeout_ms=2000, binary=None, **opts):
+    """Send ONE frame at a warm Access Point; return True iff it was ACKed (no
+    collision/loss). No PHY retransmission — `--max-attempts 1`. `payload` defaults
+    to a fixed-size token. Retries once on a USB-release race (the previous fire's
+    source not fully closed yet)."""
+    import time
     pkt = payload if payload is not None else b"MARL" + bytes(PACKET_BYTES - 4)
     tmp = _scratch("tx")
     with open(tmp, "wb") as f:
@@ -80,20 +83,26 @@ def transmit_once(payload=None, tx_args="serial=30CD424", tx_gain=78,
     cmd = sdr.SDR(role="source_arq", tx_args=tx_args, rx_args=tx_args, tx_gain=tx_gain,
                   ack_host=ack_host, timeout=timeout_ms, max_attempts=1,
                   payload_file=tmp, binary=binary, **_phy(opts)).command()
-    p = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
-    m = _ACK_UNACKED.search(p.stdout)
-    if not m:                                    # source never reached "Done" (radio error)
+    for attempt in range(2):
+        p = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
+        m = _ACK_UNACKED.search(p.stdout)
+        if m:
+            return int(m.group(1)) == 0          # 0 unacked => ACKed => success
+        if "No devices found" in (p.stdout + p.stderr) and attempt == 0:
+            time.sleep(3)                        # TX radio not released yet — wait, retry
+            continue
         raise RuntimeError("transmit_once: no ARQ result\n" + (p.stderr or p.stdout)[-500:])
-    return int(m.group(1)) == 0                  # 0 unacked => ACKed => success
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Access-Point side: receive + ACK each decoded frame
 # ─────────────────────────────────────────────────────────────────────────────
 class AccessPoint:
-    """The receiver the agents transmit to. Listens for one frame, ACKs it if it
-    decodes (CRC OK), and returns its bytes. A collision/garble => no decode =>
-    no ACK (the transmitting agent then sees a timeout). Loop it with serve()."""
+    """The persistent, WARM receiver the agents transmit to. Runs ONE
+    `sink_arq --serve-forever` process: the radio starts once and stays settled,
+    re-accepting a source per fire and ACKing each decoded frame. A collision/
+    garble => no decode => no ACK (the agent sees a timeout). This is what makes
+    fire-on-demand single-shot reliable (a cold, per-frame sink misses the burst)."""
 
     def __init__(self, rx_args="serial=30CD3F7", rx_gain=20, ack_port=5599,
                  binary=None, **opts):
@@ -101,44 +110,54 @@ class AccessPoint:
         self.rx_gain = rx_gain
         self.opts = {**opts, "ack_port": ack_port}
         self.binary = binary
-        self.tmp = _scratch("ap")
+        self._p = None
 
-    def receive_once(self, timeout_s=30.0):
-        """Wait up to timeout_s for one frame; ACK it and return its bytes, or None
-        if nothing decoded in time."""
-        if os.path.exists(self.tmp):
-            os.remove(self.tmp)
+    def start(self, warmup_s=6.0, log="/tmp/marl_ap_sink.log"):
+        """Launch the persistent warm sink and wait `warmup_s` for the radio to
+        settle (AGC + noise floor) before returning — a fire against a cold sink
+        is missed. Output goes to `log` for inspection. Call once; keep it running."""
+        import time
         cmd = sdr.SDR(role="sink_arq", rx_args=self.rx_args, tx_args=self.rx_args,
-                      rx_gain=self.rx_gain, out_file=self.tmp, binary=self.binary,
+                      rx_gain=self.rx_gain, serve_forever=True, binary=self.binary,
                       **_phy(self.opts)).command()
-        try:
-            subprocess.run(shlex.split(cmd), capture_output=True, text=True,
-                           timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            return None                          # no frame arrived in the window
-        if os.path.exists(self.tmp):
-            with open(self.tmp, "rb") as f:
-                return f.read()
-        return None
+        self._log = open(log, "w") if log else subprocess.DEVNULL
+        self._p = subprocess.Popen(shlex.split(cmd), stdout=self._log,
+                                   stderr=subprocess.STDOUT)
+        time.sleep(warmup_s)                     # let the RX pipeline warm up
+        if self._p.poll() is not None:
+            raise RuntimeError("AccessPoint failed to start (see %s)" % log)
+        return self
 
-    def serve(self, on_packet=None, max_packets=None, timeout_s=30.0):
-        """Persistent AP: ACK frames forever (or max_packets), calling on_packet(bytes)
-        for each. Ctrl-C to stop. (Re-inits the radio per frame in this MVP.)"""
-        n = 0
-        print("[AP] serving on %s (Ctrl-C to stop)" % self.rx_args)
+    def stop(self):
+        if self._p and self._p.poll() is None:
+            self._p.terminate()
+            try:
+                self._p.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._p.kill()
+
+    def serve(self, seconds=None):
+        """Run the warm AP until Ctrl-C (or `seconds`). It ACKs every decodable
+        fire from any agent while it's up."""
+        import time
+        self.start()
+        print("[AP] persistent warm access point on %s (Ctrl-C to stop)" % self.rx_args)
         try:
-            while max_packets is None or n < max_packets:
-                pkt = self.receive_once(timeout_s=timeout_s)
-                if pkt is None:
-                    print("[AP] (idle window, no frame)")
-                    continue
-                n += 1
-                print("[AP] frame %d ACKed (%d bytes)" % (n, len(pkt)))
-                if on_packet:
-                    on_packet(pkt)
+            t0 = time.time()
+            while seconds is None or time.time() - t0 < seconds:
+                if self._p.poll() is not None:
+                    print("[AP] sink exited"); break
+                time.sleep(0.5)
         except KeyboardInterrupt:
-            print("\n[AP] stopped after %d frames" % n)
-        return n
+            print("\n[AP] stopping")
+        finally:
+            self.stop()
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *a):
+        self.stop()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -154,7 +173,7 @@ class MarlRadio:
 
     def __init__(self, tx_args="serial=30CD424", rx_args="serial=30CD3F7",
                  tx_gain=78, rx_gain=30, threshold_db=None, ack_host="127.0.0.1",
-                 timeout_ms=1500, **opts):
+                 timeout_ms=2000, **opts):
         self.tx_args = tx_args
         self.rx_args = rx_args
         self.tx_gain = tx_gain
@@ -191,18 +210,20 @@ def main(argv):
     a.add_argument("--tx-gain", type=float, default=78)
     a.add_argument("--rx-gain", type=float, default=20)
     a.add_argument("--attempts", type=int, default=5, help="agent: transmit_once trials")
-    a.add_argument("--packets", type=int, default=None, help="ap: stop after N frames")
+    a.add_argument("--seconds", type=float, default=None, help="ap: run for N s (else Ctrl-C)")
     args = a.parse_args(argv)
 
     if args.role == "ap":
-        AccessPoint(rx_args=args.rx_args, rx_gain=args.rx_gain).serve(max_packets=args.packets)
+        AccessPoint(rx_args=args.rx_args, rx_gain=args.rx_gain).serve(seconds=args.seconds)
     else:
+        import time
         ok = 0
         for i in range(args.attempts):
             acked = transmit_once(tx_args=args.tx_args, tx_gain=args.tx_gain)
             ok += acked
-            print("[agent] attempt %d -> %s" % (i + 1, "ACK (success)" if acked
-                                                 else "no ACK (collision/loss)"))
+            print("[agent] fire %d -> %s" % (i + 1, "ACK (success)" if acked
+                                             else "no ACK (collision/loss)"))
+            time.sleep(3)                        # let the TX radio release before the next fire
         print("[agent] %d/%d ACKed" % (ok, args.attempts))
 
 

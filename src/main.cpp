@@ -38,6 +38,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     int         timeout_ms      = 3000;
     int         timer_interval  = 20;      // sink poll interval (ms); sets ACK latency
     int         max_attempts    = 50;      // source_arq: give up on a chunk after N (0=never)
+    bool        serve_forever   = false;   // sink_arq: keep the radio warm, re-accept per source
     int         num_bits        = 1000;
     int         interval_ms     = 3000;
     int         tx_reps         = 20;      // one-way (role tx) repetitions
@@ -108,6 +109,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "source_arq: give up on a chunk after this many un-ACKed sends. "
                      "0 = never give up (keeps TX/RX in lockstep on a marginal link, "
                      "since a given-up chunk desyncs a paired sender/receiver loop).")
+        ("serve-forever", po::bool_switch(&serve_forever),
+                     "sink_arq: act as a persistent access point — keep the radio warm "
+                     "and re-accept a new source per session instead of exiting after one "
+                     "message (for fire-on-demand random access, e.g. the MARL bridge).")
 
         // Message
         ("num_bits", po::value<int>(&num_bits)->default_value(1000),
@@ -783,34 +788,56 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     } else if (config.role == "sink_arq") {
         // Stop-and-wait ARQ receiver: CRC-verify each data chunk, send an ACK,
-        // reassemble. Exits once all chunks are received.
-        std::unique_ptr<AckLink> ack;
-        if (config.ack_transport == "tcp") {
-            // Sink is the TCP server — accept the source's ACK connection.
-            std::cout << "[SINK-ARQ] waiting for source to connect ACK socket on port "
-                      << config.ack_port << " ...\n";
-            int fd;
-            try { fd = net::accept_one(config.ack_port); }
-            catch (const std::exception& e) { std::cerr << "[SINK-ARQ] ACK accept failed: "
-                      << e.what() << "\n"; transceiver.stop(); return EXIT_FAILURE; }
-            std::cout << "[SINK-ARQ] ACK socket connected\n";
-            ack.reset(new TcpAckLink(fd));
-        } else {
-            ack.reset(new RfAckLink(transceiver, bytes_length, config.fec));
-        }
-        std::cout << "[SINK-ARQ] Waiting for chunks; ACKing verified ones via "
-                  << ack->name() << (config.fec ? ", FEC on" : "") << ". Ctrl-C to stop.\n";
-        SINK sink(transceiver, *ack, timer_interval, config.fec, bytes_length);
-        sink.start();
-        while (!sink.done() && !global_stop_signal.load())
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        // Grace period so a lost final ACK is re-sent when the source retransmits
-        // its last chunk (the sink re-ACKs duplicates).
-        if (sink.done())
-            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-        sink.stop();
-        sink.print_received_message();
-        if (!out_file.empty()) sink.save_message(out_file);
+        // reassemble. Exits once all chunks are received — UNLESS --serve-forever,
+        // in which case it acts as a persistent access point: the radio (started
+        // above) stays warm and settled while we re-accept a new source per
+        // session. Only the lightweight TCP accept + SINK bookkeeping recycle; the
+        // RX pipeline never re-inits, so a fire-on-demand agent always meets a
+        // warm receiver (a cold sink misses the lone burst — see marl_phy.py).
+        if (serve_forever)
+            std::cout << "[SINK-ARQ] persistent access point (--serve-forever): "
+                         "radio stays warm, re-accepting per source. Ctrl-C to stop.\n";
+        do {
+            std::unique_ptr<AckLink> ack;
+            if (config.ack_transport == "tcp") {
+                // Sink is the TCP server — accept the source's ACK connection.
+                std::cout << "[SINK-ARQ] waiting for source to connect ACK socket on port "
+                          << config.ack_port << " ...\n";
+                int fd = -1;
+                try { fd = net::accept_one(config.ack_port); }
+                catch (const std::exception& e) {
+                    std::cerr << "[SINK-ARQ] ACK accept failed: " << e.what() << "\n";
+                    if (serve_forever && !global_stop_signal.load()) continue;  // retry
+                    transceiver.stop(); return EXIT_FAILURE;
+                }
+                std::cout << "[SINK-ARQ] ACK socket connected\n";
+                ack.reset(new TcpAckLink(fd));
+            } else {
+                ack.reset(new RfAckLink(transceiver, bytes_length, config.fec));
+            }
+            std::cout << "[SINK-ARQ] Waiting for chunks; ACKing verified ones via "
+                      << ack->name() << (config.fec ? ", FEC on" : "") << ".\n";
+            SINK sink(transceiver, *ack, timer_interval, config.fec, bytes_length);
+            sink.start();
+            // Per-session timeout (serve-forever only): if a source's burst never
+            // decodes (link loss / collision) the source gives up and disconnects,
+            // and the SINK would never reach 'done'. Cap the wait so we loop back
+            // and re-accept the NEXT fire instead of deadlocking on a source that left.
+            auto sess0 = std::chrono::steady_clock::now();
+            while (!sink.done() && !global_stop_signal.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                if (serve_forever && std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - sess0).count() > 5.0)
+                    break;                       // source finished/left; re-accept
+            }
+            // Grace period so a lost final ACK is re-sent when the source retransmits
+            // its last chunk (the sink re-ACKs duplicates).
+            if (sink.done())
+                std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+            sink.stop();
+            sink.print_received_message();
+            if (!out_file.empty()) sink.save_message(out_file);
+        } while (serve_forever && !global_stop_signal.load());
 
     } else if (config.role == "tx") {
         // ONE-WAY TRANSMIT (no ARQ).  --tx-mode burst = a finite number of

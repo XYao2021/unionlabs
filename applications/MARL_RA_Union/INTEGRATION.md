@@ -135,19 +135,23 @@ Bridge built: **`python/marl_phy.py`** (`sense()`, `transmit_once() -> bool`, `A
    reports `Unacked chunks`; `transmit_once()` returns `acked = (Unacked == 0)`. Confirmed
    on the radios: a warm AP ACKs a single 32-byte burst on the first attempt
    (`Sent=1 Retransmissions=0 Unacked=0`). ACK = success, timeout = collision/loss. ✓
-2. **Persistent Access-Point receiver — now REQUIRED, not optional.** The MVP `AccessPoint`
-   re-inits a `sink_arq` per packet; a *cold* sink isn't settled when the lone burst
-   arrives, so its round-trip overruns the ACK window and the packet is missed (0 decoded).
-   A warm sink, by contrast, ACKs reliably (proven: one warm sink ACKed 15/16 and 1/1
-   single bursts). So the AP must stay **warm and persistent**.
-   - **Minimum:** a `sink_arq --serve-forever` mode (don't terminate after N chunks; keep
-     the RX pipeline warm and ACK each decoded frame).
-   - **But the source must persist too:** a per-attempt source subprocess pays cold-start
-     each packet. The clean design is a **session**: one long-lived source↔sink connection
-     over which the agent injects packets on demand (a control channel — stdin or a socket —
-     feeds the live source successive payloads; it reports each ACK/timeout). A warm session
-     already ACKs many successive bursts (the 16-chunk message test), so this is the natural
-     shape. This is the next build item and gates reliable MARL operation.
+2. **Persistent warm Access Point — BUILT & validated (`--serve-forever`).** `sink_arq
+   --serve-forever` starts the radio ONCE (stays warm/settled) and re-accepts a source per
+   fire, ACKing each decoded frame; a per-session timeout re-accepts if a source's burst
+   never decodes and it disconnects (else the sink would deadlock waiting on a source that
+   left). Only the lightweight TCP accept recycles — the RX pipeline never re-inits.
+   `marl_phy.AccessPoint` drives it; `transmit_once` fires against it.
+   - Validated on the radios: warm AP + fire-on-demand single-shot works — 3/3 and 2/3 ACKed
+     in good windows, and the AP stays up across fires. Only the sink's *radio* must be warm;
+     the source can stay cold/per-attempt (its cold-start is absorbed by the ~2 s ACK window).
+   - **Caveat (the real limit):** single-shot success tracks the link's CFO window — 3/3, then
+     2/3, then 0/6 across windows this session, while multi-attempt ARQ always got through.
+     On a free-running link a lost single burst is *ambiguous* (collision vs. link loss), which
+     muddies the RL reward. A **shared 10 MHz clock** makes single-shot reliable-when-idle so
+     "no ACK ≈ collision" holds. Until then, treat the reward as noisy or gate on link quality.
+   - **Optional next:** a persistent *source* too (control channel feeding one warm session on
+     demand) removes the ~2 s per-fire source cold-start — a speed optimisation, not required
+     for correctness now that the AP is warm.
 
 Already available and reused as-is: `channel_sense.py` (sense / `SenseStream` /
 `should_transmit`), `--payload-file`/`--out-file` byte-pipe, `--timeout`, `--bytes-length`,
