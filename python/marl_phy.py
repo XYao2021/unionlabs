@@ -44,15 +44,20 @@ import sdr  # noqa: E402
 from channel_sense import sense_channel, calibrate_floor, SenseStream  # noqa: E402,F401
 
 # A MARL "packet" is just a token that either gets through or collides — its
-# content is irrelevant to the RL, so fix a small size (must match on both ends).
-PACKET_BYTES = 32
+# content is irrelevant to the RL, so any fixed size works (must match on both
+# ends). Use 125 B: the validated differential-scheme chunk size. (Differential +
+# FEC currently mis-frames at very small chunks like 32 B -> CRC always fails.)
+PACKET_BYTES = 125
 _ACK_UNACKED = re.compile(r"Unacked chunks=(\d+)")
 
 
 def _phy(a):
-    """Shared PHY options for the single-shot random-access link."""
+    """Shared PHY options for the single-shot random-access link. Default scheme is
+    DQPSK: differential encoding is robust to the free-running-clock carrier offset
+    (data rides the phase *difference*), so single bursts decode where coherent QPSK
+    fails (~83% vs ~17% delivery on this rig without a shared clock)."""
     return dict(
-        scheme=a.get("scheme", "QPSK"), waveform="sc", fec=True,
+        scheme=a.get("scheme", "DQPSK"), waveform="sc", fec=True,
         rx_freq=a.get("freq", 915e6), tx_freq=a.get("freq", 915e6),
         rx_rate=1.6e6, tx_rate=1.6e6,
         rx_subdev="A:A", tx_subdev="A:A", rx_ant="RX2", tx_ant="TX/RX",

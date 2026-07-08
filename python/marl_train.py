@@ -152,6 +152,9 @@ def main(argv):
     a.add_argument("--sense-rx-args", default=None)
     a.add_argument("--tx-gain", type=float, default=85)
     a.add_argument("--rx-gain", type=float, default=20)
+    a.add_argument("--scheme", default="DQPSK",
+                   help="modulation (default DQPSK: CFO-robust, ~83%% vs ~17%% for QPSK "
+                        "on a free-running link). MUST match the AP.")
     a.add_argument("--steps", type=int, default=150)
     a.add_argument("--lr", type=float, default=4e-4)
     a.add_argument("--objective", type=int, default=0)
@@ -174,7 +177,7 @@ def main(argv):
     else:
         from real_channel import RealChannel
         ch = RealChannel(tx_args=args.tx_args, sense_rx_args=args.sense_rx_args,
-                         tx_gain=args.tx_gain, rx_gain=args.rx_gain)
+                         tx_gain=args.tx_gain, rx_gain=args.rx_gain, scheme=args.scheme)
         if args.sense_rx_args:
             ch.calibrate()
         env = RealChannelEnv(ch, objective=args.objective, num_S=args.steps)

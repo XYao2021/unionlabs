@@ -116,17 +116,19 @@ def main(argv):
     a.add_argument("--sense-rx-args", default=None, help="agent: distinct listen radio")
     a.add_argument("--tx-gain", type=float, default=85)
     a.add_argument("--rx-gain", type=float, default=20)
+    a.add_argument("--scheme", default="DQPSK", help="modulation; MUST match on both ends")
     a.add_argument("--steps", type=int, default=6)
     a.add_argument("--seconds", type=float, default=None)
     args = a.parse_args(argv)
 
     if args.role == "ap":
-        AccessPoint(rx_args=args.rx_args, rx_gain=args.rx_gain).serve(seconds=args.seconds)
+        AccessPoint(rx_args=args.rx_args, rx_gain=args.rx_gain,
+                    scheme=args.scheme).serve(seconds=args.seconds)
         return
     # agent: a few epochs of "always transmit" to exercise the channel
     ok = 0
     with RealChannel(tx_args=args.tx_args, sense_rx_args=args.sense_rx_args,
-                     tx_gain=args.tx_gain, rx_gain=args.rx_gain) as ch:
+                     tx_gain=args.tx_gain, rx_gain=args.rx_gain, scheme=args.scheme) as ch:
         if args.sense_rx_args:
             ch.calibrate()
         for i in range(args.steps):
