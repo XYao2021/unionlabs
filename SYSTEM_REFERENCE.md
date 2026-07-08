@@ -273,10 +273,25 @@ gives **coarse symbol timing** — the correct sub-symbol sampling phase. (Strid
 test only one of the `os` phases and could lock a half-symbol off → catastrophic ISI, BER ≈ 0.5.
 This was an actual bug; the brute-force search fixed it.)
 
-### 5.3 Symbol-timing recovery — Gardner TED
-The ACQ peak gets timing right to the nearest sample; the **Gardner timing-error detector**
-(`GardnerTED`) then tracks the residual *fractional* delay continuously.
-`--timing_loop_bw 0.015` (loop bandwidth `Bn·T`), `--timing_damping 0.707`, `--sps_sync 5`.
+### 5.3 Symbol-timing recovery — ACQ (active) vs Gardner TED (available)
+
+**What actually runs: ACQ, not Gardner.** In packet mode the symbol timing is recovered
+*entirely* by the ACQ preamble correlation of §5.2 — because the correlator tests **every** sample
+offset, its peak already lands on the optimal sub-symbol sampling instant, and the aligned burst is
+extracted at one sample/symbol. No separate timing loop runs. This is a **feedforward, one-shot
+per-burst** estimate: fast, robust, and sufficient here because the sample-clock (SFO) drift across
+a single ~1000-symbol burst is negligible (≈ 0.004 symbols at 4 ppm), so one timing phase holds for
+the whole burst.
+
+**Available but dormant: the Gardner timing-error detector.** `GardnerTED` and a ready
+`timing_recovery_thread` live in `timing_recovery.hpp`, and its knobs are exposed
+(`--timing_loop_bw 0.015`, `--timing_damping 0.707`), but it is **not wired into the current RX
+pipeline** — ACQ replaced it, and those two parameters are currently unconsumed (Gardner is
+exercised only by `tests/frontend_repro.cpp`). It is a *feedback* loop that tracks a continuously
+**drifting** fractional delay, which is needed only for a **true continuous symbol stream** (no
+per-burst preamble to re-sync on), where SFO accumulates over millions of symbols into whole-symbol
+drift. Drop it in between the matched filter and the CFO stage if/when such a waveform is added.
+The rest of this section describes that (available) detector.
 
 **Error detector.** With two samples per symbol — one at the symbol center $y_k$ and one at the
 half-symbol midpoint $y_{k-1/2}$ — the Gardner error is
@@ -287,8 +302,8 @@ Intuition: if sampling is early or late, the midpoint sample $y_{k-1/2}$ (sittin
 transition between symbols) correlates with the slope $y_k - y_{k-1}$; at perfect timing the
 midpoint is a true zero-crossing and $e_k = 0$. It is **decision-independent and
 carrier-phase-independent** (the $\mathrm{Re}\{\cdot\}$ with the difference term cancels a
-constant rotation), so it works *before* CFO/phase are resolved — the reason Gardner is the
-default choice for QAM.
+constant rotation), so it works *before* CFO/phase are resolved — the classic reason Gardner is
+favoured for QAM *tracking* loops.
 
 ![Gardner detector S-curve: the mean error crosses zero at the correct sampling instant, and its sign tells the loop which way to move — a clean, monotonic control characteristic around lock.](figures/gardner_scurve.png)
 

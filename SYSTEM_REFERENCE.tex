@@ -561,15 +561,35 @@ symbol timing} --- the correct sub-symbol sampling phase. (Striding by
 a half-symbol off -\textgreater{} catastrophic ISI, BER ≈ 0.5. This was
 an actual bug; the brute-force search fixed it.)
 
-\hypertarget{53-symbol-timing-recovery--gardner-ted}{%
-\subsubsection{5.3 Symbol-timing recovery --- Gardner
-TED}\label{53-symbol-timing-recovery--gardner-ted}}
+\hypertarget{53-symbol-timing-recovery--acq-active-vs-gardner-ted-available}{%
+\subsubsection{5.3 Symbol-timing recovery --- ACQ (active) vs Gardner
+TED
+(available)}\label{53-symbol-timing-recovery--acq-active-vs-gardner-ted-available}}
 
-The ACQ peak gets timing right to the nearest sample; the
-\textbf{Gardner timing-error detector} (\texttt{GardnerTED}) then tracks
-the residual \emph{fractional} delay continuously.
-\texttt{-\/-timing\_loop\_bw\ 0.015} (loop bandwidth \texttt{Bn·T}),
-\texttt{-\/-timing\_damping\ 0.707}, \texttt{-\/-sps\_sync\ 5}.
+\textbf{What actually runs: ACQ, not Gardner.} In packet mode the symbol
+timing is recovered \emph{entirely} by the ACQ preamble correlation of
+§5.2 --- because the correlator tests \textbf{every} sample offset, its
+peak already lands on the optimal sub-symbol sampling instant, and the
+aligned burst is extracted at one sample/symbol. No separate timing loop
+runs. This is a \textbf{feedforward, one-shot per-burst} estimate: fast,
+robust, and sufficient here because the sample-clock (SFO) drift across
+a single \textasciitilde1000-symbol burst is negligible (≈ 0.004 symbols
+at 4 ppm), so one timing phase holds for the whole burst.
+
+\textbf{Available but dormant: the Gardner timing-error detector.}
+\texttt{GardnerTED} and a ready \texttt{timing\_recovery\_thread} live
+in \texttt{timing\_recovery.hpp}, and its knobs are exposed
+(\texttt{-\/-timing\_loop\_bw\ 0.015},
+\texttt{-\/-timing\_damping\ 0.707}), but it is \textbf{not wired into
+the current RX pipeline} --- ACQ replaced it, and those two parameters
+are currently unconsumed (Gardner is exercised only by
+\texttt{tests/frontend\_repro.cpp}). It is a \emph{feedback} loop that
+tracks a continuously \textbf{drifting} fractional delay, which is
+needed only for a \textbf{true continuous symbol stream} (no per-burst
+preamble to re-sync on), where SFO accumulates over millions of symbols
+into whole-symbol drift. Drop it in between the matched filter and the
+CFO stage if/when such a waveform is added. The rest of this section
+describes that (available) detector.
 
 \textbf{Error detector.} With two samples per symbol --- one at the
 symbol center \(y_k\) and one at the half-symbol midpoint \(y_{k-1/2}\)
@@ -583,8 +603,8 @@ with the slope \(y_k - y_{k-1}\); at perfect timing the midpoint is a
 true zero-crossing and \(e_k = 0\). It is \textbf{decision-independent
 and carrier-phase-independent} (the \(\mathrm{Re}\{\cdot\}\) with the
 difference term cancels a constant rotation), so it works \emph{before}
-CFO/phase are resolved --- the reason Gardner is the default choice for
-QAM.
+CFO/phase are resolved --- the classic reason Gardner is favoured for
+QAM \emph{tracking} loops.
 
 \includegraphics{figures/gardner_scurve.png}
 

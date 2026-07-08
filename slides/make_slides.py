@@ -284,15 +284,16 @@ caption(s, "RRC pulse: zero crossings at neighbouring symbols → no ISI", 7.25,
 s = slide(); header(s, "Synchronization & Timing Recovery", "6")
 bullets(s, [
     ("Received signal carries 4 impairments: gain, CFO, phase, timing", 0, True),
-    ("Recovery order: frame sync → timing → CFO → phase", 1),
+    ("Recovery order: frame + timing → CFO → phase", 1),
     ("Energy detection — IIR hypothesis test gates each burst", 0, True),
-    ("Frame sync — ACQ matched-filter correlation on the preamble", 0, True),
+    ("Frame + symbol timing — ACQ preamble correlation", 0, True),
     ("m-sequence or Zadoff-Chu (CAZAC) preamble", 1),
-    ("Symbol timing — Gardner TED (decision- & phase-independent)", 0, True),
-    ("2-strobe NCO + Farrow interpolation + PI loop", 1),
+    ("Feedforward: one timing phase per burst — robust for packets", 1),
+    ("Gardner TED loop — the available tracking alternative", 0, True),
+    ("for a continuous stream (implemented, not active); S-curve →", 1),
 ], l=0.6, t=1.55, w=6.4, size=16, gap=7)
 pic(s, A("gardner_scurve.png"), 7.1, 1.9, w=6.0)
-caption(s, "Gardner S-curve: error crosses zero at correct timing (stable lock)", 7.1, 5.4, 6.0)
+caption(s, "Gardner S-curve (available tracking loop): error → 0 at correct timing", 7.1, 5.4, 6.0)
 
 # ── 7. Carrier recovery: CFO & phase ───────────────────────────────────────
 s = slide(); header(s, "Carrier Recovery: Frequency & Phase Offset", "7")
