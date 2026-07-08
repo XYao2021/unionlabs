@@ -304,6 +304,10 @@ def run_server(a):
 
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
+    try:
+        sys.stdout.reconfigure(line_buffering=True)   # show progress live when piped to a file
+    except Exception:
+        pass
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("role", choices=["worker", "server"])
