@@ -37,6 +37,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::string mode;
     int         timeout_ms      = 3000;
     int         timer_interval  = 20;      // sink poll interval (ms); sets ACK latency
+    int         max_attempts    = 50;      // source_arq: give up on a chunk after N (0=never)
     int         num_bits        = 1000;
     int         interval_ms     = 3000;
     int         tx_reps         = 20;      // one-way (role tx) repetitions
@@ -98,6 +99,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("timer_interval", po::value<int>(&timer_interval)->default_value(20),
                      "sink FIFO poll interval in ms — this SETS the ACK round-trip "
                      "latency, so keep it small (was 1000, which made ARQ ~5x slower)")
+        ("max-attempts", po::value<int>(&max_attempts)->default_value(50),
+                     "source_arq: give up on a chunk after this many un-ACKed sends. "
+                     "0 = never give up (keeps TX/RX in lockstep on a marginal link, "
+                     "since a given-up chunk desyncs a paired sender/receiver loop).")
 
         // Message
         ("num_bits", po::value<int>(&num_bits)->default_value(1000),
@@ -735,7 +740,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::cout << "[SOURCE-ARQ] " << chunks.size() << " chunks, timeout "
                   << timeout_ms << " ms, ACK via " << ack->name()
                   << (config.fec ? ", FEC on" : "") << ". Ctrl-C to abort.\n";
-        SOURCE source(transceiver, *ack, timeout_ms, num_bits, 50, config.fec);
+        SOURCE source(transceiver, *ack, timeout_ms, num_bits, max_attempts, config.fec);
         source.start(chunks);
         while (!source.done() && !global_stop_signal.load())
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -973,7 +978,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     } else if (mode == "source") {   // role both (legacy single-box loopback ARQ)
         RfAckLink ack(transceiver, bytes_length, config.fec);   // ACK over RF (loopback)
-        SOURCE source(transceiver, ack, timeout_ms, num_bits, 50, config.fec);
+        SOURCE source(transceiver, ack, timeout_ms, num_bits, max_attempts, config.fec);
         source.start(chunks);
 
         std::cout << "[SOURCE] Running — Ctrl-C to stop\n";

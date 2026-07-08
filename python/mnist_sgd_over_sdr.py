@@ -203,7 +203,7 @@ def send_payload(a, payload, tmp_path):
         f.write(payload)
     sdr.source_arq(
         tx_args=a.tx_args, rx_args=a.tx_args, tx_gain=a.tx_gain,
-        ack_host=a.ack_host, timeout=a.timeout,
+        ack_host=a.ack_host, timeout=a.timeout, max_attempts=a.max_attempts,
         payload_file=tmp_path, **phy_common(a),
     ).run()
 
@@ -318,6 +318,9 @@ def main():
                    help="source ACK timeout (ms) — must exceed the ~170ms ACK round-trip")
     p.add_argument("--timer-interval", type=int, default=20,
                    help="sink FIFO poll interval (ms) — SETS the ACK latency (was 1000)")
+    p.add_argument("--max-attempts", type=int, default=0,
+                   help="source give-up limit per chunk; 0 = never give up. Keep 0 so a "
+                        "hard chunk can't desync the paired worker/server loop.")
     p.add_argument("--tx-args", default="serial=30CD424")
     p.add_argument("--rx-args", default="serial=30CD3F7")
     p.add_argument("--tx-gain", type=float, default=78)

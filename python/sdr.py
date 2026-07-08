@@ -31,6 +31,7 @@ OPTIONS = {
     "viz-dir": (True, 'viz', "base directory for --viz output (a per-modulation subfolder is made)"),
     "timeout": (True, '3000', "ACK timeout in ms (source)"),
     "timer_interval": (True, '20', "sink FIFO poll interval in ms — this SETS the ACK round-trip latency, so keep it small (was 1000, which made ARQ ~5x slower)"),
+    "max-attempts": (True, '50', "source_arq: give up on a chunk after this many un-ACKed sends. 0 = never give up (keeps TX/RX in lockstep on a marginal link, since a given-up chunk desyncs a paired sender/receiver loop)."),
     "num_bits": (True, '1000', "Payload bits per packet"),
     "interval": (True, '3000', "TX interval between packets (ms)"),
     "tx-mode": (True, 'burst', "role tx transmission mode: burst (discrete packets/tone bursts with --interval gaps, repeated --tx-reps times then stop) or continuous (transmit until Ctrl-C — a continuous data loop or an unbroken carrier for sine/cosine)"),
@@ -122,6 +123,7 @@ PY2CPP = {
     "viz_dir": "viz-dir",
     "timeout": "timeout",
     "timer_interval": "timer_interval",
+    "max_attempts": "max-attempts",
     "num_bits": "num_bits",
     "interval": "interval",
     "tx_mode": "tx-mode",
@@ -225,6 +227,7 @@ class SDR:
                  viz_dir=_UNSET, # =viz  base directory for --viz output (a per-modulation subfolder...
                  timeout=_UNSET, # =3000  ACK timeout in ms (source)
                  timer_interval=_UNSET, # =20  sink FIFO poll interval in ms — this SETS the ACK round-...
+                 max_attempts=_UNSET, # =50  source_arq: give up on a chunk after this many un-ACKed...
                  num_bits=_UNSET, # =1000  Payload bits per packet
                  interval=_UNSET, # =3000  TX interval between packets (ms)
                  tx_mode=_UNSET, # =burst  role tx transmission mode: burst (discrete packets/tone...
@@ -316,6 +319,7 @@ class SDR:
             viz_dir=viz_dir,
             timeout=timeout,
             timer_interval=timer_interval,
+            max_attempts=max_attempts,
             num_bits=num_bits,
             interval=interval,
             tx_mode=tx_mode,
