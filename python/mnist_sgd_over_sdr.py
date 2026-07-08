@@ -187,24 +187,29 @@ def deserialize(buf):
 #  PHY invocation — same helpers run.py uses, called inside the loop
 # ─────────────────────────────────────────────────────────────────────────────
 def phy_common(a):
-    """Shared PHY options (QPSK single-carrier, large chunks, ARQ)."""
-    return dict(
-        scheme=a.scheme, waveform="sc", fec=True,
+    """Shared PHY options. OFDM (--waveform ofdm) is CFO-robust — use it when the
+    free-running-clock offset makes single-carrier retransmit heavily."""
+    d = dict(
+        scheme=a.scheme, waveform=a.waveform, fec=True,
         rx_freq=915e6, tx_freq=915e6, rx_rate=1.6e6, tx_rate=1.6e6,
         rx_subdev="A:A", tx_subdev="A:A", rx_ant="RX2", tx_ant="TX/RX",
         det_mult=3, ack_transport="tcp", ack_port=a.ack_port,
         bytes_length=a.chunk, timer_interval=a.timer_interval, viz=False,
     )
+    if a.waveform == "ofdm":
+        d.update(ofdm_fft=64, ofdm_cp=16)
+    return d
 
 
 def send_payload(a, payload, tmp_path):
     """Write bytes to the reused scratch file and transmit them via source_arq."""
     with open(tmp_path, "wb") as f:
         f.write(payload)
+    extra = {"ofdm_tx_peak": 0.5} if a.waveform == "ofdm" else {}
     sdr.source_arq(
         tx_args=a.tx_args, rx_args=a.tx_args, tx_gain=a.tx_gain,
         ack_host=a.ack_host, timeout=a.timeout, max_attempts=a.max_attempts,
-        payload_file=tmp_path, **phy_common(a),
+        payload_file=tmp_path, **extra, **phy_common(a),
     ).run()
 
 
@@ -312,6 +317,8 @@ def main():
     p.add_argument("--topk", type=float, default=0.05, help="top-k fraction (default 5%%)")
     # PHY
     p.add_argument("--scheme", default="QPSK")
+    p.add_argument("--waveform", default="sc", choices=["sc", "ofdm"],
+                   help="sc (single-carrier) or ofdm (CFO-robust; use on a marginal link)")
     p.add_argument("--chunk", type=int, default=512, help="payload bytes per chunk "
                    "(bigger = fewer round-trips, but longer bursts fail more under CFO)")
     p.add_argument("--timeout", type=int, default=400,
