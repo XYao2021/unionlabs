@@ -58,7 +58,7 @@ def train(env, cf, steps, lr, out, log_every=10):
 
     obs = env.reset()
     ret = deliv = coll = tx = 0
-    rewards = []
+    rewards, p_tx_hist, deliv_hist = [], [], []
     for t in range(steps):
         o = torch.as_tensor(obs, dtype=torch.float32)
         probs = actor(o)                                    # softmax over {defer, transmit}
@@ -72,6 +72,10 @@ def train(env, cf, steps, lr, out, log_every=10):
             tx += 1
             deliv += bool(info["delivered"])
             coll += (not info["delivered"])
+        deliv_hist.append(deliv)
+        with torch.no_grad():
+            p_tx_hist.append(actor(torch.tensor([0.1, 0.1, 0.0],
+                                                dtype=torch.float32))[1].item())
 
         # one-step advantage-actor-critic update from the REAL reward
         v = critic(o)
@@ -100,6 +104,42 @@ def train(env, cf, steps, lr, out, log_every=10):
     print("[train] done. delivered=%d collisions=%d tx=%d over %d steps; sumR=%.1f"
           % (deliv, coll, tx, steps, ret))
     print("[train] saved actor -> %s" % out)
+    _save_trajectory(rewards, p_tx_hist, deliv_hist, out)
+
+
+def _moving_avg(x, w):
+    x = np.asarray(x, dtype=float)
+    if len(x) < w:
+        return x.copy()
+    c = np.cumsum(np.insert(x, 0, 0.0))
+    return (c[w:] - c[:-w]) / w
+
+
+def _save_trajectory(rewards, p_tx_hist, deliv_hist, out):
+    """Save the reward trajectory (raw .txt) and a plot (.png) next to the model."""
+    base = os.path.splitext(out)[0]
+    np.savetxt(base + "_rewards.txt", np.array(rewards),
+               header="per-step reward", comments="# ")
+    w = max(1, min(20, len(rewards) // 5))
+    ma = _moving_avg(rewards, w)
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(3, 1, figsize=(8, 8), sharex=True)
+        ax[0].plot(rewards, lw=0.6, color="0.6", label="reward/step")
+        ax[0].plot(range(len(rewards) - len(ma), len(rewards)), ma, color="C0",
+                   lw=2, label="moving avg (w=%d)" % w)
+        ax[0].set_ylabel("reward"); ax[0].legend(loc="lower right"); ax[0].grid(alpha=.3)
+        ax[0].set_title("Online MARL training over the real radio — reward trajectory")
+        ax[1].plot(p_tx_hist, color="C1"); ax[1].set_ylabel("P(transmit | queued)")
+        ax[1].set_ylim(-.02, 1.02); ax[1].grid(alpha=.3)
+        ax[2].plot(deliv_hist, color="C2"); ax[2].set_ylabel("cumulative delivered")
+        ax[2].set_xlabel("training step"); ax[2].grid(alpha=.3)
+        fig.tight_layout(); fig.savefig(base + ".png", dpi=110); plt.close(fig)
+        print("[train] reward trajectory -> %s.png  (raw -> %s_rewards.txt)" % (base, base))
+    except Exception as e:
+        print("[train] (plot skipped: %s) raw rewards -> %s_rewards.txt" % (e, base))
 
 
 def main(argv):
