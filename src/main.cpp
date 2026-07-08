@@ -39,6 +39,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     int         timer_interval  = 20;      // sink poll interval (ms); sets ACK latency
     int         max_attempts    = 50;      // source_arq: give up on a chunk after N (0=never)
     bool        serve_forever   = false;   // sink_arq: keep the radio warm, re-accept per source
+    bool        on_demand       = false;   // source_arq: keep the radio warm, send one packet per stdin line
     int         num_bits        = 1000;
     int         interval_ms     = 3000;
     int         tx_reps         = 20;      // one-way (role tx) repetitions
@@ -113,6 +114,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "sink_arq: act as a persistent access point — keep the radio warm "
                      "and re-accept a new source per session instead of exiting after one "
                      "message (for fire-on-demand random access, e.g. the MARL bridge).")
+        ("on-demand", po::bool_switch(&on_demand),
+                     "source_arq: warm transmitter — keep the radio warm and send ONE "
+                     "packet each time a line is read on stdin, printing 'RESULT acked=0|1' "
+                     "per fire. No per-fire radio re-init (pairs with a --serve-forever AP).")
 
         // Message
         ("num_bits", po::value<int>(&num_bits)->default_value(1000),
@@ -753,7 +758,38 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     }
 
     // ── Run according to role ───────────────────────────────
-    if (config.role == "source_arq") {
+    if (config.role == "source_arq" && on_demand) {
+        // WARM TRANSMITTER: the radio (started above) stays warm; send exactly ONE
+        // packet each time a line arrives on stdin, then print "RESULT acked=0|1".
+        // A fresh ACK connection per fire (cheap ~ms) lets a --serve-forever AP
+        // re-accept; the radio never re-inits (the expensive part). This is the
+        // fire-on-demand-but-stay-warm transmitter for random access / the MARL bridge.
+        std::cout << "[SOURCE-ARQ] on-demand warm transmitter: one packet per stdin line "
+                     "('go'), EOF to stop. Radio stays warm.\n";
+        std::cout.flush();
+        std::string line;
+        while (std::getline(std::cin, line) && !global_stop_signal.load()) {
+            int fd = -1;
+            for (int i = 0; i < 60 && fd < 0 && !global_stop_signal.load(); ++i) {
+                try { fd = net::connect_to(config.ack_host, config.ack_port); }
+                catch (const std::exception&) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+            }
+            if (fd < 0) { std::cout << "RESULT acked=0\n"; std::cout.flush(); continue; }
+            TcpAckLink ack(fd);                          // closes on scope exit -> AP re-accepts
+            SOURCE source(transceiver, ack, timeout_ms, num_bits, max_attempts, config.fec);
+            source.start(chunks);                        // chunks = the single packet
+            while (!source.done() && !global_stop_signal.load())
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            source.stop();
+            std::cout << "RESULT acked=" << (source.unacked() == 0 ? 1 : 0) << "\n";
+            std::cout.flush();
+        }
+        transceiver.stop();
+        return EXIT_SUCCESS;
+
+    } else if (config.role == "source_arq") {
         // Stop-and-wait ARQ transmitter: send each chunk, wait for its ACK,
         // retransmit on timeout, advance when ACKed. Exits when every chunk is
         // ACKed (or gives up per SOURCE max-attempts).

@@ -161,6 +161,66 @@ class AccessPoint:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  Warm transmitter: radio stays warm, fires ONE packet per fire() (no re-init)
+# ─────────────────────────────────────────────────────────────────────────────
+class WarmSource:
+    """Persistent WARM transmitter — the agent-side dual of AccessPoint. Runs one
+    `source_arq --on-demand` process: the radio starts once and stays warm, and
+    each fire() sends exactly ONE packet (a fresh ACK connection per fire lets a
+    --serve-forever AP re-accept) and returns True/False from the process's
+    'RESULT acked=' line. No ~2 s radio re-init per packet.
+
+        with WarmSource(tx_args="serial=30CD424") as tx:
+            acked = tx.fire()      # one burst on command; True=ACK, False=collision/loss
+    """
+
+    def __init__(self, payload=None, tx_args="serial=30CD424", tx_gain=78,
+                 ack_host="127.0.0.1", timeout_ms=2000, binary=None,
+                 warmup_s=6.0, **opts):
+        import time
+        pkt = payload if payload is not None else b"MARL" + bytes(PACKET_BYTES - 4)
+        tmp = _scratch("warmtx")
+        with open(tmp, "wb") as f:
+            f.write(pkt)
+        cmd = sdr.SDR(role="source_arq", tx_args=tx_args, rx_args=tx_args, tx_gain=tx_gain,
+                      ack_host=ack_host, timeout=timeout_ms, max_attempts=1, on_demand=True,
+                      payload_file=tmp, binary=binary, **_phy(opts)).command()
+        self._p = subprocess.Popen(shlex.split(cmd), stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                   text=True, bufsize=1)
+        time.sleep(warmup_s)                     # let the TX radio warm up
+        if self._p.poll() is not None:
+            raise RuntimeError("WarmSource failed to start")
+
+    def fire(self):
+        """Send ONE packet now; return True if ACKed (success), False otherwise."""
+        self._p.stdin.write("go\n")
+        self._p.stdin.flush()
+        for line in self._p.stdout:              # read until the RESULT line
+            m = re.search(r"RESULT acked=(\d)", line)
+            if m:
+                return m.group(1) == "1"
+        raise RuntimeError("WarmSource: process ended without a RESULT")
+
+    def close(self):
+        if self._p and self._p.poll() is None:
+            try:
+                self._p.stdin.close()            # EOF -> the C++ loop exits
+            except Exception:
+                pass
+            try:
+                self._p.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._p.kill()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Agent facade: sense + transmit, for a policy to call each decision epoch
 # ─────────────────────────────────────────────────────────────────────────────
 class MarlRadio:
@@ -209,12 +269,25 @@ def main(argv):
     a.add_argument("--rx-args", default="serial=30CD3F7")
     a.add_argument("--tx-gain", type=float, default=78)
     a.add_argument("--rx-gain", type=float, default=20)
-    a.add_argument("--attempts", type=int, default=5, help="agent: transmit_once trials")
+    a.add_argument("--attempts", type=int, default=5, help="agent: number of fires")
     a.add_argument("--seconds", type=float, default=None, help="ap: run for N s (else Ctrl-C)")
+    a.add_argument("--warm", action="store_true",
+                   help="agent: keep the TX radio warm (WarmSource, fire on command)")
     args = a.parse_args(argv)
 
     if args.role == "ap":
         AccessPoint(rx_args=args.rx_args, rx_gain=args.rx_gain).serve(seconds=args.seconds)
+    elif args.warm:
+        import time
+        ok = 0
+        with WarmSource(tx_args=args.tx_args, tx_gain=args.tx_gain) as tx:
+            for i in range(args.attempts):
+                acked = tx.fire()
+                ok += acked
+                print("[agent] fire %d -> %s" % (i + 1, "ACK (success)" if acked
+                                                 else "no ACK (collision/loss)"))
+                time.sleep(1)                    # radio stays warm; short gap between fires
+        print("[agent] %d/%d ACKed (warm source)" % (ok, args.attempts))
     else:
         import time
         ok = 0
@@ -223,7 +296,7 @@ def main(argv):
             ok += acked
             print("[agent] fire %d -> %s" % (i + 1, "ACK (success)" if acked
                                              else "no ACK (collision/loss)"))
-            time.sleep(3)                        # let the TX radio release before the next fire
+            time.sleep(3)                        # per-attempt: let the TX radio release
         print("[agent] %d/%d ACKed" % (ok, args.attempts))
 
 

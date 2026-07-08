@@ -15,7 +15,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 The **Default** column is the value used when you omit the option: flags default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick the device, or use the built-in message); `_(alias)_` marks an option that inherits its primary option's default.
 
-> Auto-generated from `sdr_system --help` — always lists every current option (**92** total). Do not edit by hand.
+> Auto-generated from `sdr_system --help` — always lists every current option (**93** total). Do not edit by hand.
 
 ## Mode, message & transmission
 
@@ -157,6 +157,7 @@ The **Default** column is the value used when you omit the option: flags default
 | `--skip-rate-check` | flag | `false` | bypass the startup rate-chain consistency check (run even if rates mismatch) |
 | `--max-attempts` | value | `50` | source_arq: give up on a chunk after this many un-ACKed sends. 0 = never give up (keeps TX/RX in lockstep on a marginal link, since a given-up chunk desyncs a paired sender/receiver loop). |
 | `--serve-forever` | flag | `false` | sink_arq: act as a persistent access point — keep the radio warm and re-accept a new source per session instead of exiting after one message (for fire-on-demand random access, e.g. the MARL bridge). |
+| `--on-demand` | flag | `false` | source_arq: warm transmitter — keep the radio warm and send ONE packet each time a line is read on stdin, printing 'RESULT acked=0\|1' per fire. No per-fire radio re-init (pairs with a --serve-forever AP). |
 | `--bytes-length` | value | `125` | payload bytes per chunk (default 125). Larger chunks amortise the per-burst detect/sync/ACK overhead — higher throughput. MUST match on TX and RX. Total chunks <= 255. |
 | `--payload-file` | value | `(empty)` | TX: send the raw bytes of this file as the payload (binary, e.g. a serialized gradient). Overrides --message / --message-type. |
 | `--out-file` | value | `(empty)` | RX (rx / sink_arq): write the decoded payload as raw bytes to this file (pairs with --payload-file for a binary byte-pipe). |

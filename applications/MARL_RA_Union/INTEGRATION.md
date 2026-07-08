@@ -149,9 +149,12 @@ Bridge built: **`python/marl_phy.py`** (`sense()`, `transmit_once() -> bool`, `A
      On a free-running link a lost single burst is *ambiguous* (collision vs. link loss), which
      muddies the RL reward. A **shared 10 MHz clock** makes single-shot reliable-when-idle so
      "no ACK ≈ collision" holds. Until then, treat the reward as noisy or gate on link quality.
-   - **Optional next:** a persistent *source* too (control channel feeding one warm session on
-     demand) removes the ~2 s per-fire source cold-start — a speed optimisation, not required
-     for correctness now that the AP is warm.
+   - **Warm source — BUILT (`source_arq --on-demand`).** The transmitter's dual: the TX radio
+     starts once and stays warm; each line on stdin fires ONE packet and prints
+     `RESULT acked=0|1` (a fresh ACK connection per fire lets the AP re-accept). No ~2 s
+     re-init per packet. `marl_phy.WarmSource` drives it: `tx.fire() -> bool`. Validated —
+     8 fires from one warm process, radio never re-initialised. So both ends stay warm and
+     packets fly only on command, exactly the target shape.
 
 Already available and reused as-is: `channel_sense.py` (sense / `SenseStream` /
 `should_transmit`), `--payload-file`/`--out-file` byte-pipe, `--timeout`, `--bytes-length`,

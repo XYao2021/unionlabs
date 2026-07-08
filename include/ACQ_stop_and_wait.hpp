@@ -53,6 +53,9 @@ public:
     // True once every chunk has been ACKed (or given up on) — lets main() exit.
     bool done() const { return done_.load(); }
 
+    // Chunks that were never ACKed (gave up). 0 => full success. Valid after done().
+    int unacked() const { return failed_.load(); }
+
 private:
     PHYSICAL_LAYER&      phy_;
     AckLink&             ack_;
@@ -63,6 +66,7 @@ private:
     std::vector<std::string> chunks_;
     std::atomic<bool>    running_{false};
     std::atomic<bool>    done_{false};
+    std::atomic<int>     failed_{0};
     std::thread          worker_;
 
     void run() {
@@ -125,6 +129,7 @@ private:
             ok_per[idx]    = acked;
         }
 
+        failed_.store((int)failed);
         std::cout << "[SOURCE] Done. Sent=" << sent
                   << "  Retransmissions=" << retx
                   << "  Unacked chunks=" << failed << "\n";
