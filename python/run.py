@@ -4,6 +4,7 @@ run.py — run the USRP B210 SDR PHY from a JSON config file (clearer than a lon
 command line). Uses the auto-generated sdr.py, so any option name valid there is
 valid here (hyphens or underscores).
 
+    python3 run.py --list                   # list every config with scheme + gains
     python3 run.py config.json              # run it (both ends if it's a pair)
     python3 run.py config.json --dry-run    # just print the command(s)
     python3 run.py config.json --only rx    # run ONLY the RX side (own terminal)
@@ -43,7 +44,9 @@ Two config shapes
 
 An optional top-level "binary" overrides the sdr_system path in either shape.
 """
+import glob
 import json
+import os
 import sys
 import sdr
 
@@ -51,6 +54,57 @@ import sdr
 def _opts(d):
     """Drop comment keys (anything starting with '_') from an options dict."""
     return {k: v for k, v in d.items() if not k.startswith("_")}
+
+
+def _summary_fields(cfg):
+    """(shape, scheme, waveform, gains) for one config dict — used by --list."""
+    def pick(d, *ks):
+        for k in ks:
+            if k in d:
+                return d[k]
+        return None
+    if "rx" in cfg and "tx" in cfg:                     # paired config
+        common = _opts(cfg.get("common", {}))
+        rx = {**common, **_opts(cfg["rx"])}
+        tx = {**common, **_opts(cfg["tx"])}
+        scheme = pick(tx, "scheme") or pick(rx, "scheme") or "-"
+        wave = pick(common, "waveform") or pick(tx, "waveform") or "sc"
+        rg = pick(rx, "rx_gain", "rx-gain")
+        tg = pick(tx, "tx_gain", "tx-gain")
+        return ("pair", str(scheme), str(wave), "rx %s / tx %s" % (rg, tg))
+    c = _opts({k: v for k, v in cfg.items()             # single-run config
+               if k not in ("common", "rx", "tx", "pair")})
+    role = pick(c, "role") or "-"
+    scheme = pick(c, "scheme") or "-"
+    wave = pick(c, "waveform") or "sc"
+    g = pick(c, "tx_gain", "tx-gain", "rx_gain", "rx-gain")
+    return (role, str(scheme), str(wave), "gain %s" % g if g is not None else "-")
+
+
+def list_configs():
+    """Print every configs/*.json with its scheme, waveform and gains."""
+    cdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")
+    files = sorted(glob.glob(os.path.join(cdir, "*.json")))
+    if not files:
+        print("no configs found in", cdir)
+        return
+    rows = []
+    for path in files:
+        name = os.path.basename(path)
+        try:
+            with open(path) as f:
+                rows.append((name,) + _summary_fields(json.load(f)))
+        except Exception as e:
+            rows.append((name, "?", "invalid JSON: %s" % e, "", ""))
+    w = max(len(r[0]) for r in rows)
+    print("%-*s  %-5s  %-8s  %-5s  %s" % (w, "config", "shape", "scheme",
+                                          "wave", "gains"))
+    print("%-*s  %-5s  %-8s  %-5s  %s" % (w, "-" * w, "-----", "-" * 8,
+                                          "-----", "-----"))
+    for name, shape, scheme, wave, gains in rows:
+        print("%-*s  %-5s  %-8s  %-5s  %s" % (w, name, shape, scheme, wave, gains))
+    print("\nrun one with:  python3 run.py configs/<config>  "
+          "[--only rx|tx] [--<option> <value> ...]")
 
 
 def _split(cfg):
@@ -103,11 +157,13 @@ def _parse(argv):
     """Return (config_path, dry_run, only, overrides). Any --option [value] not
     recognised as a run.py flag is a config override (CLI wins over the file);
     option arity is looked up in sdr.OPTIONS so bare flags need no value."""
-    config, dry, only, ov = None, False, None, {}
+    config, dry, only, lst, ov = None, False, None, False, {}
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a == "--dry-run":
+        if a == "--list":
+            lst = True; i += 1
+        elif a == "--dry-run":
             dry = True; i += 1
         elif a == "--only":
             only = argv[i + 1] if i + 1 < len(argv) else None; i += 2
@@ -134,14 +190,17 @@ def _parse(argv):
             sys.exit("unexpected argument: %s" % a)
     if only not in (None, "rx", "tx"):
         sys.exit("--only must be 'rx' or 'tx'")
-    return config, dry, only, ov
+    return config, dry, only, lst, ov
 
 
 def main(argv):
-    config, dry, only, ov = _parse(argv)
+    config, dry, only, lst, ov = _parse(argv)
+    if lst:
+        list_configs()
+        return
     if not config:
         sys.exit("usage: python3 run.py <config.json> [--dry-run] [--only rx|tx] "
-                 "[--<option> <value> ...]")
+                 "[--<option> <value> ...]   |   python3 run.py --list")
     rc = run(config, dry_run=dry, only=only, overrides=ov)
     if isinstance(rc, tuple):
         print("[run] return codes (rx, tx):", rc)

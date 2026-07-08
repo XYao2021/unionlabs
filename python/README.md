@@ -65,6 +65,7 @@ Run it to print the commands without touching hardware.
 (hyphens or underscores). Ready-made configs are in `configs/`.
 
 ```bash
+python3 run.py --list                                  # list every config + scheme/gains
 python3 run.py configs/qpsk_arq_pair.json              # run it
 python3 run.py configs/qpsk_arq_pair.json --dry-run    # just print the command(s)
 ```
