@@ -175,10 +175,17 @@ to **local-only observation** (own queue + own AoI + sensed channel) for a first
    both radios stay warm and packets fly only on `transmit()`/`step`. The AP runs
    separately (`AccessPoint`). All validated on hardware; delivery rate tracks the CFO
    window (a shared clock makes it reliable).
-2. **Swap the sim env's channel** for `RealChannel` — one agent + one AP, scripted
-   interferer for the busy/collision signal. Map: observation.ch_usage → `sense()['busy']`,
-   action==transmit → `step(1)`, reward ← `delivered` (ACK) / not. Validate the reward moves
-   the right way.
+2. **Env adapter — DONE.** `marl_env.py` `RealChannelEnv`: a gym-style env that keeps the
+   MARL device model (Poisson arrivals, finite queue, Age-of-Information, throughput) but
+   drives the channel through an injected `RealChannel` — `reset()` / `step(action)` returning
+   `(obs, reward, done, info)` in the sim's convention (obs `[AoI/60, queue/Q_max, ch_usage]`,
+   objective-0 reward `-AoI/(15·num_D)`). Channel is dependency-injected, so `MockChannel`
+   validates the logic offline and `RealChannel` runs it on the radios. Mapping:
+   `ch_usage → sense()['busy']`, transmit → `channel.transmit()` (ACK=delivered → dequeue +
+   AoI reset; no-ACK=collision/loss → keep + retry is the policy's job). Validated offline
+   (queue/AoI/reward correct) AND end-to-end on hardware (env fired a real burst via the warm
+   source, updated state from the real ACK/timeout). Single real agent (2 B210s); real
+   multi-agent needs more radios or simulated peers.
 3. **Run a trained policy on the radio** (inference only): load the actor, feed real
    observations, act via `transmit_once`. Confirm it beats fixed-`p` q-ALOHA on the real link.
 4. **(Optional) online learning on hardware** and/or **more radios** for true multi-agent
