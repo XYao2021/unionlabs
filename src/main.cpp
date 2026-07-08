@@ -18,6 +18,7 @@
 #include <cmath>
 #include <algorithm>
 #include <random>
+#include <fstream>
 
 #include "physical_layer.hpp"
 #include "ACQ_stop_and_wait.hpp"
@@ -45,6 +46,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::string tx_mode         = "burst"; // burst (finite, gaps) | continuous (until Ctrl-C)
     std::string message_type    = "bytes"; // bytes | random | sine | cosine
     std::string message_str;               // override text for --message-type bytes
+    std::string payload_file;              // TX: send raw bytes from this file (binary payload)
+    std::string out_file;                  // RX: write decoded payload bytes to this file
     double      tone_freq       = 100e3;   // sine/cosine baseband freq (Hz)
     float       tone_amp        = 0.5f;    // sine/cosine amplitude (< 1.0)
     bool        viz_on          = true;    // dump signals + save plots (default on)
@@ -112,6 +115,16 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("message", po::value<std::string>(&message_str),
                      "text payload for --message-type bytes (overrides the default "
                      "Star Wars crawl)")
+        ("bytes-length", po::value<size_t>(&bytes_length)->default_value(125),
+                     "payload bytes per chunk (default 125). Larger chunks amortise the "
+                     "per-burst detect/sync/ACK overhead — higher throughput. MUST match "
+                     "on TX and RX. Total chunks <= 255.")
+        ("payload-file", po::value<std::string>(&payload_file),
+                     "TX: send the raw bytes of this file as the payload (binary, e.g. a "
+                     "serialized gradient). Overrides --message / --message-type.")
+        ("out-file", po::value<std::string>(&out_file),
+                     "RX (rx / sink_arq): write the decoded payload as raw bytes to this "
+                     "file (pairs with --payload-file for a binary byte-pipe).")
         ("tone-freq", po::value<double>(&tone_freq)->default_value(100e3),
                      "sine/cosine baseband frequency in Hz (default 100 kHz)")
         ("tone-amp", po::value<float>(&tone_amp)->default_value(0.5f),
@@ -628,7 +641,19 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // Framed payload: given bytes (text) or random bits. Both are split into
     // fixed-size chunks below, so message length / --num_bits drive the chunk count.
     std::string original_message;
-    if (message_type == "bytes") {
+    if (!payload_file.empty()) {
+        // Raw binary payload from a file (e.g. a serialized gradient). Highest
+        // priority — overrides --message / --message-type. Read as bytes.
+        std::ifstream f(payload_file, std::ios::binary);
+        if (!f) {
+            std::cerr << "[ERROR] cannot open --payload-file '" << payload_file << "'\n";
+            return EXIT_FAILURE;
+        }
+        original_message.assign(std::istreambuf_iterator<char>(f),
+                                std::istreambuf_iterator<char>());
+        std::cout << "[MAIN] Payload file: " << payload_file << " -> "
+                  << original_message.size() << " bytes\n";
+    } else if (message_type == "bytes") {
         original_message = message_str.empty() ? STAR_WARS : message_str;
     } else if (message_type == "random") {
         int nbytes = std::max(1, num_bits / 8);          // --num_bits random bits
@@ -649,6 +674,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     auto chunks = split_message_into_chunks(original_message, bytes_length);
     for (auto& c : chunks)
         if (c.size() < bytes_length) c.resize(bytes_length, ' ');
+    if (chunks.size() > 255) {
+        std::cerr << "[ERROR] payload needs " << chunks.size() << " chunks but the "
+                  << "packet header (uint8 total) allows at most 255. Increase "
+                  << "--bytes-length (currently " << bytes_length << ").\n";
+        return EXIT_FAILURE;
+    }
     if (!is_tone)
         std::cout << "[MAIN] Message: " << original_message.size() << " bytes -> "
                   << chunks.size() << " chunk(s) of " << bytes_length << " bytes\n";
@@ -739,6 +770,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             std::this_thread::sleep_for(std::chrono::milliseconds(2000));
         sink.stop();
         sink.print_received_message();
+        if (!out_file.empty()) sink.save_message(out_file);
 
     } else if (config.role == "tx") {
         // ONE-WAY TRANSMIT (no ARQ).  --tx-mode burst = a finite number of
@@ -914,6 +946,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                              " or link margin).\n";
         }
         std::string full; for (auto& p : parts) full += p;
+        if (!out_file.empty()) {
+            std::ofstream o(out_file, std::ios::binary);
+            if (o) { o.write(full.data(), (std::streamsize)full.size());
+                     std::cout << "[RX] wrote " << full.size() << " bytes to "
+                               << out_file << "\n"; }
+            else std::cerr << "[RX] could not open out-file " << out_file << "\n";
+        }
         std::cout << "\n================ DECODED MESSAGE ================\n";
         if (message_type == "random") {
             // Random bytes aren't readable — show a byte count + hex preview.

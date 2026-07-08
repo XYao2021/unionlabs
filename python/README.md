@@ -167,3 +167,28 @@ python3 run.py configs/tx_tone.json --tx-gain 75             # 200 kHz cosine (c
 
 The monitor works with a continuous **or** burst tone (`tx_tone_burst.json`), and
 skips a small band around DC so the (cable) carrier leakage isn't mistaken for the tone.
+
+## Learning over the radio — `mnist_sgd_over_sdr.py`
+
+Trains a tiny MLP on MNIST where **each iteration's top-k (5%) compressed gradient
+is transmitted over the SDR link** — distributed SGD with the B210s as the network.
+It calls `sdr.source_arq()` / `sdr.sink_arq()` **inside the training loop** (exactly
+how `run.py` launches them), handing the gradient to the PHY through one reused
+scratch file per side (overwritten each round — no per-iteration files). Transport
+is QPSK single-carrier, large chunks (`--chunk 512`), FEC + ARQ (error-free).
+
+```bash
+# measure the real link throughput first (no training)
+python3 mnist_sgd_over_sdr.py server --probe 32768 --rx-args serial=30CD3F7
+python3 mnist_sgd_over_sdr.py worker --probe 32768 --tx-args serial=30CD424
+
+# then train (start the SERVER first) — accuracy should climb, matched on both ends
+python3 mnist_sgd_over_sdr.py server --rounds 30 --rx-args serial=30CD3F7
+python3 mnist_sgd_over_sdr.py worker --rounds 30 --tx-args serial=30CD424
+```
+
+Both ends start from the same seed and apply the identical sparse update, so their
+models track exactly — matching accuracy proves the gradient crossed the link
+error-free. Relies on the PHY's `--payload-file` / `--out-file` byte-pipe and
+`--bytes-length` (large chunks). Tune with `--hidden`, `--batch`, `--lr`, `--topk`,
+`--scheme`, `--chunk`.

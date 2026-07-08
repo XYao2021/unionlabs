@@ -17,6 +17,7 @@
 #include <atomic>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
 
 #include "physical_layer.hpp"
 #include "messages.hpp"
@@ -187,6 +188,21 @@ public:
         }
         std::cout << "======================================\n";
         std::cout << "Received " << chunks_.size() << " chunk(s)\n";
+    }
+
+    // Write the reassembled payload as raw bytes (for binary payloads such as a
+    // serialized gradient). Any trailing chunk padding is included; a
+    // length-prefixed/self-delimiting payload format should ignore it.
+    void save_message(const std::string& path) const {
+        std::string full;
+        for (size_t i = 0; i < chunks_.size(); i++) {
+            auto it = chunks_.find(static_cast<uint8_t>(i));
+            if (it != chunks_.end()) full += it->second;
+        }
+        std::ofstream o(path, std::ios::binary);
+        if (!o) { std::cerr << "[SINK] could not open out-file " << path << "\n"; return; }
+        o.write(full.data(), static_cast<std::streamsize>(full.size()));
+        std::cout << "[SINK] wrote " << full.size() << " bytes to " << path << "\n";
     }
 
 private:

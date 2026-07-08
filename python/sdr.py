@@ -36,6 +36,9 @@ OPTIONS = {
     "tx-mode": (True, 'burst', "role tx transmission mode: burst (discrete packets/tone bursts with --interval gaps, repeated --tx-reps times then stop) or continuous (transmit until Ctrl-C — a continuous data loop or an unbroken carrier for sine/cosine)"),
     "message-type": (True, 'bytes', "payload: bytes (given text, default Star Wars crawl; set with --message) | random (num_bits random bits) | sine | cosine (raw baseband test tone, role tx only)"),
     "message": (True, None, "text payload for --message-type bytes (overrides the default Star Wars crawl)"),
+    "bytes-length": (True, '125', "payload bytes per chunk (default 125). Larger chunks amortise the per-burst detect/sync/ACK overhead — higher throughput. MUST match on TX and RX. Total chunks <= 255."),
+    "payload-file": (True, None, "TX: send the raw bytes of this file as the payload (binary, e.g. a serialized gradient). Overrides --message / --message-type."),
+    "out-file": (True, None, "RX (rx / sink_arq): write the decoded payload as raw bytes to this file (pairs with --payload-file for a binary byte-pipe)."),
     "tone-freq": (True, '100000', "sine/cosine baseband frequency in Hz (default 100 kHz)"),
     "tone-amp": (True, '0.5', "sine/cosine amplitude, keep < 1.0 to avoid DAC clipping"),
     "preamble": (True, 'm-sequence', "Preamble type: m-sequence or zadoff"),
@@ -124,6 +127,9 @@ PY2CPP = {
     "tx_mode": "tx-mode",
     "message_type": "message-type",
     "message": "message",
+    "bytes_length": "bytes-length",
+    "payload_file": "payload-file",
+    "out_file": "out-file",
     "tone_freq": "tone-freq",
     "tone_amp": "tone-amp",
     "preamble": "preamble",
@@ -224,6 +230,9 @@ class SDR:
                  tx_mode=_UNSET, # =burst  role tx transmission mode: burst (discrete packets/tone...
                  message_type=_UNSET, # =bytes  payload: bytes (given text, default Star Wars crawl; set...
                  message=_UNSET, # text payload for --message-type bytes (overrides the...
+                 bytes_length=_UNSET, # =125  payload bytes per chunk (default 125). Larger chunks...
+                 payload_file=_UNSET, # TX: send the raw bytes of this file as the payload (binary,...
+                 out_file=_UNSET, # RX (rx / sink_arq): write the decoded payload as raw bytes...
                  tone_freq=_UNSET, # =100000  sine/cosine baseband frequency in Hz (default 100 kHz)
                  tone_amp=_UNSET, # =0.5  sine/cosine amplitude, keep < 1.0 to avoid DAC clipping
                  preamble=_UNSET, # =m-sequence  Preamble type: m-sequence or zadoff
@@ -312,6 +321,9 @@ class SDR:
             tx_mode=tx_mode,
             message_type=message_type,
             message=message,
+            bytes_length=bytes_length,
+            payload_file=payload_file,
+            out_file=out_file,
             tone_freq=tone_freq,
             tone_amp=tone_amp,
             preamble=preamble,
