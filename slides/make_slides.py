@@ -92,15 +92,18 @@ def setp(p, text, size, color=NAVY, bold=False, align=PP_ALIGN.LEFT, font="Calib
     r.font.color.rgb = color; r.font.name = font
 
 
+_slide_no = [1]   # slide 1 is the title; header() auto-numbers 2, 3, 4, ...
+
+
 def header(s, title, num=None):
+    _slide_no[0] += 1                     # auto-number (num arg kept for readability, ignored)
     rect(s, 0, 0, 13.333, 1.15, NAVY)
     rect(s, 0, 1.15, 13.333, 0.08, ACCENT)
     _, tf = box(s, 0.55, 0.16, 11.5, 0.85)
     setp(tf.paragraphs[0], title, 30, WHITE, True)
     tf.paragraphs[0].runs[0].font.name = "Calibri Light"
-    if num is not None:
-        _, nf = box(s, 12.3, 0.34, 0.9, 0.6)
-        setp(nf.paragraphs[0], num, 16, RGBColor(0x9F,0xB6,0xCC), True, PP_ALIGN.RIGHT)
+    _, nf = box(s, 12.3, 0.34, 0.9, 0.6)
+    setp(nf.paragraphs[0], str(_slide_no[0]), 16, RGBColor(0x9F,0xB6,0xCC), True, PP_ALIGN.RIGHT)
 
 
 def bullets(s, items, l=0.7, t=1.55, w=12.0, h=5.5, size=18, gap=10):
@@ -188,25 +191,57 @@ bullets(s, [
 rect(s, 0.7, 6.55, 12.0, 0.02, RGBColor(0xD0,0xD8,0xE0))
 
 # ── 3. Signal-chain architecture ───────────────────────────────────────────
-s = slide(); header(s, "Signal-Chain Architecture", "3")
-_, tf = box(s, 0.55, 1.5, 12.2, 4.6)
+s = slide(); header(s, "Signal-Chain Architecture")
+_, tf = box(s, 0.5, 1.5, 12.5, 4.4)
 lines = [
- ("TX   message → chunks → CRC-16 → [FEC] → bits→symbols (modulator)", NAVY, True),
- ("        ├─ single-carrier:  RRC pulse-shape → preamble → USRP TX", GREY, False),
- ("        └─ OFDM:            QAM → IFFT + cyclic-prefix frame → USRP TX", GREY, False),
+ ("TX   message → chunks → CRC-16 → [FEC encode] → symbols (modulator, +preamble)", NAVY, True),
+ ("        ├─ single-carrier:  RRC pulse-shaping → USRP TX", GREY, False),
+ ("        └─ OFDM:            subcarrier map → IFFT + cyclic prefix → USRP TX", GREY, False),
  ("", NAVY, False),
- ("RX   USRP RX → energy detector → AGC → frame/symbol sync", NAVY, True),
- ("        ├─ single-carrier:  matched filter → Gardner timing → [eq] → demod", GREY, False),
- ("        └─ OFDM:            Schmidl-Cox + CFO → FFT → 1-tap eq → pilot CPE → demod", GREY, False),
- ("     → [FEC decode] → CRC check → (ARQ: ACK if OK) → reassemble message", NAVY, True),
+ ("RX   USRP RX → energy detector → AGC", NAVY, True),
+ ("        ├─ single-carrier:  matched filter → ACQ sync → CFO → phase → [eq] → demod", GREY, False),
+ ("        └─ OFDM:            Schmidl-Cox sync + CFO → FFT → 1-tap eq → pilot CPE → demod", GREY, False),
+ ("     → [FEC decode] → CRC-16 check → (ARQ: ACK if OK) → reassemble message", NAVY, True),
 ]
 for i, (t, c, b) in enumerate(lines):
     p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-    setp(p, t, 16, c, b, font="Consolas"); p.space_after = Pt(6)
-_, nf = box(s, 0.55, 6.35, 12.2, 0.7)
+    setp(p, t, 15, c, b, font="Consolas"); p.space_after = Pt(6)
+_, nf = box(s, 0.5, 6.35, 12.5, 0.8)
 setp(nf.paragraphs[0],
-     "Symbol rate 0.8 MHz · sample rate 1.6 MHz (integer 2 samples/symbol) · RRC roll-off 0.25",
-     14, ACCENT, True)
+     "Single-carrier timing is done by ACQ preamble correlation (not a Gardner loop). "
+     "OFDM's sync / CFO / equalization / pilots all live inside its demodulator.",
+     13, ACCENT, True)
+
+# ── 3b. TX blocks explained ─────────────────────────────────────────────────
+s = slide(); header(s, "TX Chain — What Each Block Does")
+table(s, [
+    ["Block", "Full name", "What it does"],
+    ["CRC-16", "Cyclic Redundancy Check (16-bit)", "appends a checksum so the RX can detect any bit error in a chunk"],
+    ["FEC", "Forward Error Correction", "rate-1/2 K=7 convolutional encoder — adds redundancy to fix bit errors"],
+    ["Modulator", "bit-to-symbol mapper", "maps groups of bits to complex constellation points (QPSK … 256-QAM)"],
+    ["Preamble", "known training sequence", "prepended to each burst so the RX can detect and synchronize to it"],
+    ["RRC", "Root-Raised-Cosine filter", "pulse-shaping: band-limited spectrum, zero inter-symbol interference"],
+    ["IFFT + CP", "Inverse FFT + Cyclic Prefix", "OFDM: subcarrier symbols → time samples; CP absorbs channel multipath"],
+    ["USRP", "Universal Software Radio Peripheral", "the SDR hardware — up-converts baseband to 915 MHz RF and transmits"],
+], 0.45, 1.6, 12.45, col_w=[1.5, 3.5, 7.45], size=13)
+
+# ── 3c. RX blocks explained ─────────────────────────────────────────────────
+s = slide(); header(s, "RX Chain — What Each Block Does")
+table(s, [
+    ["Block", "Full name", "What it does"],
+    ["Energy detector", "—", "finds where each burst begins by watching received power"],
+    ["AGC", "Automatic Gain Control", "normalizes the captured burst to a fixed amplitude"],
+    ["Matched filter", "RRC at the receiver", "maximizes SNR and removes ISI (pairs with the TX pulse shaper)"],
+    ["ACQ", "Acquisition (preamble correlation)", "joint frame + symbol timing from the known preamble"],
+    ["CFO", "Carrier Frequency Offset correction", "removes the two radios' oscillator frequency offset"],
+    ["Phase / PLL", "carrier phase correction", "removes residual constellation rotation before decisions"],
+    ["Equalizer", "—", "inverts channel distortion (SC: off by default; OFDM: 1 tap/subcarrier)"],
+    ["Schmidl-Cox", "OFDM frame synchronizer", "frame timing + CFO from a repeated-half preamble symbol"],
+    ["FFT", "Fast Fourier Transform", "OFDM: time samples → per-subcarrier symbols"],
+    ["CPE", "Common Phase Error tracking", "OFDM pilots track residual per-symbol phase drift"],
+    ["Demodulator", "symbol-to-bit decision", "nearest-constellation-point decision: symbols → bits"],
+    ["ARQ", "Automatic Repeat reQuest", "CRC-verify each chunk; ACK the good ones, retransmit the failed ones"],
+], 0.45, 1.5, 12.45, col_w=[1.7, 3.35, 7.4], size=11)
 
 # ── 4. Modulation ──────────────────────────────────────────────────────────
 s = slide(); header(s, "Modulation Schemes", "4")
