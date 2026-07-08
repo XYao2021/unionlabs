@@ -51,6 +51,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::string out_file;                  // RX: write decoded payload bytes to this file
     double      tone_freq       = 100e3;   // sine/cosine baseband freq (Hz)
     float       tone_amp        = 0.5f;    // sine/cosine amplitude (< 1.0)
+    double      sense_window_ms   = 10.0;  // role sense: energy-integration window (ms)
+    double      sense_threshold_db = -30.0;// role sense: busy if avg power_db exceeds this
+    int         sense_count       = 1;     // role sense: number of windows to report
     bool        viz_on          = true;    // dump signals + save plots (default on)
     std::string viz_dir         = "viz";
     std::string preamble_type;
@@ -131,6 +134,14 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("out-file", po::value<std::string>(&out_file),
                      "RX (rx / sink_arq): write the decoded payload as raw bytes to this "
                      "file (pairs with --payload-file for a binary byte-pipe).")
+        ("sense-window", po::value<double>(&sense_window_ms)->default_value(10.0),
+                     "role sense: energy-integration window in ms (default 10)")
+        ("sense-threshold-db", po::value<double>(&sense_threshold_db)->default_value(-30.0),
+                     "role sense: channel is 'busy' when the window's avg power (dB) "
+                     "exceeds this. Calibrate to your gain/noise floor (channel_sense.py "
+                     "can auto-calibrate).")
+        ("sense-count", po::value<int>(&sense_count)->default_value(1),
+                     "role sense: number of consecutive windows to measure/report")
         ("tone-freq", po::value<double>(&tone_freq)->default_value(100e3),
                      "sine/cosine baseband frequency in Hz (default 100 kHz)")
         ("tone-amp", po::value<float>(&tone_amp)->default_value(0.5f),
@@ -552,6 +563,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         mode = "sink";
         std::cout << "[MAIN] Role rx  -> RX device '" << config.rx_args
                   << "' subdev " << config.rx_subdev << " ant " << config.rx_ant << "\n";
+    } else if (config.role == "sense") {
+        // channel sensing: RX only, integrate energy over a window (no decode pipeline).
+        mode = "sink";
+        std::cout << "[MAIN] Role sense  -> RX device '" << config.rx_args
+                  << "' — measuring channel occupancy\n";
     } else if (config.role == "source_arq" || config.role == "sink_arq") {
         // ── Two-box stop-and-wait ARQ ──
         // DATA always travels over RF (source TX -> sink RX). The ACK uses the
@@ -644,10 +660,14 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    // Channel sensing (--role sense), like a tone, carries no framed payload.
+    const bool sense_mode = (config.role == "sense");
+    const bool no_payload = is_tone || sense_mode;
+
     // Framed payload: given bytes (text) or random bits. Both are split into
     // fixed-size chunks below, so message length / --num_bits drive the chunk count.
     std::string original_message;
-    if (!payload_file.empty()) {
+    if (!payload_file.empty() && !no_payload) {
         // Raw binary payload from a file (e.g. a serialized gradient). Highest
         // priority — overrides --message / --message-type. Read as bytes.
         std::ifstream f(payload_file, std::ios::binary);
@@ -659,16 +679,16 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                                 std::istreambuf_iterator<char>());
         std::cout << "[MAIN] Payload file: " << payload_file << " -> "
                   << original_message.size() << " bytes\n";
-    } else if (message_type == "bytes") {
+    } else if (message_type == "bytes" && !no_payload) {
         original_message = message_str.empty() ? STAR_WARS : message_str;
-    } else if (message_type == "random") {
+    } else if (message_type == "random" && !no_payload) {
         int nbytes = std::max(1, num_bits / 8);          // --num_bits random bits
         std::mt19937 rng(0xC0FFEEu);                     // fixed seed → reproducible
         original_message.resize(nbytes);
         for (auto& ch : original_message) ch = static_cast<char>(rng() & 0xFF);
         std::cout << "[MAIN] Random payload: " << nbytes << " bytes ("
                   << num_bits << " bits)\n";
-    } else if (!is_tone) {
+    } else if (!no_payload) {
         std::cerr << "[ERROR] unknown --message-type '" << message_type
                   << "' (use: bytes | random | sine | cosine)\n";
         return EXIT_FAILURE;
@@ -686,7 +706,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                   << "--bytes-length (currently " << bytes_length << ").\n";
         return EXIT_FAILURE;
     }
-    if (!is_tone)
+    if (!no_payload)
         std::cout << "[MAIN] Message: " << original_message.size() << " bytes -> "
                   << chunks.size() << " chunk(s) of " << bytes_length << " bytes\n";
 
@@ -711,7 +731,18 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // but skip the decode pipeline (the monitor streams samples itself).
     const bool tone_monitor = (config.role == "rx" && is_tone);
     PHYSICAL_LAYER transceiver(config);
-    transceiver.start(tone_monitor);
+    transceiver.start(tone_monitor || sense_mode);
+
+    // ── Channel sensing: measure occupancy over N windows, then exit ──
+    if (sense_mode) {
+        std::cout << "[MAIN] Sensing " << sense_count << " window(s) of "
+                  << sense_window_ms << " ms, busy if avg power > "
+                  << sense_threshold_db << " dB\n";
+        transceiver.run_channel_sense(sense_window_ms / 1000.0,
+                                      sense_threshold_db, sense_count);
+        transceiver.stop();
+        return EXIT_SUCCESS;
+    }
 
     // ── Run according to role ───────────────────────────────
     if (config.role == "source_arq") {

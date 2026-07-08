@@ -199,7 +199,8 @@ public:
             do_rx = true;  do_tx = ack_rf;
         } else {
             do_tx = (cfg_.role == "tx" || cfg_.role == "both");
-            do_rx = (cfg_.role == "rx" || cfg_.role == "both");
+            do_rx = (cfg_.role == "rx" || cfg_.role == "both"
+                     || cfg_.role == "sense");            // sense = RX energy only
         }
         std::cout << "[PHY] Role: " << cfg_.role
                   << (do_tx ? "  [TX pipeline]" : "")
@@ -304,6 +305,41 @@ public:
         rx_usrp_->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
         fftwf_destroy_plan(plan); fftwf_free(in); fftwf_free(out);
         std::cout << "[MONITOR] stopped.\n";
+    }
+
+    // Channel-occupancy sensing: integrate received power over a window and report
+    // whether the band is busy (avg power above a threshold). Prints one machine-
+    // parseable line per window ("[SENSE] busy=.. power_db=.."). No decode pipeline —
+    // configure the radio with start(monitor_only=true) before calling.
+    void run_channel_sense(double window_s, double threshold_db, int count) {
+        auto rx = rx_usrp_->get_rx_stream(uhd::stream_args_t("fc32", "sc16"));
+        uhd::rx_metadata_t md;
+        const size_t N = 4096;
+        std::vector<std::complex<float>> buf(N);
+        const double fs   = cfg_.rx_rate;
+        const size_t need = std::max<size_t>(N, (size_t)(window_s * fs));  // samples/window
+        rx_usrp_->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+        for (int c = 0; c < count && !global_stop_signal.load(); ++c) {
+            double sum = 0.0, peak = 0.0; size_t n = 0;
+            while (n < need && !global_stop_signal.load()) {
+                size_t got = rx->recv(&buf.front(), N, md, 1.0);
+                if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT || got == 0) continue;
+                for (size_t i = 0; i < got; ++i) {
+                    double p = std::norm(buf[i]);
+                    sum += p; if (p > peak) peak = p;
+                }
+                n += got;
+            }
+            double avg     = (n > 0) ? sum / n : 0.0;
+            double avg_db  = 10.0 * std::log10(avg  + 1e-12);
+            double peak_db = 10.0 * std::log10(peak + 1e-12);
+            int    busy    = (avg_db > threshold_db) ? 1 : 0;
+            std::printf("[SENSE] busy=%d power_db=%.2f peak_db=%.2f power=%.6g "
+                        "window_ms=%.1f samples=%zu threshold_db=%.2f\n",
+                        busy, avg_db, peak_db, avg, window_s * 1e3, n, threshold_db);
+            std::fflush(stdout);
+        }
+        rx_usrp_->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
     }
 
     void stop() {

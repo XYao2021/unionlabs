@@ -168,6 +168,30 @@ python3 run.py configs/tx_tone.json --tx-gain 75             # 200 kHz cosine (c
 The monitor works with a continuous **or** burst tone (`tx_tone_burst.json`), and
 skips a small band around DC so the (cable) carrier leakage isn't mistaken for the tone.
 
+## Channel sensing — `channel_sense.py`
+
+Callable channel-occupancy detection (energy over a window), importable from any
+script. Drives `sdr_system --role sense`, which integrates received power over a
+`--sense-window` (ms) and prints `[SENSE] busy=.. power_db=..`.
+
+```python
+from channel_sense import sense_channel, calibrate_floor, should_transmit
+
+thr = calibrate_floor(rx_args="serial=30CD3F7")     # idle floor + 6 dB margin
+r = sense_channel(rx_args="serial=30CD3F7", threshold_db=thr)
+print(r["busy"], r["power_db"])                     # True/False, e.g. -4.0
+
+# NEXT STEP — p-persistent access: if idle, transmit with probability p
+if should_transmit(p=0.5, rx_args="serial=30CD3F7", threshold_db=thr):
+    ...  # transmit
+```
+
+CLI: `python3 channel_sense.py --calibrate` (measure floor) /
+`python3 channel_sense.py --count 10` (auto-calibrate then sense) /
+`--threshold-db -5.5 --p 0.5` (run the transmit decision). Validated on hardware:
+idle ~−10 dB → not busy, an active tone ~−4 dB → busy. Each call re-inits the
+radio (~1–2 s); `--sense-count` / `calibrate_floor` do N windows in one init.
+
 ## Learning over the radio — `mnist_sgd_over_sdr.py`
 
 Trains a tiny MLP on MNIST where **each iteration's top-k (5%) compressed gradient
