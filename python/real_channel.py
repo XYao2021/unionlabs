@@ -49,7 +49,7 @@ class RealChannel:
     stops the radios on exit."""
 
     def __init__(self, tx_args="serial=30CD424", sense_rx_args=None,
-                 tx_gain=78, rx_gain=30, threshold_db=None, ack_host="127.0.0.1",
+                 tx_gain=85, rx_gain=20, threshold_db=None, ack_host="127.0.0.1",
                  timeout_ms=2000, warmup_s=6.0, binary=None, **opts):
         self.threshold_db = threshold_db
         self._tx = None
@@ -114,7 +114,7 @@ def main(argv):
     a.add_argument("--tx-args", default="serial=30CD424")
     a.add_argument("--rx-args", default="serial=30CD3F7")   # AP radio
     a.add_argument("--sense-rx-args", default=None, help="agent: distinct listen radio")
-    a.add_argument("--tx-gain", type=float, default=78)
+    a.add_argument("--tx-gain", type=float, default=85)
     a.add_argument("--rx-gain", type=float, default=20)
     a.add_argument("--steps", type=int, default=6)
     a.add_argument("--seconds", type=float, default=None)

@@ -69,7 +69,7 @@ def _scratch(tag):
 # ─────────────────────────────────────────────────────────────────────────────
 #  Agent side: transmit exactly one burst, report ACK (success) vs timeout
 # ─────────────────────────────────────────────────────────────────────────────
-def transmit_once(payload=None, tx_args="serial=30CD424", tx_gain=78,
+def transmit_once(payload=None, tx_args="serial=30CD424", tx_gain=85,
                   ack_host="127.0.0.1", timeout_ms=2000, binary=None, **opts):
     """Send ONE frame at a warm Access Point; return True iff it was ACKed (no
     collision/loss). No PHY retransmission — `--max-attempts 1`. `payload` defaults
@@ -174,7 +174,7 @@ class WarmSource:
             acked = tx.fire()      # one burst on command; True=ACK, False=collision/loss
     """
 
-    def __init__(self, payload=None, tx_args="serial=30CD424", tx_gain=78,
+    def __init__(self, payload=None, tx_args="serial=30CD424", tx_gain=85,
                  ack_host="127.0.0.1", timeout_ms=2000, binary=None,
                  warmup_s=6.0, **opts):
         import time
@@ -232,7 +232,7 @@ class MarlRadio:
     """
 
     def __init__(self, tx_args="serial=30CD424", rx_args="serial=30CD3F7",
-                 tx_gain=78, rx_gain=30, threshold_db=None, ack_host="127.0.0.1",
+                 tx_gain=85, rx_gain=20, threshold_db=None, ack_host="127.0.0.1",
                  timeout_ms=2000, **opts):
         self.tx_args = tx_args
         self.rx_args = rx_args
@@ -267,7 +267,7 @@ def main(argv):
     a.add_argument("role", choices=["ap", "agent"])
     a.add_argument("--tx-args", default="serial=30CD424")
     a.add_argument("--rx-args", default="serial=30CD3F7")
-    a.add_argument("--tx-gain", type=float, default=78)
+    a.add_argument("--tx-gain", type=float, default=85)
     a.add_argument("--rx-gain", type=float, default=20)
     a.add_argument("--attempts", type=int, default=5, help="agent: number of fires")
     a.add_argument("--seconds", type=float, default=None, help="ap: run for N s (else Ctrl-C)")
