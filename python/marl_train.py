@@ -100,10 +100,11 @@ def train(env, cf, steps, lr, out, log_every=10):
             print("[%3d/%d] avgR=%+.3f  deliv=%d coll=%d tx=%d  P(transmit|queued)=%.2f"
                   % (t + 1, steps, np.mean(rewards[-log_every:]), deliv, coll, tx, p_tx))
 
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     torch.save(actor.state_dict(), out)
     print("[train] done. delivered=%d collisions=%d tx=%d over %d steps; sumR=%.1f"
           % (deliv, coll, tx, steps, ret))
-    print("[train] saved actor -> %s" % out)
+    print("[train] saved actor -> %s" % os.path.abspath(out))
     _save_trajectory(rewards, p_tx_hist, deliv_hist, out)
 
 
@@ -137,9 +138,11 @@ def _save_trajectory(rewards, p_tx_hist, deliv_hist, out):
         ax[2].plot(deliv_hist, color="C2"); ax[2].set_ylabel("cumulative delivered")
         ax[2].set_xlabel("training step"); ax[2].grid(alpha=.3)
         fig.tight_layout(); fig.savefig(base + ".png", dpi=110); plt.close(fig)
-        print("[train] reward trajectory -> %s.png  (raw -> %s_rewards.txt)" % (base, base))
+        print("[train] reward trajectory -> %s.png" % os.path.abspath(base))
+        print("[train] raw rewards      -> %s_rewards.txt" % os.path.abspath(base))
     except Exception as e:
-        print("[train] (plot skipped: %s) raw rewards -> %s_rewards.txt" % (e, base))
+        print("[train] (plot skipped: %s) raw rewards -> %s_rewards.txt"
+              % (e, os.path.abspath(base)))
 
 
 def main(argv):
@@ -152,7 +155,11 @@ def main(argv):
     a.add_argument("--steps", type=int, default=150)
     a.add_argument("--lr", type=float, default=4e-4)
     a.add_argument("--objective", type=int, default=0)
-    a.add_argument("--out", default="marl_actor.pt")
+    a.add_argument("--out", default=os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "applications", "MARL_RA_Union", "results", "marl_actor.pt"),
+        help="model path; the trajectory .png / _rewards.txt are saved alongside it "
+             "(default: applications/MARL_RA_Union/results/)")
     a.add_argument("--deliver-p", type=float, default=0.7, help="mock link success prob")
     args = a.parse_args(argv)
 
