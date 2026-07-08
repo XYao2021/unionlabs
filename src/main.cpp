@@ -662,8 +662,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::cout << "[MAIN] RX " << config.rx_freq/1e9 << " GHz  gain="
               << config.rx_gain << " dB\n";
 
+    // role rx + a sine/cosine "message" = raw tone monitor: configure the radio
+    // but skip the decode pipeline (the monitor streams samples itself).
+    const bool tone_monitor = (config.role == "rx" && is_tone);
     PHYSICAL_LAYER transceiver(config);
-    transceiver.start();
+    transceiver.start(tone_monitor);
 
     // ── Run according to role ───────────────────────────────
     if (config.role == "source_arq") {
@@ -795,16 +798,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::cout << "[TX] Done.\n";
 
     } else if (config.role == "rx" && is_tone) {
-        // TONE MONITOR. The received signal is a raw tone — not framed data — so
-        // there is nothing to decode. The RX pipeline still captures it and the
-        // spectrum (with the tone peak) is auto-saved to the viz figure on exit.
-        // Use --tx-mode burst on the transmitter so each tone burst is cleanly
-        // detected and plotted.
-        std::cout << "[RX] Tone monitor: capturing the received signal — no data to "
-                     "decode.\n[RX] The spectrum (tone peak) is saved to " << viz::dir
-                  << "/figure.png on exit.  Ctrl-C to stop.\n";
-        while (!global_stop_signal.load())
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        // TONE MONITOR. Stream raw samples and report the dominant tone's
+        // frequency + power directly (no decode pipeline). Works with either
+        // continuous or burst transmit — it doesn't rely on burst detection.
+        std::cout << "[RX] Tone monitor for --message-type " << message_type << ".\n";
+        transceiver.run_tone_monitor(global_stop_signal);
 
     } else if (config.role == "rx") {
         // ONE-WAY RECEIVE (no ARQ). Pull decoded packets from the RX pipeline,

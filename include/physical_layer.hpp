@@ -181,7 +181,9 @@ public:
 
     ~PHYSICAL_LAYER() { stop(); }
 
-    void start() {
+    // monitor_only: configure the radios but do NOT launch the modulate/demod
+    // pipelines (used by the raw tone monitor, which streams samples itself).
+    void start(bool monitor_only = false) {
         stop_flag_.store(false);
         std::signal(SIGINT, global_sig_int_handler);
 
@@ -235,7 +237,7 @@ public:
 
         // ── TX pipeline ────────────────────────────────────
         // tx_bits_fifo → modulation → pulse_shape → transmit
-        if (do_tx) launch_tx_pipeline();
+        if (do_tx && !monitor_only) launch_tx_pipeline();
 
         // ── RX pipeline ────────────────────────────────────
         // receive → energy_det → AGC → match_filter →
@@ -246,9 +248,62 @@ public:
         // phase offset estimators. Both are data-aided (they use the known
         // preamble), so they can only run once ACQ has located the preamble and
         // produced an aligned [preamble | data] burst.
-        if (do_rx) launch_rx_pipeline();
+        if (do_rx && !monitor_only) launch_rx_pipeline();
 
-        std::cout << "[PHY] All threads launched\n";
+        std::cout << (monitor_only ? "[PHY] Radios configured (monitor mode)\n"
+                                   : "[PHY] All threads launched\n");
+    }
+
+    // ── Raw tone monitor ─────────────────────────────────────────────────
+    // Stream samples straight from the RX radio, FFT each block, and report the
+    // dominant tone's frequency + power ~once/second. Bypasses the data pipeline
+    // entirely (no energy detector / AGC / demod), so it measures the received
+    // spectrum directly — the right tool for a sine/cosine test tone. Call after
+    // start(monitor_only=true). Skips a ±band around DC so the (cable) carrier
+    // leakage doesn't masquerade as the tone.
+    void run_tone_monitor(std::atomic<bool>& stop, double skip_hz = 8e3) {
+        auto rx = rx_usrp_->get_rx_stream(uhd::stream_args_t("fc32", "sc16"));
+        uhd::rx_metadata_t md;
+        const size_t N = 4096;
+        std::vector<std::complex<float>> buf(N);
+        fftwf_complex* in  = fftwf_alloc_complex(N);
+        fftwf_complex* out = fftwf_alloc_complex(N);
+        fftwf_plan plan = fftwf_plan_dft_1d((int)N, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+        const double fs = cfg_.rx_rate;
+        const int skip = std::max(1, (int)(skip_hz / (fs / N)));
+        rx_usrp_->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+        std::cout << "[MONITOR] Streaming raw samples at " << fs/1e6
+                  << " Msps — reporting the dominant tone once/second. Ctrl-C to stop.\n";
+        auto last = std::chrono::steady_clock::now();
+        while (!stop.load()) {
+            size_t got = rx->recv(&buf.front(), N, md, 1.0);
+            if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT || got < N) continue;
+            double pwr = 0.0;
+            for (size_t i = 0; i < N; ++i) {
+                pwr += std::norm(buf[i]);
+                in[i][0] = buf[i].real(); in[i][1] = buf[i].imag();
+            }
+            pwr /= N;
+            fftwf_execute(plan);
+            double best = 0.0; int bestf = 0;
+            for (size_t k = 0; k < N; ++k) {
+                int f = (k < N/2) ? (int)k : (int)k - (int)N;   // signed bin
+                if (std::abs(f) <= skip) continue;               // ignore DC leakage
+                double m = out[k][0]*out[k][0] + out[k][1]*out[k][1];
+                if (m > best) { best = m; bestf = f; }
+            }
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration<double>(now - last).count() >= 1.0) {
+                last = now;
+                double peak_db = 10.0 * std::log10(best / (double(N)*N) + 1e-12);
+                std::printf("[MONITOR] tone f = %+8.1f kHz   avg power = %.4f   peak = %6.1f dB\n",
+                            bestf * fs / N / 1e3, pwr, peak_db);
+                std::fflush(stdout);
+            }
+        }
+        rx_usrp_->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
+        fftwf_destroy_plan(plan); fftwf_free(in); fftwf_free(out);
+        std::cout << "[MONITOR] stopped.\n";
     }
 
     void stop() {

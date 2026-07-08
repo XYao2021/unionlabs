@@ -45,7 +45,9 @@ python/
 │   ├── random_pair.json       random-bit throughput test over ARQ
 │   ├── tx_only.json           transmit only (8-PSK, one-way)
 │   ├── rx_only.json           receive only
-│   └── tx_tone.json           continuous cosine test tone
+│   ├── tx_tone.json           continuous cosine test tone (signal generator)
+│   ├── tx_tone_burst.json     same tone, transmitted in bursts
+│   └── rx_tone_monitor.json   raw tone monitor (prints freq + power, no decode)
 ├── README.md         Usage guide (API + JSON config).
 └── STRUCTURE.md      This file.
 

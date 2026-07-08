@@ -116,4 +116,19 @@ both; optional `pair` tunes `run_pair()`:
 
 Keys starting with `_` (e.g. `"_comment"`) are ignored. `binary` at the top level
 overrides the `sdr_system` path. Provided configs: `qpsk_arq_pair`, `ofdm_qpsk_pair`,
-`random_pair`, `tx_only`, `rx_only`, `tx_tone`.
+`random_pair`, `tx_only`, `rx_only`, `tx_tone` / `tx_tone_burst`, `rx_tone_monitor`.
+
+### Test tone + monitor
+
+`tx_tone.json` transmits a raw cosine carrier; `rx_tone_monitor.json` streams the
+received samples and prints the dominant tone's **frequency and power once a
+second** (a small spectrum analyzer — no decode pipeline). Run each in its own
+terminal:
+
+```bash
+python3 run.py configs/rx_tone_monitor.json --rx-gain 30     # → [MONITOR] tone f = +199.6 kHz ...
+python3 run.py configs/tx_tone.json --tx-gain 75             # 200 kHz cosine (change with --tone-freq)
+```
+
+The monitor works with a continuous **or** burst tone (`tx_tone_burst.json`), and
+skips a small band around DC so the (cable) carrier leakage isn't mistaken for the tone.
