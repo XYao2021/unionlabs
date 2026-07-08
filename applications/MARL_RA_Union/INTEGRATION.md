@@ -195,6 +195,14 @@ to **local-only observation** (own queue + own AoI + sensed channel) for a first
    the learned policy *reflects the real link* — in a poor CFO window (delivery ~2/27) it does
    not learn to transmit (transmitting rarely cuts AoI), which is correct. A good window /
    shared 10 MHz clock makes delivery reliable so the policy converges to transmit.
+   - **DQPSK unlocks clean learning without a shared clock.** Coherent QPSK delivered only
+     ~17% (CFO spins the constellation), so `P(transmit|queued)` stayed stuck ~0.5 and the
+     agent couldn't learn. Switching to **differential DQPSK** (data on the phase *difference*,
+     so a drifting CFO cancels between consecutive symbols; PLL bypassed) raised single-shot
+     delivery to ~64–83% — enough signal for the RL: on the radio `P(transmit|queued)` climbed
+     **0.51 → 0.76**, cumulative-delivery slope steepened, reward dips shallowed. The stack now
+     defaults to DQPSK + 125 B packets. (Differential+FEC mis-frames at very small chunks like
+     32 B → CRC always fails; 125 B is the validated size — a small-chunk framing bug to fix.)
 4. **Next:** a q-ALOHA / trained-policy comparison, more radios for real multi-agent
    collisions, and a shared clock for clean reward. Model saved to `--out` for reuse/eval.
 4. **(Optional) online learning on hardware** and/or **more radios** for true multi-agent
