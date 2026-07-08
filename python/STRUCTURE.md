@@ -40,6 +40,9 @@ python/
 ├── run.py            Run the PHY from a JSON config file (single or paired).
 ├── example.py        Runnable examples — prints commands without hardware.
 ├── configs/          Ready-made JSON configs:
+│   ├── <scheme>.json          per-scheme ARQ pairs w/ tuned gains baked in:
+│   │                            bpsk qpsk 8psk dbpsk dqpsk 8dpsk (sc),
+│   │                            bpsk_ofdm qpsk_ofdm  (run --only rx | --only tx)
 │   ├── qpsk_arq_pair.json     two-box QPSK stop-and-wait ARQ (both ends)
 │   ├── ofdm_qpsk_pair.json    same, OFDM waveform
 │   ├── random_pair.json       random-bit throughput test over ARQ

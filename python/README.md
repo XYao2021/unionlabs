@@ -69,6 +69,33 @@ python3 run.py configs/qpsk_arq_pair.json              # run it
 python3 run.py configs/qpsk_arq_pair.json --dry-run    # just print the command(s)
 ```
 
+### Per-scheme configs — pick your modulation (recommended)
+
+One file per validated scheme, each a **complete ARQ pair with the tuned gains
+baked in** (mirrors the table in [`../COMMANDS.md`](../COMMANDS.md)) — so you
+never have to remember the operating point. Run one side per terminal, **RX first**:
+
+```bash
+python3 run.py configs/8psk.json --only rx      # terminal 1 (sink)  — start first
+python3 run.py configs/8psk.json --only tx      # terminal 2 (source)
+```
+
+| Config | Scheme | Waveform | RX / TX gain |
+|---|---|---|---|
+| `bpsk.json`      | BPSK   | sc   | 20 / 78 |
+| `qpsk.json`      | QPSK   | sc   | 20 / 78 |
+| `8psk.json`      | 8-PSK  | sc   | 16 / 86 |
+| `dbpsk.json`     | DBPSK  | sc   | 20 / 78 |
+| `dqpsk.json`     | DQPSK  | sc   | 20 / 78 |
+| `8dpsk.json`     | 8-DPSK | sc   | 16 / 86 |
+| `bpsk_ofdm.json` | BPSK   | ofdm | 22 / 80 |
+| `qpsk_ofdm.json` | QPSK   | ofdm | 22 / 85 |
+
+Being ARQ, **both** ends stop the instant every chunk is ACKed, and the TX prints
+a per-chunk transmission summary. Override anything on the CLI (it wins) — e.g.
+`--tx-gain 84`, `--rx-gain 18`, `--message-type random --num-bits 4096`. The gains
+mirror `../COMMANDS.md`; treat that table as the source of truth if they ever drift.
+
 ### Override config values on the command line (CLI wins)
 
 Keep a base config and change just what you need — any `--option value` overrides
@@ -120,7 +147,9 @@ both; optional `pair` tunes `run_pair()`:
 ```
 
 Keys starting with `_` (e.g. `"_comment"`) are ignored. `binary` at the top level
-overrides the `sdr_system` path. Provided configs: `qpsk_arq_pair`, `ofdm_qpsk_pair`,
+overrides the `sdr_system` path. Provided configs: per-scheme ARQ pairs
+`bpsk` / `qpsk` / `8psk` / `dbpsk` / `dqpsk` / `8dpsk` / `bpsk_ofdm` / `qpsk_ofdm`
+(tuned gains baked in — see the table above); plus `qpsk_arq_pair`, `ofdm_qpsk_pair`,
 `random_pair`, `tx_only`, `rx_only`, `tx_tone` / `tx_tone_burst`, `rx_tone_monitor`.
 
 ### Test tone + monitor
