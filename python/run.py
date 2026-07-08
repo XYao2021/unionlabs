@@ -194,6 +194,7 @@ def _parse(argv):
 
 
 def main(argv):
+    os.system("cls" if os.name == "nt" else "clear")   # clear the terminal on each run
     config, dry, only, lst, ov = _parse(argv)
     if lst:
         list_configs()
