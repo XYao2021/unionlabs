@@ -22,6 +22,7 @@ OPTIONS = {
     "role": (True, 'both', "tx = transmit only (one B210), rx = receive only (other B210), both = original single-box full-duplex/loopback"),
     "tx-reps": (True, '20', "role tx: how many times to cycle through all chunks (one-way, no ACK)"),
     "rx-idle-timeout": (True, '8', "role rx: auto-stop and print the message after this many seconds with no new bursts (TX has finished). 0 = run until Ctrl-C"),
+    "stop-on-complete": (True, '1', "role rx: stop as soon as every chunk of a finite message (bytes / fixed-length random) is CRC-verified (default true). false = keep receiving (collect duplicates / measure the link) until the idle timeout or Ctrl-C. Ignored for continuous TX."),
     "ack-transport": (True, 'tcp', "ARQ ACK channel: tcp (default, ACK over a socket — no reverse RF needed) or rf (ACK over the second RF path, RF B)"),
     "ack-host": (True, '127.0.0.1', "TCP ACK: host/IP of the sink that the source connects to (default localhost)"),
     "ack-port": (True, '5599', "TCP ACK: socket port"),
@@ -109,6 +110,7 @@ PY2CPP = {
     "role": "role",
     "tx_reps": "tx-reps",
     "rx_idle_timeout": "rx-idle-timeout",
+    "stop_on_complete": "stop-on-complete",
     "ack_transport": "ack-transport",
     "ack_host": "ack-host",
     "ack_port": "ack-port",
@@ -208,6 +210,7 @@ class SDR:
                  role=_UNSET, # =both  tx = transmit only (one B210), rx = receive only (other...
                  tx_reps=_UNSET, # =20  role tx: how many times to cycle through all chunks (one-...
                  rx_idle_timeout=_UNSET, # =8  role rx: auto-stop and print the message after this many...
+                 stop_on_complete=_UNSET, # =1  role rx: stop as soon as every chunk of a finite message...
                  ack_transport=_UNSET, # =tcp  ARQ ACK channel: tcp (default, ACK over a socket — no...
                  ack_host=_UNSET, # =127.0.0.1  TCP ACK: host/IP of the sink that the source connects to...
                  ack_port=_UNSET, # =5599  TCP ACK: socket port
@@ -295,6 +298,7 @@ class SDR:
             role=role,
             tx_reps=tx_reps,
             rx_idle_timeout=rx_idle_timeout,
+            stop_on_complete=stop_on_complete,
             ack_transport=ack_transport,
             ack_host=ack_host,
             ack_port=ack_port,

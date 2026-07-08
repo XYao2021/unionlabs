@@ -40,6 +40,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     int         interval_ms     = 3000;
     int         tx_reps         = 20;      // one-way (role tx) repetitions
     double      rx_idle_timeout = 8.0;     // role rx: auto-stop after N s of no bursts
+    bool        stop_on_complete = true;   // role rx: stop as soon as every chunk verified
     bool        skip_rate_check = false;   // bypass the rate-chain consistency check
     std::string tx_mode         = "burst"; // burst (finite, gaps) | continuous (until Ctrl-C)
     std::string message_type    = "bytes"; // bytes | random | sine | cosine
@@ -69,6 +70,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("rx-idle-timeout", po::value<double>(&rx_idle_timeout)->default_value(8.0),
                      "role rx: auto-stop and print the message after this many seconds "
                      "with no new bursts (TX has finished). 0 = run until Ctrl-C")
+        ("stop-on-complete", po::value<bool>(&stop_on_complete)->default_value(true),
+                     "role rx: stop as soon as every chunk of a finite message "
+                     "(bytes / fixed-length random) is CRC-verified (default true). "
+                     "false = keep receiving (collect duplicates / measure the link) "
+                     "until the idle timeout or Ctrl-C. Ignored for continuous TX.")
         ("ack-transport", po::value<std::string>(&config.ack_transport)->default_value("tcp"),
                      "ARQ ACK channel: tcp (default, ACK over a socket — no reverse RF "
                      "needed) or rf (ACK over the second RF path, RF B)")
@@ -822,13 +828,16 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         // no reverse ACK channel. The RX stops as soon as every chunk has a
         // CRC-verified copy (or on the idle timeout / Ctrl-C).
         std::cout << "[RX] One-way receive (CRC-verified), scheme " << config.scheme
-                  << ". Auto-stops when all chunks verified, or " << rx_idle_timeout
+                  << ". "
+                  << (stop_on_complete ? "Auto-stops when all chunks verified, or "
+                                       : "Keeps receiving (--stop-on-complete false) until ")
+                  << rx_idle_timeout
                   << " s after the last burst (Ctrl-C also stops).\n";
         std::vector<std::string> parts;
         std::vector<bool>        got;
         int total = 0;
         long rx_bursts = 0, crc_pass = 0, crc_fail = 0;
-        bool got_any = false;
+        bool got_any = false, announced_complete = false;
         auto last_rx = std::chrono::steady_clock::now();
         while (!global_stop_signal.load()) {
             std::pair<size_t, std::vector<uint8_t>> rx;
@@ -870,9 +879,16 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     std::cout << ": \"" << payload << "\"";
                 std::cout << "\n";
                 if (have == total) {
-                    std::cout << "[RX] all " << total
-                              << " chunks CRC-verified — message complete, stopping.\n";
-                    break;
+                    if (stop_on_complete) {
+                        std::cout << "[RX] all " << total
+                                  << " chunks CRC-verified — message complete, stopping.\n";
+                        break;
+                    } else if (!announced_complete) {
+                        announced_complete = true;
+                        std::cout << "[RX] all " << total << " chunks CRC-verified — "
+                                  << "message complete (--stop-on-complete false: still "
+                                  << "receiving; stops on idle timeout / Ctrl-C).\n";
+                    }
                 }
             } else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));

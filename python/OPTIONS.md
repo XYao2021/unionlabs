@@ -15,7 +15,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 The **Default** column is the value used when you omit the option: flags default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick the device, or use the built-in message); `_(alias)_` marks an option that inherits its primary option's default.
 
-> Auto-generated from `sdr_system --help` — always lists every current option (**83** total). Do not edit by hand.
+> Auto-generated from `sdr_system --help` — always lists every current option (**84** total). Do not edit by hand.
 
 ## Mode, message & transmission
 
@@ -153,6 +153,7 @@ The **Default** column is the value used when you omit the option: flags default
 
 | Option | Type | Default | Description |
 |---|---|---|---|
+| `--stop-on-complete` | value | `1` | role rx: stop as soon as every chunk of a finite message (bytes / fixed-length random) is CRC-verified (default true). false = keep receiving (collect duplicates / measure the link) until the idle timeout or Ctrl-C. Ignored for continuous TX. |
 | `--skip-rate-check` | flag | `false` | bypass the startup rate-chain consistency check (run even if rates mismatch) |
 | `--ref` | value | `internal` | Clock reference: internal / external / mimo |
 | `--settling` | value | `0.20000000000000001` | Settling time (s) |
