@@ -168,12 +168,17 @@ to **local-only observation** (own queue + own AoI + sensed channel) for a first
 
 ## 7. Phased plan
 
-1. **Bridge layer (Python).** `marl_phy.py`: `sense()` (→ `channel_sense`), `transmit_once()`
-   (→ source `--max-attempts 1`), and an AP runner. Expose them so the MARL env can call
-   real hardware instead of the simulator.
-2. **Swap the sim env's channel** for the bridge — one agent + one AP, scripted interferer
-   for the busy/collision signal. Validate: sense flag, ACK-on-success, timeout-on-collision,
-   reward moves the right way.
+1. **Bridge layer (Python) — DONE.** `marl_phy.py` (`sense`, `transmit_once`, warm
+   `AccessPoint`, warm `WarmSource`) and **`real_channel.py`** — the reusable channel:
+   `RealChannel(tx_args, sense_rx_args)` with `sense()`, `transmit()`, `step(action)`.
+   Drop it in place of any simulated random-access channel (MARL or future studies);
+   both radios stay warm and packets fly only on `transmit()`/`step`. The AP runs
+   separately (`AccessPoint`). All validated on hardware; delivery rate tracks the CFO
+   window (a shared clock makes it reliable).
+2. **Swap the sim env's channel** for `RealChannel` — one agent + one AP, scripted
+   interferer for the busy/collision signal. Map: observation.ch_usage → `sense()['busy']`,
+   action==transmit → `step(1)`, reward ← `delivered` (ACK) / not. Validate the reward moves
+   the right way.
 3. **Run a trained policy on the radio** (inference only): load the actor, feed real
    observations, act via `transmit_once`. Confirm it beats fixed-`p` q-ALOHA on the real link.
 4. **(Optional) online learning on hardware** and/or **more radios** for true multi-agent
