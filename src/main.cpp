@@ -36,7 +36,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     std::string mode;
     int         timeout_ms      = 3000;
-    int         timer_interval  = 1000;
+    int         timer_interval  = 20;      // sink poll interval (ms); sets ACK latency
     int         num_bits        = 1000;
     int         interval_ms     = 3000;
     int         tx_reps         = 20;      // one-way (role tx) repetitions
@@ -95,8 +95,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "base directory for --viz output (a per-modulation subfolder is made)")
         ("timeout",  po::value<int>(&timeout_ms)->default_value(3000),
                      "ACK timeout in ms (source)")
-        ("timer_interval", po::value<int>(&timer_interval)->default_value(1000),
-                     "ACK timer interval in ms (sink)")
+        ("timer_interval", po::value<int>(&timer_interval)->default_value(20),
+                     "sink FIFO poll interval in ms — this SETS the ACK round-trip "
+                     "latency, so keep it small (was 1000, which made ARQ ~5x slower)")
 
         // Message
         ("num_bits", po::value<int>(&num_bits)->default_value(1000),

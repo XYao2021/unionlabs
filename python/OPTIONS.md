@@ -96,7 +96,7 @@ The **Default** column is the value used when you omit the option: flags default
 | `--ack-host` | value | `127.0.0.1` | TCP ACK: host/IP of the sink that the source connects to (default localhost) |
 | `--ack-port` | value | `5599` | TCP ACK: socket port |
 | `--timeout` | value | `3000` | ACK timeout in ms (source) |
-| `--timer_interval` | value | `1000` | ACK timer interval in ms (sink) |
+| `--timer_interval` | value | `20` | sink FIFO poll interval in ms — this SETS the ACK round-trip latency, so keep it small (was 1000, which made ARQ ~5x slower) |
 
 ## Energy detection
 

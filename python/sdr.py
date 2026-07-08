@@ -30,7 +30,7 @@ OPTIONS = {
     "viz": (True, '1', "capture TX/RX signals and auto-save the plot to <viz-dir>/<scheme>/figure.png (default true; --viz false disables)"),
     "viz-dir": (True, 'viz', "base directory for --viz output (a per-modulation subfolder is made)"),
     "timeout": (True, '3000', "ACK timeout in ms (source)"),
-    "timer_interval": (True, '1000', "ACK timer interval in ms (sink)"),
+    "timer_interval": (True, '20', "sink FIFO poll interval in ms — this SETS the ACK round-trip latency, so keep it small (was 1000, which made ARQ ~5x slower)"),
     "num_bits": (True, '1000', "Payload bits per packet"),
     "interval": (True, '3000', "TX interval between packets (ms)"),
     "tx-mode": (True, 'burst', "role tx transmission mode: burst (discrete packets/tone bursts with --interval gaps, repeated --tx-reps times then stop) or continuous (transmit until Ctrl-C — a continuous data loop or an unbroken carrier for sine/cosine)"),
@@ -224,7 +224,7 @@ class SDR:
                  viz=_UNSET, # =1  capture TX/RX signals and auto-save the plot to <viz-...
                  viz_dir=_UNSET, # =viz  base directory for --viz output (a per-modulation subfolder...
                  timeout=_UNSET, # =3000  ACK timeout in ms (source)
-                 timer_interval=_UNSET, # =1000  ACK timer interval in ms (sink)
+                 timer_interval=_UNSET, # =20  sink FIFO poll interval in ms — this SETS the ACK round-...
                  num_bits=_UNSET, # =1000  Payload bits per packet
                  interval=_UNSET, # =3000  TX interval between packets (ms)
                  tx_mode=_UNSET, # =burst  role tx transmission mode: burst (discrete packets/tone...
