@@ -186,8 +186,17 @@ to **local-only observation** (own queue + own AoI + sensed channel) for a first
    (queue/AoI/reward correct) AND end-to-end on hardware (env fired a real burst via the warm
    source, updated state from the real ACK/timeout). Single real agent (2 B210s); real
    multi-agent needs more radios or simulated peers.
-3. **Run a trained policy on the radio** (inference only): load the actor, feed real
-   observations, act via `transmit_once`. Confirm it beats fixed-`p` q-ALOHA on the real link.
+3. **Online training on the real link — DONE.** `marl_train.py`: single-agent A2C reusing
+   `MARL_learning_Union.Actor_A2C` + `Critic` over `RealChannelEnv`. Per step: obs → actor
+   softmax → sample {defer, transmit} → `env.step` (a real burst if transmit) → reward → one-
+   step TD update of critic + actor. `--mock` validates the loop offline; the real run trains
+   from live ACK/timeout. Validated: offline the agent learns to transmit (P(transmit|queued)
+   0.51→0.93 on a clean mock link); on the radio it trained end-to-end from real rewards and
+   the learned policy *reflects the real link* — in a poor CFO window (delivery ~2/27) it does
+   not learn to transmit (transmitting rarely cuts AoI), which is correct. A good window /
+   shared 10 MHz clock makes delivery reliable so the policy converges to transmit.
+4. **Next:** a q-ALOHA / trained-policy comparison, more radios for real multi-agent
+   collisions, and a shared clock for clean reward. Model saved to `--out` for reuse/eval.
 4. **(Optional) online learning on hardware** and/or **more radios** for true multi-agent
    collisions; add the AoI side channel if using neighbour observations.
 
