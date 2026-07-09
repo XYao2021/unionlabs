@@ -161,7 +161,7 @@ def main(argv):
             print("[%-14s] delivery=%.2f (%d/%d)  mean-AoI=%.2f  deliv/step=%.3f"
                   % (m["name"], m["delivery_rate"], m["delivered"], m["tx"],
                      m["mean_aoi"], m["deliv_per_step"]))
-        _plot_bars(res, args.out)
+        _plot_bars(res, args.out, args.scheme, args.objective)
         return
 
     rows = []
@@ -184,10 +184,10 @@ def main(argv):
         if ch is not None:
             ch.close()
 
-    _plot(rows, marl, args.out)
+    _plot(rows, marl, args.out, args.scheme)
 
 
-def _plot_bars(res, out):
+def _plot_bars(res, out, scheme="real link", objective=None):
     """Bar comparison for the interleaved (window-matched) experiment."""
     try:
         import matplotlib
@@ -202,14 +202,16 @@ def _plot_bars(res, out):
         ax[1].set_ylabel("mean AoI"); ax[1].set_title("Age-of-Information (lower better)")
         for a_ in ax:
             a_.grid(alpha=.3, axis="y"); a_.tick_params(axis="x", rotation=20)
-        fig.suptitle("q-ALOHA vs learned MARL — interleaved, window-matched (real DQPSK)")
+        obj_txt = {0: "obj0 AoI", 1: "obj1 throughput"}.get(objective, "")
+        fig.suptitle("q-ALOHA vs learned MARL — interleaved, window-matched (real %s%s)"
+                     % (scheme, (", " + obj_txt) if obj_txt else ""))
         fig.tight_layout(); fig.savefig(out, dpi=110); plt.close(fig)
         print("[baseline] plot -> %s" % os.path.abspath(out))
     except Exception as e:
         print("[baseline] (plot skipped: %s)" % e)
 
 
-def _plot(rows, marl, out):
+def _plot(rows, marl, out, scheme="real link"):
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -226,7 +228,7 @@ def _plot(rows, marl, out):
         ax[0].set_title("Throughput"); ax[0].grid(alpha=.3); ax[0].legend()
         ax[1].set_xlabel("q-ALOHA transmit prob p"); ax[1].set_ylabel("mean AoI")
         ax[1].set_title("Age-of-Information (lower better)"); ax[1].grid(alpha=.3); ax[1].legend()
-        fig.suptitle("q-ALOHA baseline vs learned MARL — real DQPSK link")
+        fig.suptitle("q-ALOHA baseline vs learned MARL — real %s link" % scheme)
         fig.tight_layout(); fig.savefig(out, dpi=110); plt.close(fig)
         print("[baseline] plot -> %s" % os.path.abspath(out))
     except Exception as e:
