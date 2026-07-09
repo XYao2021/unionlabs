@@ -105,11 +105,11 @@ def actor_policy(path, dim_O, dim_A):
 def make_env(args):
     if args.mock:
         return RealChannelEnv(MockChannel(deliver_p=args.deliver_p, busy_p=0.0),
-                              objective=args.objective, num_S=args.steps), None
+                              objective=args.objective, num_S=args.steps, pkt_int=args.pkt_int), None
     from real_channel import RealChannel
     ch = RealChannel(tx_args=args.tx_args, tx_gain=args.tx_gain,
                      rx_gain=args.rx_gain, scheme=args.scheme)
-    return RealChannelEnv(ch, objective=args.objective, num_S=args.steps), ch
+    return RealChannelEnv(ch, objective=args.objective, num_S=args.steps, pkt_int=args.pkt_int), ch
 
 
 def main(argv):
@@ -120,6 +120,8 @@ def main(argv):
     a.add_argument("--rx-gain", type=float, default=20)
     a.add_argument("--scheme", default="DQPSK")
     a.add_argument("--objective", type=int, default=0)
+    a.add_argument("--pkt-int", type=int, default=10,
+                   help="mean packet inter-arrival (epochs); lower = heavier traffic")
     a.add_argument("--steps", type=int, default=100)
     a.add_argument("--p", type=float, default=None, help="single fixed-p run")
     a.add_argument("--sweep", default=None, help="comma list of p, e.g. 0.25,0.5,0.75,1.0")
@@ -143,8 +145,8 @@ def main(argv):
         ch = (None if args.mock else RealChannel(tx_args=args.tx_args, tx_gain=args.tx_gain,
               rx_gain=args.rx_gain, scheme=args.scheme))
         mk = (lambda: RealChannelEnv(MockChannel(deliver_p=args.deliver_p, busy_p=0.0),
-                                     objective=args.objective, num_S=600)) if args.mock \
-            else (lambda: RealChannelEnv(ch, objective=args.objective, num_S=600))
+                                     objective=args.objective, num_S=600, pkt_int=args.pkt_int)) if args.mock \
+            else (lambda: RealChannelEnv(ch, objective=args.objective, num_S=600, pkt_int=args.pkt_int))
         named = [("q-ALOHA p=%.2f" % p, aloha_policy(p)) for p in ps]
         envs = [mk() for _ in ps]
         if args.actor:
