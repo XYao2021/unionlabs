@@ -338,7 +338,8 @@ def main(argv):
     a.add_argument("--rx-args", default="serial=30CD3F7")
     a.add_argument("--tx-gain", type=float, default=85)
     a.add_argument("--rx-gain", type=float, default=20)
-    a.add_argument("--attempts", type=int, default=5, help="agent: number of fires")
+    a.add_argument("--attempts", type=int, default=5, help="agent/ber: number of fires")
+    a.add_argument("--scheme", default="DQPSK", help="modulation (must match both ends)")
     a.add_argument("--seconds", type=float, default=None, help="ap: run for N s (else Ctrl-C)")
     a.add_argument("--warm", action="store_true",
                    help="agent: keep the TX radio warm (WarmSource, fire on command)")
@@ -347,13 +348,15 @@ def main(argv):
     if args.role == "ber":
         # single-box BER probe: runs its own warm AP + fires known packets
         ber_probe(n=args.attempts, tx_args=args.tx_args, rx_args=args.rx_args,
-                  tx_gain=args.tx_gain, rx_gain=args.rx_gain)
+                  tx_gain=args.tx_gain, rx_gain=args.rx_gain, scheme=args.scheme)
     elif args.role == "ap":
-        AccessPoint(rx_args=args.rx_args, rx_gain=args.rx_gain).serve(seconds=args.seconds)
+        AccessPoint(rx_args=args.rx_args, rx_gain=args.rx_gain,
+                    scheme=args.scheme).serve(seconds=args.seconds)
     elif args.warm:
         import time
         ok = 0
-        with WarmSource(tx_args=args.tx_args, tx_gain=args.tx_gain) as tx:
+        with WarmSource(tx_args=args.tx_args, tx_gain=args.tx_gain,
+                        scheme=args.scheme) as tx:
             for i in range(args.attempts):
                 acked = tx.fire()
                 ok += acked
@@ -365,7 +368,8 @@ def main(argv):
         import time
         ok = 0
         for i in range(args.attempts):
-            acked = transmit_once(tx_args=args.tx_args, tx_gain=args.tx_gain)
+            acked = transmit_once(tx_args=args.tx_args, tx_gain=args.tx_gain,
+                                  scheme=args.scheme)
             ok += acked
             print("[agent] fire %d -> %s" % (i + 1, "ACK (success)" if acked
                                              else "no ACK (collision/loss)"))
