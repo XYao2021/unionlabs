@@ -110,21 +110,31 @@ class AccessPoint:
     fire-on-demand single-shot reliable (a cold, per-frame sink misses the burst)."""
 
     def __init__(self, rx_args="serial=30CD3F7", rx_gain=20, ack_port=5599,
-                 binary=None, **opts):
+                 ber_expected=None, binary=None, **opts):
         self.rx_args = rx_args
         self.rx_gain = rx_gain
         self.opts = {**opts, "ack_port": ack_port}
         self.binary = binary
         self._p = None
+        # ber_expected: known TX payload (bytes) or a file path -> per-burst BER
+        self.ber_file = None
+        if ber_expected is not None:
+            if isinstance(ber_expected, (bytes, bytearray)):
+                self.ber_file = _scratch("ber_expected")
+                with open(self.ber_file, "wb") as f:
+                    f.write(ber_expected)
+            else:
+                self.ber_file = ber_expected
 
     def start(self, warmup_s=6.0, log="/tmp/marl_ap_sink.log"):
         """Launch the persistent warm sink and wait `warmup_s` for the radio to
         settle (AGC + noise floor) before returning — a fire against a cold sink
         is missed. Output goes to `log` for inspection. Call once; keep it running."""
         import time
+        extra = {"ber_expected": self.ber_file} if self.ber_file else {}
         cmd = sdr.SDR(role="sink_arq", rx_args=self.rx_args, tx_args=self.rx_args,
                       rx_gain=self.rx_gain, serve_forever=True, binary=self.binary,
-                      **_phy(self.opts)).command()
+                      **extra, **_phy(self.opts)).command()
         self._log = open(log, "w") if log else subprocess.DEVNULL
         self._p = subprocess.Popen(shlex.split(cmd), stdout=self._log,
                                    stderr=subprocess.STDOUT)
@@ -226,6 +236,60 @@ class WarmSource:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  BER probe: measure real per-burst bit-error-rate over the link
+# ─────────────────────────────────────────────────────────────────────────────
+_BER_LINE = re.compile(
+    r"\[BER\] pre-FEC=([\d.]+)%.*?post-FEC payload=([\d.]+)%.*?CRC=(\w+)")
+
+
+def ber_probe(n=10, payload=None, tx_args="serial=30CD424", rx_args="serial=30CD3F7",
+              tx_gain=85, rx_gain=40, scheme="DQPSK", period_s=2.0,
+              ap_log="/tmp/marl_ap_sink.log", binary=None, **opts):
+    """Measure per-burst BER over the link. Runs a warm AP with a KNOWN payload as
+    ground truth (--ber-expected), fires `n` copies of it, and parses the sink's
+    [BER] lines. Returns a list of {pre_fec, post_fec, crc} and prints min/median/max
+    of the pre-FEC (channel) and post-FEC (payload) BER. Answers 'how corrupt are the
+    CRC-failed frames' — low BER = nearly right, high BER = garbage."""
+    import time
+    pkt = payload if payload is not None else b"MARL" + bytes(PACKET_BYTES - 4)
+    ap = AccessPoint(rx_args=rx_args, rx_gain=rx_gain, ber_expected=pkt, scheme=scheme,
+                     binary=binary, **opts)
+    ap.start(log=ap_log)
+    try:
+        for _ in range(n):
+            try:
+                transmit_once(payload=pkt, tx_args=tx_args, tx_gain=tx_gain,
+                              scheme=scheme, binary=binary, **opts)
+            except RuntimeError:
+                pass
+            time.sleep(period_s)
+    finally:
+        ap.stop()
+
+    rows = []
+    for line in open(ap_log):
+        m = _BER_LINE.search(line)
+        if m:
+            rows.append({"pre_fec": float(m.group(1)), "post_fec": float(m.group(2)),
+                         "crc": m.group(3)})
+    if not rows:
+        print("[ber_probe] 0 bursts decoded of %d fired — link too weak to detect "
+              "(move radios closer / raise gain / better window)" % n)
+        return rows
+    import statistics as st
+    pre = [r["pre_fec"] for r in rows]
+    post = [r["post_fec"] for r in rows]
+    npass = sum(r["crc"] == "PASS" for r in rows)
+    print("[ber_probe] %d/%d fired bursts decoded  |  CRC pass %d/%d"
+          % (len(rows), n, npass, len(rows)))
+    print("[ber_probe] pre-FEC  (channel) BER  min/median/max = %.2f / %.2f / %.2f %%"
+          % (min(pre), st.median(pre), max(pre)))
+    print("[ber_probe] post-FEC (payload) BER  min/median/max = %.2f / %.2f / %.2f %%"
+          % (min(post), st.median(post), max(post)))
+    return rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Agent facade: sense + transmit, for a policy to call each decision epoch
 # ─────────────────────────────────────────────────────────────────────────────
 class MarlRadio:
@@ -269,7 +333,7 @@ def main(argv):
         pass
     import argparse
     a = argparse.ArgumentParser(description="MARL <-> SDR PHY bridge (self-test)")
-    a.add_argument("role", choices=["ap", "agent"])
+    a.add_argument("role", choices=["ap", "agent", "ber"])
     a.add_argument("--tx-args", default="serial=30CD424")
     a.add_argument("--rx-args", default="serial=30CD3F7")
     a.add_argument("--tx-gain", type=float, default=85)
@@ -280,7 +344,11 @@ def main(argv):
                    help="agent: keep the TX radio warm (WarmSource, fire on command)")
     args = a.parse_args(argv)
 
-    if args.role == "ap":
+    if args.role == "ber":
+        # single-box BER probe: runs its own warm AP + fires known packets
+        ber_probe(n=args.attempts, tx_args=args.tx_args, rx_args=args.rx_args,
+                  tx_gain=args.tx_gain, rx_gain=args.rx_gain)
+    elif args.role == "ap":
         AccessPoint(rx_args=args.rx_args, rx_gain=args.rx_gain).serve(seconds=args.seconds)
     elif args.warm:
         import time

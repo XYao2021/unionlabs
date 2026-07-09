@@ -978,6 +978,49 @@ TX cycles all chunks \texttt{-\/-tx-reps} times; the RX reassembles from
 CRC-verified chunks and auto-stops \texttt{-\/-rx-idle-timeout\ 8} s
 after the last burst.
 
+\hypertarget{81-measuring-the-real-ber---ber-expected}{%
+\subsubsection{\texorpdfstring{8.1 Measuring the real BER
+(\texttt{-\/-ber-expected})}{8.1 Measuring the real BER (-\/-ber-expected)}}\label{81-measuring-the-real-ber---ber-expected}}
+
+CRC is a \textbf{binary} verdict --- a failed frame has \emph{≥1} error,
+but CRC can't say whether that's one bit or hundreds. To quantify it,
+give the sink the \textbf{known transmitted payload}
+(\texttt{-\/-ber-expected\ \textless{}file\textgreater{}}) and it
+compares the decoded bits to ground truth for \textbf{every} burst (CRC
+pass or fail), printing two rates:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{pre-FEC BER} --- raw channel bit errors (demodulated bits vs
+  the transmitted \emph{coded} bits). This is the true channel quality,
+  before any correction.
+\item
+  \textbf{post-FEC payload BER} --- residual errors after Viterbi
+  decoding (decoded payload vs the known payload). This is what the CRC
+  actually sees; non-zero here ⇒ CRC fails.
+\end{itemize}
+
+\[ \text{BER} = \frac{\#\{\text{bits that flipped}\}}{\#\text{bits}}. \]
+
+So a CRC-fail frame is \textbf{not necessarily garbage} --- in a
+\emph{marginal} window you see e.g. \texttt{pre-FEC\ 1.2\%},
+\texttt{post-FEC\ 0.3\%} (nearly right, CRC catching 1--2 residual
+bits). The key diagnostic signature is \textbf{post-FEC \textgreater{}
+pre-FEC}: once the raw BER exceeds the rate-½ K=7 code's decoding
+threshold (\textasciitilde10--11\%), the Viterbi decoder chooses a wrong
+trellis path and \textbf{amplifies} errors instead of correcting them
+(\emph{catastrophic FEC failure}) --- measured on a broken link as
+\texttt{pre-FEC\ 24\%}, \texttt{post-FEC\ 42\%} (≈ random ⇒ genuine
+garbage). The processing gain of the preamble correlation means a burst
+can \textbf{detect strongly yet decode to garbage} (detection ≠
+decodability).
+
+Python: \texttt{marl\_phy.ber\_probe(n,\ scheme=...)} (or
+\texttt{python3\ marl\_phy.py\ ber}) runs a warm AP with the known
+payload, fires N copies, and reports min/median/max of both BERs --- a
+quick link-quality meter at any distance.
+
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
 \hypertarget{9-automatic-gain-control-agc}{%

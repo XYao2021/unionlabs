@@ -238,6 +238,42 @@ with SenseStream(rx_args="serial=30CD3F7") as s:
 Validated: idle ≈ −12 dB → not busy; an active carrier ≈ −3 dB → busy. See
 `SYSTEM_REFERENCE.md` §4.1.
 
+## Link BER diagnostic (`--ber-expected`)
+
+Measure the *real* per-burst bit-error-rate. Give the sink the KNOWN transmitted
+payload and it prints, for **every** decoded burst (CRC pass or fail), the pre-FEC
+(raw channel) and post-FEC (payload) BER vs ground truth — so you can tell whether
+a CRC-failed frame is nearly right (a few residual bits) or garbage (FEC overwhelmed).
+
+```bash
+# RX / sink: known payload as ground truth
+./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
+  --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 40 --scheme DQPSK --fec true \
+  --ack-transport tcp --ack-port 5599 --det-mult 3 --bytes-length 125 --timer_interval 20 \
+  --serve-forever --ber-expected known_payload.bin --viz false
+#   -> [BER] pre-FEC=1.20% ... post-FEC payload=0.30% ... CRC=FAIL   (marginal: nearly right)
+#   -> [BER] pre-FEC=24.0% ... post-FEC payload=42.3% ... CRC=FAIL   (broken: garbage, FEC gave up)
+
+# TX / source: send that same known payload
+./sdr_system --role source_arq --tx-args serial=30CD424 --rx-args serial=30CD424 ... \
+  --scheme DQPSK --bytes-length 125 --payload-file known_payload.bin --max-attempts 1
+```
+
+Python (single-box probe — runs its own warm AP + fires N known packets, reports
+min/median/max BER):
+
+```bash
+python3 marl_phy.py ber --attempts 20 --scheme DQPSK
+```
+```python
+from marl_phy import ber_probe
+rows = ber_probe(n=20, scheme="DQPSK")     # [{pre_fec, post_fec, crc}, ...]
+```
+
+Note: **post-FEC > pre-FEC** means the raw BER exceeded the rate-½ code's ~11%
+threshold — Viterbi then *amplifies* errors (catastrophic FEC failure) → garbage.
+See `SYSTEM_REFERENCE.md` §8.1.
+
 ## 16-QAM and higher — blocked without a shared clock
 **Validated ceiling on this rig is QPSK / 8-PSK.** 16-QAM+ does **not** decode, and a clean cable
 is necessary but not sufficient. On a direct cable the SNR is excellent and QPSK works, but the two

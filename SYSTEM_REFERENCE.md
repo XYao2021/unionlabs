@@ -562,6 +562,32 @@ catches the rest).
 **One-way mode** (`--role tx` / `rx`, no ACK): the TX cycles all chunks `--tx-reps` times; the RX
 reassembles from CRC-verified chunks and auto-stops `--rx-idle-timeout 8` s after the last burst.
 
+### 8.1 Measuring the real BER (`--ber-expected`)
+
+CRC is a **binary** verdict — a failed frame has *≥1* error, but CRC can't say whether that's one
+bit or hundreds. To quantify it, give the sink the **known transmitted payload**
+(`--ber-expected <file>`) and it compares the decoded bits to ground truth for **every** burst
+(CRC pass or fail), printing two rates:
+
+- **pre-FEC BER** — raw channel bit errors (demodulated bits vs the transmitted *coded* bits). This
+  is the true channel quality, before any correction.
+- **post-FEC payload BER** — residual errors after Viterbi decoding (decoded payload vs the known
+  payload). This is what the CRC actually sees; non-zero here ⇒ CRC fails.
+
+$$ \text{BER} = \frac{\#\{\text{bits that flipped}\}}{\#\text{bits}}. $$
+
+So a CRC-fail frame is **not necessarily garbage** — in a *marginal* window you see e.g.
+`pre-FEC 1.2%`, `post-FEC 0.3%` (nearly right, CRC catching 1–2 residual bits). The key diagnostic
+signature is **post-FEC > pre-FEC**: once the raw BER exceeds the rate-½ K=7 code's decoding
+threshold (~10–11%), the Viterbi decoder chooses a wrong trellis path and **amplifies** errors
+instead of correcting them (*catastrophic FEC failure*) — measured on a broken link as
+`pre-FEC 24%`, `post-FEC 42%` (≈ random ⇒ genuine garbage). The processing gain of the preamble
+correlation means a burst can **detect strongly yet decode to garbage** (detection ≠ decodability).
+
+Python: `marl_phy.ber_probe(n, scheme=...)` (or `python3 marl_phy.py ber`) runs a warm AP with the
+known payload, fires N copies, and reports min/median/max of both BERs — a quick link-quality meter
+at any distance.
+
 ---
 
 ## 9. Automatic gain control (AGC)
