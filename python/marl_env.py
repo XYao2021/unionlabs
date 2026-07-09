@@ -85,6 +85,7 @@ class RealChannelEnv:
         self.since_success = 0                   # Age-of-Information (epochs)
         self.delivered = 0
         self.collisions = 0
+        self._delivered_now = False
         # Poisson arrival schedule for the episode (like the sim's generate_pkt)
         self._arrivals = np.zeros(self.num_S, dtype=int)
         step_i = self._rng.poisson(self.pkt_int)
@@ -103,9 +104,10 @@ class RealChannelEnv:
     def _reward(self):
         if self.objective == 0:                  # fair Age-of-Information
             return -1.0 * self.since_success / (15.0 * self.num_D)
-        # objective 1: max throughput (Mbit/s so far), lightly scaled like the sim
-        tput = (self.delivered * self.pkt_bits / 1e6) / max(1, self.t)
-        return tput / 24.0
+        # objective 1: throughput — +1 for each real delivery this step, else 0.
+        # (Maximising sum of deliveries == maximising delivered packets/time; O(1)
+        # scale so it actually drives the A2C, unlike a tiny running-average.)
+        return 1.0 if self._delivered_now else 0.0
 
     def step(self, action):
         """action: 1 = transmit, 0 = defer. Returns (obs, reward, done, info)."""
@@ -130,6 +132,7 @@ class RealChannelEnv:
         # 4) time advances; AoI grows
         self.since_success += 1
         self.t += 1
+        self._delivered_now = bool(delivered)
         reward = self._reward()
         done = self.t >= self.num_S
         info = {"delivered": delivered, "attempted": attempted, "queue": self.queue,
