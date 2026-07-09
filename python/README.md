@@ -304,3 +304,57 @@ So a top-k MLP gradient (~31.8 KB) is ~22 s/round. The remaining cost is ~30%
 retransmits from the free-running-clock CFO — a **shared 10 MHz reference** removes
 them (~3 KB/s), after which **bigger `--chunk`** finally helps (under CFO, long bursts
 drift past the decision boundary and fail, so 512 B is kept here).
+
+## Online MARL over the radio — single agent (`marl_train.py`)
+
+Trains a random-access policy (A2C) **online against the real link**: each decision
+epoch the actor chooses transmit/defer, a `transmit` fires ONE real burst, and the
+reward is the *real* ACK (delivered) vs timeout (collision/loss). Warm source + warm
+AP (the always-on-node regime — see [`../COMMANDS.md`](../COMMANDS.md)). Run the AP in
+one terminal, train in another:
+
+```bash
+# terminal 1 — warm Access Point (RX + ACK); scheme MUST match the trainer
+python3 marl_phy.py ap --scheme QPSK --rx-args serial=30CD3F7 --rx-gain 20
+# terminal 2 — online training on the real link (QPSK is best on a warm/good link)
+python3 marl_train.py --scheme QPSK --tx-args serial=30CD424 --tx-gain 89 --rx-gain 20 \
+    --steps 300 --objective 0 --pkt-int 3
+# validate the learning loop with NO radio first:
+python3 marl_train.py --mock --steps 400
+```
+
+`--objective 0` = fair Age-of-Information (reward −AoI, *higher=less-negative* is
+better), `--objective 1` = throughput (+1 per delivery). `--pkt-int` = mean
+epochs/packet (lower = heavier traffic). Saves the actor + a 3-panel trajectory
+(reward, P(transmit), cumulative delivered) to `../applications/MARL_RA_Union/results/`.
+Compare against a q-ALOHA baseline with `aloha_baseline.py --interleave 20 --actor <model.pt>`
+(window-matched). **Single-agent caveat:** with no collision partner, "always transmit"
+is near-optimal, so MARL only *matches* a fixed-p baseline — its real advantage needs
+contention (below).
+
+## Multi-agent contention — `marl_multi_train.py` (the regime where MARL wins)
+
+N agents share ONE Access Point and must **learn not to transmit in the same slot**
+(≥2 transmitters ⇒ collision ⇒ nobody decodes). Independent A2C, one actor+critic per
+agent; coordination emerges from a **collision penalty** in the reward (without it,
+independent learners just both spam — a real MARL pathology). Validate offline TODAY,
+run on hardware when you have N+1 radios:
+
+```bash
+# offline (no radio) — agents learn to back off; collision rate drops, P(tx)→~1/N
+python3 marl_multi_train.py --mock --agents 4 --steps 800 --pkt-int 4 \
+    --objective 0 --coll-penalty 0.5 --compare-aloha "0.15,0.25,0.5"
+
+# hardware (2 agents + 1 AP): start the AP first (scheme must match), then:
+python3 marl_phy.py ap --scheme QPSK --rx-args serial=30CD3F7 --rx-gain 20     # terminal 1
+python3 marl_multi_train.py --tx-args serial=30CD424 --tx-args serial=<3RD> \
+    --scheme QPSK --tx-gain 89 --steps 300 --pkt-int 3                          # terminal 2
+```
+
+One `--tx-args` per agent radio (repeat the flag). `--coll-penalty` drives
+coordination (0 = naive/spammy). `--physical` fires colliding bursts simultaneously
+(true PHY collision, timing-sensitive) instead of the default logical collision.
+The plot (`marl_multi.png`) shows the money-shot: **collision rate DROPS**, per-agent
+**P(transmit) settles toward 1/N**, and a **MARL-vs-q-ALOHA bar** — MARL gets the best
+throughput without being told the right rate, while a mis-tuned fixed-p ALOHA either
+starves (too timid) or melts down (too aggressive → all collisions).

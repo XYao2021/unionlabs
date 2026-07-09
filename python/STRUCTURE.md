@@ -52,10 +52,22 @@ python/
 │   ├── tx_tone_burst.json     same tone, transmitted in bursts
 │   └── rx_tone_monitor.json   raw tone monitor (prints freq + power, no decode)
 ├── channel_sense.py  Channel-occupancy sensing (energy detect) — sense→decide loop.
-├── marl_phy.py       MARL <-> PHY bridge; also the `ber` role = link BER probe
-│                       (per-burst pre/post-FEC BER vs a known payload). See README.
+├── marl_phy.py       MARL <-> PHY bridge (transmit_once / WarmSource / AccessPoint);
+│                       also the `ber` role = link BER probe. known_payload() = the
+│                       varied ground truth (never all-zeros; starves coherent BER).
 ├── ber_monitor.py    Long-term BER monitor: timestamped per-burst BER/detection
 │                       trajectory over minutes/hours (CSV + plot). No training.
+├── ber_dist.py       Compare BER distributions across ber_monitor runs (histograms
+│                       + CDF + clean/garbage table).
+├── real_channel.py   RealChannel: warm-source agent-side channel (sense/transmit/step).
+├── marl_env.py       RealChannelEnv: single-agent gym env (AoI/queue/throughput) +
+│                       MockChannel for offline validation.
+├── marl_train.py     Single-agent online A2C training over the real radio (+ --mock).
+├── aloha_baseline.py q-ALOHA vs learned MARL, window-matched interleaved comparison.
+├── marl_multi_env.py MULTI-agent contention env (MultiAgentRAEnv) + MockMultiChannel
+│                       + MultiRealChannel (N warm sources -> 1 AP, collision resolve).
+├── marl_multi_train.py  Multi-agent independent-A2C training (--mock or N+1 radios);
+│                       coordination via collision penalty; q-ALOHA baseline + plot.
 ├── OPTIONS.md        AUTO-GENERATED reference of every option (JSON/CLI/Python).
 ├── README.md         Usage guide (API + JSON config + channel sense + BER probe).
 └── STRUCTURE.md      This file.

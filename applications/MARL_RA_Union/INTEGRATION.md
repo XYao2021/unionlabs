@@ -213,3 +213,31 @@ to **local-only observation** (own queue + own AoI + sensed channel) for a first
 when to retry. Keep reliable ARQ only for bulk data (the MNIST path); add a single-shot mode
 (`--max-attempts 1`, already there) and a persistent per-frame-ACK AP (small addition) for
 the random-access path.
+
+## 8. Multi-agent contention (the regime where MARL beats q-ALOHA)  ⭐
+
+Single agent has no collision partner, so "always transmit" is optimal and a learned
+policy can only *match* a fixed-p baseline (validated: MARL ≈ q-ALOHA p=1.0 on the warm
+QPSK link; on throughput it can even hurt itself by over-transmitting). The MARL payoff
+needs **≥2 agents contending for one AP**. Code (ready; mock-validated, hardware-ready):
+
+- `python/marl_multi_env.py` — `MultiAgentRAEnv` (N agents, one shared medium). A slot
+  with **1** transmitter fires a **real** burst (real ACK/loss); **≥2** transmitters ⇒
+  **collision** (no ACK to anyone). Channels: `MockMultiChannel` (offline) and
+  `MultiRealChannel` (N `WarmSource`s → 1 AP; logical collision by default, `physical=True`
+  fires overlapping bursts). Each agent observes **all** agents' AoI + own queue + channel-busy.
+- `python/marl_multi_train.py` — **independent A2C**, one actor+critic per agent.
+
+**Key finding (mock):** naive independent learners under the AoI reward *fail* to
+coordinate — a transmit-into-collision looks identical to a defer (no delivery either
+way), so there's no gradient to back off and both agents spam (collision rate *climbs*
+0.68→0.88). Adding an explicit **collision penalty** (`--coll-penalty`, distinguishing
+"collide" from "defer") fixes it: collision rate **drops 0.68→0.08**, per-agent
+`P(transmit)` settles toward **1/N** (the optimal symmetric rate), and with 4 agents MARL
+gets the **best throughput of any policy** (0.347/slot) *without being told the right rate*
+— while a mis-tuned fixed-p ALOHA starves (p too low) or melts down (p=0.5 → 70% collisions).
+
+**Run.** Offline today: `marl_multi_train.py --mock --agents 4 --steps 800 --coll-penalty 0.5
+--compare-aloha "0.15,0.25,0.5"`. On hardware (2 agents + 1 AP, when the 3rd USRP is in):
+start `marl_phy.py ap --scheme QPSK ...`, then `marl_multi_train.py --tx-args serial=A
+--tx-args serial=B --scheme QPSK --steps 300`. Commands in `../../python/README.md`.
