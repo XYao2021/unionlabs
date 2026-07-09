@@ -155,6 +155,8 @@ def main(argv):
     a.add_argument("--scheme", default="DQPSK",
                    help="modulation (default DQPSK: CFO-robust, ~83%% vs ~17%% for QPSK "
                         "on a free-running link). MUST match the AP.")
+    a.add_argument("--pkt-int", type=int, default=10,
+                   help="mean packet inter-arrival (epochs/packet); lower = heavier traffic")
     a.add_argument("--steps", type=int, default=150)
     a.add_argument("--lr", type=float, default=4e-4)
     a.add_argument("--objective", type=int, default=0)
@@ -173,14 +175,14 @@ def main(argv):
     ch = None
     if args.mock:
         env = RealChannelEnv(MockChannel(deliver_p=args.deliver_p, busy_p=0.0),
-                             objective=args.objective, num_S=args.steps)
+                             objective=args.objective, num_S=args.steps, pkt_int=args.pkt_int)
     else:
         from real_channel import RealChannel
         ch = RealChannel(tx_args=args.tx_args, sense_rx_args=args.sense_rx_args,
                          tx_gain=args.tx_gain, rx_gain=args.rx_gain, scheme=args.scheme)
         if args.sense_rx_args:
             ch.calibrate()
-        env = RealChannelEnv(ch, objective=args.objective, num_S=args.steps)
+        env = RealChannelEnv(ch, objective=args.objective, num_S=args.steps, pkt_int=args.pkt_int)
     try:
         train(env, cf, args.steps, args.lr, args.out)
     finally:
