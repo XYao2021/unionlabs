@@ -19,7 +19,8 @@ import os
 import sys
 import time
 
-from marl_phy import AccessPoint, transmit_once, PACKET_BYTES, _BER_LINE
+from marl_phy import (AccessPoint, transmit_once, WarmSource, PACKET_BYTES,
+                      known_payload, _BER_LINE)
 
 # results land next to the MARL experiments (easy to find, git-ignored)
 DEFAULT_OUT = os.path.abspath(os.path.join(
@@ -34,25 +35,38 @@ def _fmt_hms(sec):
 def monitor(minutes=None, bursts=None, period_s=2.0, scheme="DQPSK",
             tx_args="serial=30CD424", rx_args="serial=30CD3F7",
             tx_gain=85, rx_gain=40, out_dir=DEFAULT_OUT, tag="ber_longrun",
-            ap_log="/tmp/ber_monitor_ap.log", binary=None, print_every=1):
+            ap_log="/tmp/ber_monitor_ap.log", binary=None, print_every=1, warm=False):
     """Fire known bursts for `minutes` (or `bursts` count) and record a per-burst
     time-series. Returns the list of row dicts. Also writes <tag>.csv and <tag>.png
-    into out_dir and prints a running + final summary."""
+    into out_dir and prints a running + final summary.
+
+    warm=False: each burst re-inits the TX radio (transmit_once) — the LO restarts
+      every burst, so the CFO jumps (worst case for coherent QPSK's carrier PLL).
+    warm=True : one persistent WarmSource — the LO runs continuously, so the CFO is
+      stable and trackable (mirrors a normal C++ source_arq run with --interval gaps).
+      This is the fair way to test whether coherent QPSK holds on this link."""
     if minutes is None and bursts is None:
         minutes = 10.0                                    # sane default
-    pkt = b"MARL" + bytes(PACKET_BYTES - 4)               # known ground-truth payload
+    pkt = known_payload()                                 # varied known ground truth
 
     os.makedirs(out_dir, exist_ok=True)
     ap = AccessPoint(rx_args=rx_args, rx_gain=rx_gain, ber_expected=pkt,
                      scheme=scheme, binary=binary)
-    print("[monitor] scheme=%s tx_gain=%s rx_gain=%s period=%ss  target=%s"
-          % (scheme, tx_gain, rx_gain, period_s,
+    print("[monitor] scheme=%s tx_gain=%s rx_gain=%s period=%ss src=%s  target=%s"
+          % (scheme, tx_gain, rx_gain, period_s, "WARM" if warm else "cold-reinit",
              ("%.0f min" % minutes) if minutes else ("%d bursts" % bursts)))
     print("[monitor] warming AP (RX + ACK) ...")
     ap.start(log=ap_log)
+    src = None
+    if warm:
+        print("[monitor] warming TX source (continuous LO) ...")
+        src = WarmSource(payload=pkt, tx_args=tx_args, tx_gain=tx_gain, scheme=scheme,
+                         binary=binary)
 
-    # seek past the warmup log so we only read [BER] lines from OUR bursts
-    logf = open(ap_log, "r")
+    # seek past the warmup log so we only read [BER] lines from OUR bursts.
+    # errors="replace": the sink echoes received payload bytes, and a varied binary
+    # ground-truth payload is not valid UTF-8 — decode leniently so it never crashes.
+    logf = open(ap_log, "r", errors="replace")
     logf.seek(0, os.SEEK_END)
 
     rows = []
@@ -68,8 +82,11 @@ def monitor(minutes=None, bursts=None, period_s=2.0, scheme="DQPSK",
             i += 1
             t_fire = time.time() - t0
             try:
-                acked = transmit_once(payload=pkt, tx_args=tx_args, tx_gain=tx_gain,
-                                      scheme=scheme, binary=binary)
+                if warm:
+                    acked = src.fire()
+                else:
+                    acked = transmit_once(payload=pkt, tx_args=tx_args, tx_gain=tx_gain,
+                                          scheme=scheme, binary=binary)
             except RuntimeError:
                 acked = False
             time.sleep(0.4)                               # let the flushed [BER] line land
@@ -101,6 +118,8 @@ def monitor(minutes=None, bursts=None, period_s=2.0, scheme="DQPSK",
     except KeyboardInterrupt:
         print("\n[monitor] interrupted — saving what we have (%d bursts)" % len(rows))
     finally:
+        if src is not None:
+            src.close()
         ap.stop()
         logf.close()
 
@@ -215,11 +234,14 @@ def main(argv):
     a.add_argument("--tag", default="ber_longrun", help="output file stem")
     a.add_argument("--out", default=DEFAULT_OUT, help="output directory")
     a.add_argument("--print-every", type=int, default=1)
+    a.add_argument("--warm", action="store_true",
+                   help="keep the TX radio warm (continuous LO, stable CFO) instead of "
+                        "re-initializing per burst — the fair test for coherent QPSK")
     args = a.parse_args(argv)
     monitor(minutes=args.minutes, bursts=args.bursts, period_s=args.period,
             scheme=args.scheme, tx_args=args.tx_args, rx_args=args.rx_args,
             tx_gain=args.tx_gain, rx_gain=args.rx_gain, out_dir=args.out,
-            tag=args.tag, print_every=args.print_every)
+            tag=args.tag, print_every=args.print_every, warm=args.warm)
 
 
 if __name__ == "__main__":

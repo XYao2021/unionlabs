@@ -51,6 +51,18 @@ PACKET_BYTES = 125
 _ACK_UNACKED = re.compile(r"Unacked chunks=(\d+)")
 
 
+def known_payload(n=PACKET_BYTES):
+    """Deterministic KNOWN payload with SYMBOL VARIETY (the ground truth for BER /
+    ACK tests). Do NOT use all-zeros: a constant payload FEC-encodes to constant
+    coded bits -> one repeated QPSK symbol, which starves the receiver's
+    decision-directed carrier tracker (no phase transitions to lock onto) and makes
+    COHERENT schemes fail artificially at ~50 % BER even on a good link. Differential
+    schemes (DQPSK) don't care, so an all-zeros payload silently biases any coherent-
+    vs-differential comparison. A varied byte pattern gives the tracker transitions
+    while staying a fixed, reproducible ground truth."""
+    return bytes(((i * 173 + 71) & 0xFF) for i in range(n))
+
+
 def _phy(a):
     """Shared PHY options for the single-shot random-access link. Default scheme is
     DQPSK: differential encoding is robust to the free-running-clock carrier offset
@@ -81,7 +93,7 @@ def transmit_once(payload=None, tx_args="serial=30CD424", tx_gain=85,
     to a fixed-size token. Retries once on a USB-release race (the previous fire's
     source not fully closed yet)."""
     import time
-    pkt = payload if payload is not None else b"MARL" + bytes(PACKET_BYTES - 4)
+    pkt = payload if payload is not None else known_payload()
     tmp = _scratch("tx")
     with open(tmp, "wb") as f:
         f.write(pkt)
@@ -193,7 +205,7 @@ class WarmSource:
                  ack_host="127.0.0.1", timeout_ms=2000, binary=None,
                  warmup_s=6.0, **opts):
         import time
-        pkt = payload if payload is not None else b"MARL" + bytes(PACKET_BYTES - 4)
+        pkt = payload if payload is not None else known_payload()
         tmp = _scratch("warmtx")
         with open(tmp, "wb") as f:
             f.write(pkt)
@@ -251,7 +263,7 @@ def ber_probe(n=10, payload=None, tx_args="serial=30CD424", rx_args="serial=30CD
     of the pre-FEC (channel) and post-FEC (payload) BER. Answers 'how corrupt are the
     CRC-failed frames' — low BER = nearly right, high BER = garbage."""
     import time
-    pkt = payload if payload is not None else b"MARL" + bytes(PACKET_BYTES - 4)
+    pkt = payload if payload is not None else known_payload()
     ap = AccessPoint(rx_args=rx_args, rx_gain=rx_gain, ber_expected=pkt, scheme=scheme,
                      binary=binary, **opts)
     ap.start(log=ap_log)
