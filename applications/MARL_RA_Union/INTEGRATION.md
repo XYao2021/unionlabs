@@ -241,3 +241,26 @@ gets the **best throughput of any policy** (0.347/slot) *without being told the 
 --compare-aloha "0.15,0.25,0.5"`. On hardware (2 agents + 1 AP, when the 3rd USRP is in):
 start `marl_phy.py ap --scheme QPSK ...`, then `marl_multi_train.py --tx-args serial=A
 --tx-args serial=B --scheme QPSK --steps 300`. Commands in `../../python/README.md`.
+
+### 8b. Decentralized (each TX on its own node) — the deployment-faithful version
+
+`marl_multi_train.py` is a single-process orchestrator (all agents in one loop) — a
+one-host convenience, NOT how RA deploys. Real agents are **independent nodes** sharing
+only the medium. The decentralized stack:
+
+- `agent_node.py` — one process per agent; **local-only** obs `[own AoI, own queue,
+  sensed busy]` (fixed 3-dim, agent needn't know N); own A2C + online learning.
+- `mock_medium.py` — offline shared-channel+AP server (validate with no radio).
+- `ap_multi.py` — multi-agent AP: the C++ ACK server is **single-client**
+  (`net.hpp: listen(srv,1)`), so ACK routing is done in Python — the C++ sink decodes,
+  and a Python multi-client server ACKs the agent whose **id is payload byte 0**. A
+  collision decodes nothing → no ACK → the agent times out (its only collision signal).
+
+**Design choices (validated with the user):** local-only observation (no AP beacon /
+global state) and one-host / 3-USRP test topology. A node **cannot observe collisions**,
+only its own no-ACK, so coordination is learned from **carrier-sense (busy) + a penalty
+on its own wasted transmits** — i.e. learned CSMA. Mock-validated: 2 agents converge to
+the ALOHA-optimal rate. Caveat: a *simultaneous-slot* mock can't model listen-before-talk,
+so the busy bit is uninformative offline — real RF sensing on hardware is what makes CSMA
+work. **Pending hardware:** `ap_multi._decode_stream` (parse the sink's per-burst output
+for the agent-id); the ACK routing around it passes a radio-free self-test.

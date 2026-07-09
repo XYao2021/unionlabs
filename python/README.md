@@ -358,3 +358,42 @@ The plot (`marl_multi.png`) shows the money-shot: **collision rate DROPS**, per-
 **P(transmit) settles toward 1/N**, and a **MARL-vs-q-ALOHA bar** — MARL gets the best
 throughput without being told the right rate, while a mis-tuned fixed-p ALOHA either
 starves (too timid) or melts down (too aggressive → all collisions).
+
+> `marl_multi_train.py` is a **single-process orchestrator** (all agents in one loop) —
+> fine for a one-host test, but real random access has each TX on a **separate node**.
+> The decentralized version below is the deployment-faithful one.
+
+## Decentralized multi-node random access (each agent = its own process)
+
+The realistic setup: each agent is an **independent process/node** owning one radio,
+observing only **locally** `[own AoI, own queue, sensed channel-busy]` (fixed 3-dim),
+running its own policy + online learning, sharing only the wireless medium. No shared
+step, no peer state — coordination emerges from **carrier-sense + a penalty on the
+agent's own wasted transmits** (a node can't see a collision, only its own no-ACK).
+
+- `agent_node.py` — one decentralized agent (local obs, own A2C, sense→decide→transmit→learn).
+- `mock_medium.py` — offline stand-in for the shared channel + AP (validate with no radio).
+- `ap_multi.py` — the multi-agent AP: C++ sink as PHY decoder + Python **multi-client
+  ACK routing by agent-id** (the C++ ACK server is single-client). Routing is radio-free
+  self-tested: `python3 ap_multi.py --self-test`.
+
+**Validate today, no radio** (3 terminals — the medium + 2 independent agents):
+```bash
+python3 mock_medium.py --agents 2 --slots 800 --port 5610
+python3 agent_node.py --mock --id 0 --slots 800 --pkt-int 3 --medium-port 5610
+python3 agent_node.py --mock --id 1 --slots 800 --pkt-int 3 --medium-port 5610
+```
+Each agent learns online independently; with 2 agents they converge to the ALOHA-optimal
+rate (P(tx)≈0.5 → throughput near the 0.5 ceiling). (In a *simultaneous-slot* mock the
+carrier-sense bit is uninformative — real listen-before-talk sensing on hardware is what
+enables true CSMA.)
+
+**Hardware (2 agents + 1 AP on one host)** — start the AP, then one agent per radio:
+```bash
+python3 ap_multi.py --agents 2 --scheme QPSK --rx-args serial=30CD3F7 --rx-gain 20
+python3 agent_node.py --id 0 --tx-args serial=30CD424 --scheme QPSK --tx-gain 89
+python3 agent_node.py --id 1 --tx-args serial=<3RD>   --scheme QPSK --tx-gain 89
+```
+Same code runs across separate hosts — point `--ap-host` / `--medium-host` at the AP.
+**Pending hardware validation:** `ap_multi._decode_stream` (parsing the sink's per-burst
+output for the agent-id) needs the radios in the loop; the ACK routing around it is tested.

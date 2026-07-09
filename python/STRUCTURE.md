@@ -68,6 +68,12 @@ python/
 │                       + MultiRealChannel (N warm sources -> 1 AP, collision resolve).
 ├── marl_multi_train.py  Multi-agent independent-A2C training (--mock or N+1 radios);
 │                       coordination via collision penalty; q-ALOHA baseline + plot.
+│                       (single-process orchestrator — one-host convenience.)
+├── agent_node.py     DECENTRALIZED agent NODE: one process per agent, LOCAL obs
+│                       [AoI,queue,busy], own A2C, sense→transmit→learn. Deploy-faithful.
+├── mock_medium.py    Offline shared-channel+AP server for decentralized agent_node's.
+├── ap_multi.py       Multi-agent AP: C++ sink decoder + Python multi-client ACK
+│                       routing by agent-id (--self-test is radio-free).
 ├── OPTIONS.md        AUTO-GENERATED reference of every option (JSON/CLI/Python).
 ├── README.md         Usage guide (API + JSON config + channel sense + BER probe).
 └── STRUCTURE.md      This file.
