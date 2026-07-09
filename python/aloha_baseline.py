@@ -59,6 +59,33 @@ def aloha_policy(p):
     return lambda obs: 1 if random.random() < p else 0
 
 
+def run_interleaved(named_policies, envs, steps_per_policy, block):
+    """Round-robin the policies in small blocks over ONE shared channel, so every
+    policy samples the SAME CFO windows (removes the sequential-window confound).
+    envs share the channel; give them the same seed for identical traffic."""
+    st = [{"obs": e.reset(), "aois": [], "rewards": [], "deliv": 0, "tx": 0, "n": 0}
+          for e in envs]
+    while any(s["n"] < steps_per_policy for s in st):
+        for i, (_, pol) in enumerate(named_policies):
+            for _ in range(block):
+                if st[i]["n"] >= steps_per_policy:
+                    break
+                obs2, r, done, info = envs[i].step(pol(st[i]["obs"]))
+                st[i]["rewards"].append(r); st[i]["aois"].append(info["aoi"])
+                if info["attempted"]:
+                    st[i]["tx"] += 1; st[i]["deliv"] += bool(info["delivered"])
+                st[i]["obs"] = envs[i].reset() if done else obs2
+                st[i]["n"] += 1
+    out = []
+    for (name, _), s in zip(named_policies, st):
+        out.append(dict(name=name, mean_aoi=float(np.mean(s["aois"])),
+                        delivered=s["deliv"], tx=s["tx"],
+                        delivery_rate=(s["deliv"] / s["tx"] if s["tx"] else 0.0),
+                        deliv_per_step=s["deliv"] / max(1, s["n"]),
+                        sumR=float(np.sum(s["rewards"]))))
+    return out
+
+
 def actor_policy(path, dim_O, dim_A):
     import torch
     from torch.distributions.categorical import Categorical
@@ -97,6 +124,9 @@ def main(argv):
     a.add_argument("--p", type=float, default=None, help="single fixed-p run")
     a.add_argument("--sweep", default=None, help="comma list of p, e.g. 0.25,0.5,0.75,1.0")
     a.add_argument("--actor", default=None, help="trained MARL actor .pt to compare")
+    a.add_argument("--interleave", type=int, default=0,
+                   help="block size for interleaved (window-matched) comparison; "
+                        "0 = sequential sweep. --steps is then per-policy.")
     a.add_argument("--deliver-p", type=float, default=0.85, help="mock link success prob")
     a.add_argument("--out", default=os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
@@ -106,6 +136,31 @@ def main(argv):
     ps = ([args.p] if args.p is not None
           else [float(x) for x in args.sweep.split(",")] if args.sweep
           else [0.25, 0.5, 0.75, 1.0])
+
+    # ── interleaved (window-matched) comparison of specific policies ──
+    if args.interleave:
+        from real_channel import RealChannel
+        ch = (None if args.mock else RealChannel(tx_args=args.tx_args, tx_gain=args.tx_gain,
+              rx_gain=args.rx_gain, scheme=args.scheme))
+        mk = (lambda: RealChannelEnv(MockChannel(deliver_p=args.deliver_p, busy_p=0.0),
+                                     objective=args.objective, num_S=600)) if args.mock \
+            else (lambda: RealChannelEnv(ch, objective=args.objective, num_S=600))
+        named = [("q-ALOHA p=%.2f" % p, aloha_policy(p)) for p in ps]
+        envs = [mk() for _ in ps]
+        if args.actor:
+            envs.append(mk())
+            named.append(("MARL", actor_policy(args.actor, envs[0].dim_O, envs[0].dim_A)))
+        try:
+            res = run_interleaved(named, envs, args.steps, args.interleave)
+        finally:
+            if ch is not None:
+                ch.close()
+        for m in res:
+            print("[%-14s] delivery=%.2f (%d/%d)  mean-AoI=%.2f  deliv/step=%.3f"
+                  % (m["name"], m["delivery_rate"], m["delivered"], m["tx"],
+                     m["mean_aoi"], m["deliv_per_step"]))
+        _plot_bars(res, args.out)
+        return
 
     rows = []
     env, ch = make_env(args)
@@ -128,6 +183,28 @@ def main(argv):
             ch.close()
 
     _plot(rows, marl, args.out)
+
+
+def _plot_bars(res, out):
+    """Bar comparison for the interleaved (window-matched) experiment."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        names = [r["name"] for r in res]
+        colors = ["C2" if r["name"] == "MARL" else "C0" for r in res]
+        fig, ax = plt.subplots(1, 2, figsize=(max(7, 1.6 * len(res) + 4), 4.4))
+        ax[0].bar(names, [r["deliv_per_step"] for r in res], color=colors)
+        ax[0].set_ylabel("deliveries / step"); ax[0].set_title("Throughput (higher better)")
+        ax[1].bar(names, [r["mean_aoi"] for r in res], color=colors)
+        ax[1].set_ylabel("mean AoI"); ax[1].set_title("Age-of-Information (lower better)")
+        for a_ in ax:
+            a_.grid(alpha=.3, axis="y"); a_.tick_params(axis="x", rotation=20)
+        fig.suptitle("q-ALOHA vs learned MARL — interleaved, window-matched (real DQPSK)")
+        fig.tight_layout(); fig.savefig(out, dpi=110); plt.close(fig)
+        print("[baseline] plot -> %s" % os.path.abspath(out))
+    except Exception as e:
+        print("[baseline] (plot skipped: %s)" % e)
 
 
 def _plot(rows, marl, out):
