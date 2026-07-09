@@ -54,6 +54,8 @@ python/
 ├── channel_sense.py  Channel-occupancy sensing (energy detect) — sense→decide loop.
 ├── marl_phy.py       MARL <-> PHY bridge; also the `ber` role = link BER probe
 │                       (per-burst pre/post-FEC BER vs a known payload). See README.
+├── ber_monitor.py    Long-term BER monitor: timestamped per-burst BER/detection
+│                       trajectory over minutes/hours (CSV + plot). No training.
 ├── OPTIONS.md        AUTO-GENERATED reference of every option (JSON/CLI/Python).
 ├── README.md         Usage guide (API + JSON config + channel sense + BER probe).
 └── STRUCTURE.md      This file.

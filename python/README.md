@@ -270,6 +270,26 @@ So **post-FEC > pre-FEC is the catastrophic-failure signature**: the channel BER
 exceeded what the FEC can correct and decoding made things worse. See
 `../SYSTEM_REFERENCE.md` §8.1.
 
+### Long-term channel monitor — `ber_monitor.py`
+
+The same probe **extended into time**: fires a known burst at a fixed cadence for
+minutes/hours and records a *timestamped* per-burst trajectory (pre/post-FEC BER,
+CRC, and whether the AP detected the burst at all), so you can watch the channel
+drift — good/bad windows, detection rate, delivery rate — with no training running.
+
+```bash
+python3 ber_monitor.py --minutes 20                      # 20-min run, DQPSK, default gains
+python3 ber_monitor.py --bursts 200 --scheme QPSK --tag qpsk_run
+```
+
+Writes `<tag>.csv` (full time-series) and `<tag>.png` (BER-over-time + rolling
+delivery rate) into `../applications/MARL_RA_Union/results/`, and prints a link
+summary: **detection rate** (burst seen at all — a link-budget/SNR gauge) and
+**delivery rate** (CRC pass — usable payload). A low detection rate means the link
+is below the acquisition threshold (radios too far / gain too low), which is a
+*different* failure from a detected-but-corrupt burst (that one is a decode/SNR
+margin issue). `Ctrl-C` saves the partial run.
+
 **Throughput (measured, 32 KB over the air, marginal free-running link).** The two
 big levers are the **sink poll interval** (`--timer-interval`, was 1000 ms → the ACK
 latency) and the **ACK timeout** (`--timeout`):
