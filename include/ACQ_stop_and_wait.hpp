@@ -210,6 +210,11 @@ public:
         std::cout << "[SINK] wrote " << full.size() << " bytes to " << path << "\n";
     }
 
+    // Enable the per-burst BER diagnostic: the known transmitted payload bytes.
+    // When set, every received burst prints pre-FEC / post-FEC BER vs this ground
+    // truth (works even on CRC-failed frames — shows how corrupted they really are).
+    void set_ber_expected(const std::vector<uint8_t>& bytes) { ber_expected_ = bytes; }
+
 private:
     PHYSICAL_LAYER&  phy_;
     AckLink&         ack_;
@@ -220,6 +225,7 @@ private:
     std::atomic<bool> done_{false};
     std::thread      worker_;
     std::map<uint8_t, std::string> chunks_;
+    std::vector<uint8_t> ber_expected_;          // known TX payload for the BER diagnostic
 
     void run() {
         std::cout << "[SINK] Listening...\n";
@@ -239,6 +245,29 @@ private:
                 raw = fec_decode_block(raw);
             }
             auto [idx, tot, payload, crc_ok] = decode_packet_bits(raw);
+
+            // ── BER diagnostic (every burst, CRC pass or fail) ──
+            // We know the transmitted payload, so we can measure how many bits
+            // actually flipped — a CRC fail could be 1 bad bit or total garbage.
+            //   pre-FEC   = raw channel bit errors (demod bits vs TX coded bits)
+            //   post-FEC  = residual payload errors after Viterbi (why CRC failed)
+            // Assumes a single known packet (idx 0, tot 1), the diagnostic case.
+            if (!ber_expected_.empty()) {
+                std::string exp(ber_expected_.begin(), ber_expected_.end());
+                auto exp_pkt = build_packet_bits(exp, 0, 1);
+                std::vector<uint8_t> exp_tx = fec_ ? fec_encode_block(exp_pkt) : exp_pkt;
+                size_t n1 = std::min(rx.second.size(), exp_tx.size()), e1 = 0;
+                for (size_t i = 0; i < n1; ++i) e1 += (rx.second[i] != exp_tx[i]);
+                size_t nb = std::min(payload.size(), exp.size()), e2 = 0;
+                for (size_t i = 0; i < nb; ++i)
+                    e2 += __builtin_popcount((unsigned)(uint8_t)(payload[i] ^ exp[i]));
+                std::printf("[BER] pre-FEC=%.2f%% (%zu/%zu bits)  post-FEC payload=%.2f%% "
+                            "(%zu/%zu bits)  CRC=%s\n",
+                            n1 ? 100.0 * e1 / n1 : 0.0, e1, n1,
+                            nb ? 100.0 * e2 / (nb * 8) : 0.0, e2, nb * 8,
+                            crc_ok ? "PASS" : "FAIL");
+                std::fflush(stdout);
+            }
 
             // Only accept (and ACK) error-free frames: a failed CRC means bit
             // errors, so drop it and let the source retransmit.

@@ -51,6 +51,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::string message_str;               // override text for --message-type bytes
     std::string payload_file;              // TX: send raw bytes from this file (binary payload)
     std::string out_file;                  // RX: write decoded payload bytes to this file
+    std::string ber_expected_file;         // RX: known TX payload -> per-burst BER diagnostic
     double      tone_freq       = 100e3;   // sine/cosine baseband freq (Hz)
     float       tone_amp        = 0.5f;    // sine/cosine amplitude (< 1.0)
     double      sense_window_ms   = 10.0;  // role sense: energy-integration window (ms)
@@ -146,6 +147,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("out-file", po::value<std::string>(&out_file),
                      "RX (rx / sink_arq): write the decoded payload as raw bytes to this "
                      "file (pairs with --payload-file for a binary byte-pipe).")
+        ("ber-expected", po::value<std::string>(&ber_expected_file),
+                     "sink_arq: file with the KNOWN transmitted payload; the sink then "
+                     "prints per-burst pre-FEC / post-FEC BER vs this ground truth (even "
+                     "on CRC-failed frames — shows how corrupted they actually are).")
         ("sense-window", po::value<double>(&sense_window_ms)->default_value(10.0),
                      "role sense: energy-integration window in ms (default 10)")
         ("sense-threshold-db", po::value<double>(&sense_threshold_db)->default_value(-30.0),
@@ -854,6 +859,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             std::cout << "[SINK-ARQ] Waiting for chunks; ACKing verified ones via "
                       << ack->name() << (config.fec ? ", FEC on" : "") << ".\n";
             SINK sink(transceiver, *ack, timer_interval, config.fec, bytes_length);
+            if (!ber_expected_file.empty()) {
+                std::ifstream bf(ber_expected_file, std::ios::binary);
+                if (bf) sink.set_ber_expected(std::vector<uint8_t>(
+                    std::istreambuf_iterator<char>(bf), std::istreambuf_iterator<char>()));
+                else std::cerr << "[SINK] cannot open --ber-expected '"
+                               << ber_expected_file << "'\n";
+            }
             sink.start();
             // Per-session timeout (serve-forever only): if a source's burst never
             // decodes (link loss / collision) the source gives up and disconnects,

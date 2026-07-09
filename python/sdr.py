@@ -42,6 +42,7 @@ OPTIONS = {
     "bytes-length": (True, '125', "payload bytes per chunk (default 125). Larger chunks amortise the per-burst detect/sync/ACK overhead — higher throughput. MUST match on TX and RX. Total chunks <= 255."),
     "payload-file": (True, None, "TX: send the raw bytes of this file as the payload (binary, e.g. a serialized gradient). Overrides --message / --message-type."),
     "out-file": (True, None, "RX (rx / sink_arq): write the decoded payload as raw bytes to this file (pairs with --payload-file for a binary byte-pipe)."),
+    "ber-expected": (True, None, "sink_arq: file with the KNOWN transmitted payload; the sink then prints per-burst pre-FEC / post-FEC BER vs this ground truth (even on CRC-failed frames — shows how corrupted they actually are)."),
     "sense-window": (True, '10', "role sense: energy-integration window in ms (default 10)"),
     "sense-threshold-db": (True, '-30', "role sense: channel is 'busy' when the window's avg power (dB) exceeds this. Calibrate to your gain/noise floor (channel_sense.py can auto-calibrate)."),
     "sense-count": (True, '1', "role sense: number of consecutive windows to measure/report (0 = stream forever until Ctrl-C — for a persistent sensing feed)"),
@@ -139,6 +140,7 @@ PY2CPP = {
     "bytes_length": "bytes-length",
     "payload_file": "payload-file",
     "out_file": "out-file",
+    "ber_expected": "ber-expected",
     "sense_window": "sense-window",
     "sense_threshold_db": "sense-threshold-db",
     "sense_count": "sense-count",
@@ -248,6 +250,7 @@ class SDR:
                  bytes_length=_UNSET, # =125  payload bytes per chunk (default 125). Larger chunks...
                  payload_file=_UNSET, # TX: send the raw bytes of this file as the payload (binary,...
                  out_file=_UNSET, # RX (rx / sink_arq): write the decoded payload as raw bytes...
+                 ber_expected=_UNSET, # sink_arq: file with the KNOWN transmitted payload; the sink...
                  sense_window=_UNSET, # =10  role sense: energy-integration window in ms (default 10)
                  sense_threshold_db=_UNSET, # =-30  role sense: channel is 'busy' when the window's avg power...
                  sense_count=_UNSET, # =1  role sense: number of consecutive windows to measure/report...
@@ -345,6 +348,7 @@ class SDR:
             bytes_length=bytes_length,
             payload_file=payload_file,
             out_file=out_file,
+            ber_expected=ber_expected,
             sense_window=sense_window,
             sense_threshold_db=sense_threshold_db,
             sense_count=sense_count,

@@ -15,7 +15,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 The **Default** column is the value used when you omit the option: flags default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick the device, or use the built-in message); `_(alias)_` marks an option that inherits its primary option's default.
 
-> Auto-generated from `sdr_system --help` — always lists every current option (**93** total). Do not edit by hand.
+> Auto-generated from `sdr_system --help` — always lists every current option (**94** total). Do not edit by hand.
 
 ## Mode, message & transmission
 
@@ -161,6 +161,7 @@ The **Default** column is the value used when you omit the option: flags default
 | `--bytes-length` | value | `125` | payload bytes per chunk (default 125). Larger chunks amortise the per-burst detect/sync/ACK overhead — higher throughput. MUST match on TX and RX. Total chunks <= 255. |
 | `--payload-file` | value | `(empty)` | TX: send the raw bytes of this file as the payload (binary, e.g. a serialized gradient). Overrides --message / --message-type. |
 | `--out-file` | value | `(empty)` | RX (rx / sink_arq): write the decoded payload as raw bytes to this file (pairs with --payload-file for a binary byte-pipe). |
+| `--ber-expected` | value | `(empty)` | sink_arq: file with the KNOWN transmitted payload; the sink then prints per-burst pre-FEC / post-FEC BER vs this ground truth (even on CRC-failed frames — shows how corrupted they actually are). |
 | `--sense-window` | value | `10` | role sense: energy-integration window in ms (default 10) |
 | `--sense-threshold-db` | value | `-30` | role sense: channel is 'busy' when the window's avg power (dB) exceeds this. Calibrate to your gain/noise floor (channel_sense.py can auto-calibrate). |
 | `--sense-count` | value | `1` | role sense: number of consecutive windows to measure/report (0 = stream forever until Ctrl-C — for a persistent sensing feed) |
