@@ -231,6 +231,45 @@ error-free. Relies on the PHY's `--payload-file` / `--out-file` byte-pipe and
 `--bytes-length` (chunk size). Tune with `--hidden`, `--batch`, `--lr`, `--topk`,
 `--scheme`, `--chunk`, `--timeout`, `--timer-interval`.
 
+## Link BER diagnostic — `marl_phy.py ber`
+
+Measure the **real per-burst bit-error-rate** end-to-end from Python. It runs a
+warm Access Point (RX+ACK) and fires N copies of a known payload; the sink knows
+the ground truth, so for **every** decoded burst (CRC pass or fail) it reports the
+**pre-FEC** (raw channel) and **post-FEC** (payload) BER. This tells you whether a
+CRC-failed frame is *nearly right* (a few residual bits) or *garbage* (FEC
+overwhelmed) — a CRC failure is not automatically a garbage packet.
+
+```bash
+# one-box probe: spins up its own warm AP + fires N known packets, reports min/median/max
+python3 marl_phy.py ber --attempts 20 --scheme DQPSK
+#   [ber_probe] 20/20 fired bursts decoded  |  CRC pass 18/20
+#   [ber_probe] pre-FEC  (channel) BER  min/median/max = 0.00 / 0.00 / 0.67 %
+#   [ber_probe] post-FEC (payload) BER  min/median/max = 0.00 / 0.00 / 0.60 %
+```
+
+```python
+from marl_phy import ber_probe
+rows = ber_probe(n=20, scheme="DQPSK")     # [{pre_fec, post_fec, crc}, ...] per burst
+```
+
+Extra knobs: `--tx-args` / `--rx-args` (serials), `--tx-gain` (85) / `--rx-gain`
+(40), `--scheme` (must match both ends). Under the hood this is the C++
+`--ber-expected <known_payload.bin>` sink option; to run the two ends in separate
+terminals (real two-box link) see [`../COMMANDS.md`](../COMMANDS.md) →
+*Link BER diagnostic*.
+
+**Reading the numbers** (both regimes measured on this rig):
+
+| Window | pre-FEC | post-FEC | CRC-fail means |
+|---|---|---|---|
+| Good link | ≤0.7 % | ≤0.6 % | *nearly right* — a handful of bits off, message ~intact |
+| Broken link | ~24 % | ~42 % | *garbage* — raw BER passed the rate-½ code's ~11 % limit, Viterbi then **amplifies** errors |
+
+So **post-FEC > pre-FEC is the catastrophic-failure signature**: the channel BER
+exceeded what the FEC can correct and decoding made things worse. See
+`../SYSTEM_REFERENCE.md` §8.1.
+
 **Throughput (measured, 32 KB over the air, marginal free-running link).** The two
 big levers are the **sink poll interval** (`--timer-interval`, was 1000 ms → the ACK
 latency) and the **ACK timeout** (`--timeout`):

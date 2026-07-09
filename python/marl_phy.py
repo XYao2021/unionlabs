@@ -332,8 +332,20 @@ def main(argv):
     except Exception:
         pass
     import argparse
-    a = argparse.ArgumentParser(description="MARL <-> SDR PHY bridge (self-test)")
-    a.add_argument("role", choices=["ap", "agent", "ber"])
+    a = argparse.ArgumentParser(
+        description="MARL <-> SDR PHY bridge (self-test)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="roles:\n"
+               "  ap     run a warm Access Point (RX + ACK) until Ctrl-C / --seconds\n"
+               "  agent  fire --attempts single-shot packets (--warm keeps TX warm)\n"
+               "  ber    link BER probe: own warm AP + N known packets, prints\n"
+               "         per-burst pre-FEC (channel) & post-FEC (payload) BER\n\n"
+               "examples:\n"
+               "  python3 marl_phy.py ber --attempts 20 --scheme DQPSK\n"
+               "  python3 marl_phy.py ap  --seconds 60\n"
+               "  python3 marl_phy.py agent --attempts 10 --warm")
+    a.add_argument("role", choices=["ap", "agent", "ber"],
+                   help="ap | agent | ber  (see roles below)")
     a.add_argument("--tx-args", default="serial=30CD424")
     a.add_argument("--rx-args", default="serial=30CD3F7")
     a.add_argument("--tx-gain", type=float, default=85)

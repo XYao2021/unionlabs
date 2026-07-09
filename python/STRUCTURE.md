@@ -51,8 +51,11 @@ python/
 │   ├── tx_tone.json           continuous cosine test tone (signal generator)
 │   ├── tx_tone_burst.json     same tone, transmitted in bursts
 │   └── rx_tone_monitor.json   raw tone monitor (prints freq + power, no decode)
+├── channel_sense.py  Channel-occupancy sensing (energy detect) — sense→decide loop.
+├── marl_phy.py       MARL <-> PHY bridge; also the `ber` role = link BER probe
+│                       (per-burst pre/post-FEC BER vs a known payload). See README.
 ├── OPTIONS.md        AUTO-GENERATED reference of every option (JSON/CLI/Python).
-├── README.md         Usage guide (API + JSON config).
+├── README.md         Usage guide (API + JSON config + channel sense + BER probe).
 └── STRUCTURE.md      This file.
 
 tools/gen_python_api.py   Generator (parses --help → writes python/sdr.py).
