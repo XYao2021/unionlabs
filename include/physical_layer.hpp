@@ -143,6 +143,7 @@ struct PHYSICAL_CONFIG {
     std::string waveform        = "sc";
     int         ofdm_fft        = 64;      // FFT size (subcarriers)
     int         ofdm_cp         = 16;      // cyclic prefix length
+    int         lora_sf         = 8;       // LoRa/CSS spreading factor (waveform=lora): 2^SF chips/sym
     float       ofdm_tx_peak    = 0.5f;    // TX scaling (OFDM high PAPR → avoid clip)
 
     // Timing recovery loop
@@ -340,6 +341,23 @@ public:
             std::fflush(stdout);
         }
         rx_usrp_->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
+    }
+
+    // Capture up to `n` raw baseband samples from the RX (no decode pipeline) — for
+    // custom receivers (LoRa/CSS) that do their own sync. Configure start(monitor=true).
+    std::vector<std::complex<float>> capture_raw(size_t n) {
+        auto rx = rx_usrp_->get_rx_stream(uhd::stream_args_t("fc32", "sc16"));
+        uhd::rx_metadata_t md;
+        std::vector<std::complex<float>> out; out.reserve(n);
+        std::vector<std::complex<float>> buf(4096);
+        rx_usrp_->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+        while (out.size() < n && !global_stop_signal.load()) {
+            size_t got = rx->recv(&buf.front(), buf.size(), md, 1.0);
+            if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT || got == 0) continue;
+            for (size_t i = 0; i < got && out.size() < n; ++i) out.push_back(buf[i]);
+        }
+        rx_usrp_->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
+        return out;
     }
 
     void stop() {

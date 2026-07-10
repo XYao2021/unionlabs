@@ -15,7 +15,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 The **Default** column is the value used when you omit the option: flags default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick the device, or use the built-in message); `_(alias)_` marks an option that inherits its primary option's default.
 
-> Auto-generated from `sdr_system --help` — always lists every current option (**97** total). Do not edit by hand.
+> Auto-generated from `sdr_system --help` — always lists every current option (**98** total). Do not edit by hand.
 
 ## Mode, message & transmission
 
@@ -173,4 +173,5 @@ The **Default** column is the value used when you omit the option: flags default
 | `--uhd_timeout` | value | `1000` | UHD TX timeout (ms) |
 | `--AGC_type` | value | `Feed` | AGC type: Feed or Closed |
 | `--dc-block` | value | `0` | Experimental per-burst DC-block high-pass on the RX (default false). A gentle cutoff barely dents the cable leakage; an aggressive one distorts the preamble and breaks sync — prefer --tx-dc-i/--tx-dc-q. |
+| `--lora-sf` | value | `8` | LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF chips/symbol; higher = more processing gain / range, slower) |
 

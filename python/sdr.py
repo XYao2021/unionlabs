@@ -106,6 +106,7 @@ OPTIONS = {
     "ofdm-fft": (True, '64', "OFDM FFT size (number of subcarriers)"),
     "ofdm-cp": (True, '16', "OFDM cyclic-prefix length (>= channel delay spread)"),
     "ofdm-tx-peak": (True, '0.5', "OFDM TX peak scaling (high PAPR — keep the DAC out of clipping)"),
+    "lora-sf": (True, '8', "LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF chips/symbol; higher = more processing gain / range, slower)"),
     "sps": (True, '2', "Samples per symbol (informational)"),
     "timing_loop_bw": (True, '0.0149999997', "Gardner TED loop bandwidth BnT"),
     "timing_damping": (True, '0.707000017', "Gardner TED damping factor"),
@@ -206,6 +207,7 @@ PY2CPP = {
     "ofdm_fft": "ofdm-fft",
     "ofdm_cp": "ofdm-cp",
     "ofdm_tx_peak": "ofdm-tx-peak",
+    "lora_sf": "lora-sf",
     "sps": "sps",
     "timing_loop_bw": "timing_loop_bw",
     "timing_damping": "timing_damping",
@@ -319,6 +321,7 @@ class SDR:
                  ofdm_fft=_UNSET, # =64  OFDM FFT size (number of subcarriers)
                  ofdm_cp=_UNSET, # =16  OFDM cyclic-prefix length (>= channel delay spread)
                  ofdm_tx_peak=_UNSET, # =0.5  OFDM TX peak scaling (high PAPR — keep the DAC out of...
+                 lora_sf=_UNSET, # =8  LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF...
                  sps=_UNSET, # =2  Samples per symbol (informational)
                  timing_loop_bw=_UNSET, # =0.0149999997  Gardner TED loop bandwidth BnT
                  timing_damping=_UNSET, # =0.707000017  Gardner TED damping factor
@@ -420,6 +423,7 @@ class SDR:
             ofdm_fft=ofdm_fft,
             ofdm_cp=ofdm_cp,
             ofdm_tx_peak=ofdm_tx_peak,
+            lora_sf=lora_sf,
             sps=sps,
             timing_loop_bw=timing_loop_bw,
             timing_damping=timing_damping,

@@ -24,6 +24,7 @@
 #include "ACQ_stop_and_wait.hpp"
 #include "fec.hpp"
 #include "viz.hpp"
+#include "lora.hpp"
 #include <filesystem>
 
 namespace po = boost::program_options;
@@ -344,6 +345,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("ofdm-tx-peak",
          po::value<float>(&config.ofdm_tx_peak)->default_value(0.5f),
          "OFDM TX peak scaling (high PAPR — keep the DAC out of clipping)")
+        ("lora-sf",
+         po::value<int>(&config.lora_sf)->default_value(8),
+         "LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF chips/symbol; "
+         "higher = more processing gain / range, slower)")
         ("sps",
          po::value<int>(&config.sps)->default_value(2),
          "Samples per symbol (informational)")
@@ -772,6 +777,55 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                                       sense_threshold_db, sense_count);
         transceiver.stop();
         return EXIT_SUCCESS;
+    }
+
+    // ── LoRa/CSS waveform: self-contained TX (modulate + transmit_samples) and RX
+    //    (capture_raw + lora::demodulate), reusing the packet framing + CRC + FEC.
+    //    One-way (no ARQ yet). The CSS DSP is proven by tools/lora_loopback_test.cpp;
+    //    this is the radio plumbing (validate on hardware). ──
+    if (config.waveform == "lora" && (config.role == "tx" || config.role == "rx")) {
+        const int SF = config.lora_sf;
+        const int N  = 1 << SF;
+        const int pre_bits = 16 + (int)bytes_length * 8 + 16;          // header+payload+CRC
+        const int mod_bits = config.fec ? fec_encoded_len(pre_bits) : pre_bits;
+        if (config.role == "tx") {
+            const bool continuous = (tx_mode == "continuous");
+            std::cout << "[MAIN] LoRa/CSS TX: SF=" << SF << " (" << N << " chips/sym), "
+                      << chunks.size() << " chunk(s), fec=" << (config.fec ? "on" : "off")
+                      << "\n";
+            for (int r = 0; (continuous || r < tx_reps) && !global_stop_signal.load(); ++r)
+                for (size_t idx = 0; idx < chunks.size() && !global_stop_signal.load(); ++idx) {
+                    auto bits = build_packet_bits(chunks[idx], (uint8_t)idx,
+                                                  (uint8_t)chunks.size());
+                    if (config.fec) bits = fec_encode_block(bits);
+                    auto samps = lora::modulate(bits, SF, 8);
+                    transceiver.transmit_samples(samps);
+                    std::cout << "[LoRa TX] chunk " << idx + 1 << "/" << chunks.size()
+                              << " -> " << samps.size() << " samples\n";
+                    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+                }
+            while (transceiver.tx_pending() > 0 && !global_stop_signal.load())
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            transceiver.stop();
+            return EXIT_SUCCESS;
+        } else {                                                       // role rx
+            std::cout << "[MAIN] LoRa/CSS RX: SF=" << SF << " listening (Ctrl-C to stop)\n";
+            int nsym = (mod_bits + SF - 1) / SF;
+            size_t framelen = (size_t)(8 + 2 + nsym + 2) * N;          // preamble+SFD+data(+slack)
+            while (!global_stop_signal.load()) {
+                auto samps = transceiver.capture_raw(framelen * 2);    // 2x for a full frame in-window
+                auto bits = lora::demodulate(samps, SF, mod_bits, 8);
+                if (bits.empty()) continue;
+                if (config.fec) bits = fec_decode_block(bits);
+                auto [idx, tot, payload, crc_ok] = decode_packet_bits(bits);
+                std::cout << "[LoRa RX] chunk " << (int)idx << "/" << (int)tot
+                          << "  CRC=" << (crc_ok ? "OK" : "FAIL");
+                if (crc_ok) std::cout << "  payload=\"" << payload << "\"";
+                std::cout << "\n";
+            }
+            transceiver.stop();
+            return EXIT_SUCCESS;
+        }
     }
 
     // ── Run according to role ───────────────────────────────
