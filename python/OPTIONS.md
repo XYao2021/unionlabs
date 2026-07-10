@@ -15,7 +15,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 The **Default** column is the value used when you omit the option: flags default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick the device, or use the built-in message); `_(alias)_` marks an option that inherits its primary option's default.
 
-> Auto-generated from `sdr_system --help` — always lists every current option (**94** total). Do not edit by hand.
+> Auto-generated from `sdr_system --help` — always lists every current option (**97** total). Do not edit by hand.
 
 ## Mode, message & transmission
 
@@ -28,7 +28,7 @@ The **Default** column is the value used when you omit the option: flags default
 | `--num_bits` | value | `1000` | Payload bits per packet |
 | `--interval` | value | `3000` | TX interval between packets (ms) |
 | `--tx-mode` | value | `burst` | role tx transmission mode: burst (discrete packets/tone bursts with --interval gaps, repeated --tx-reps times then stop) or continuous (transmit until Ctrl-C — a continuous data loop or an unbroken carrier for sine/cosine) |
-| `--message-type` | value | `bytes` | payload: bytes (given text, default Star Wars crawl; set with --message) \| random (num_bits random bits) \| sine \| cosine (raw baseband test tone, role tx only) |
+| `--message-type` | value | `bytes` | payload: bytes (given text, default Star Wars crawl; set with --message) \| random (num_bits random bits) \| sine \| cosine (raw baseband test tone) \| chirp (LoRa/CSS up-chirp sweep; see --chirp-bw/--chirp-sf) — raw waveforms are role tx/rx only) |
 | `--message` | value | `(empty)` | text payload for --message-type bytes (overrides the default Star Wars crawl) |
 | `--tone-freq` | value | `100000` | sine/cosine baseband frequency in Hz (default 100 kHz) |
 | `--tone-amp` | value | `0.5` | sine/cosine amplitude, keep < 1.0 to avoid DAC clipping |
@@ -165,6 +165,9 @@ The **Default** column is the value used when you omit the option: flags default
 | `--sense-window` | value | `10` | role sense: energy-integration window in ms (default 10) |
 | `--sense-threshold-db` | value | `-30` | role sense: channel is 'busy' when the window's avg power (dB) exceeds this. Calibrate to your gain/noise floor (channel_sense.py can auto-calibrate). |
 | `--sense-count` | value | `1` | role sense: number of consecutive windows to measure/report (0 = stream forever until Ctrl-C — for a persistent sensing feed) |
+| `--chirp-bw` | value | `0` | LoRa/CSS chirp sweep bandwidth in Hz (--message-type chirp); 0 = full sampled band (tx-rate) |
+| `--chirp-sf` | value | `7` | LoRa spreading factor 7-12; chirp symbol duration = 2^SF / bandwidth |
+| `--chirp-down` | flag | `false` | generate a down-chirp instead of an up-chirp (default up) |
 | `--ref` | value | `internal` | Clock reference: internal / external / mimo |
 | `--settling` | value | `0.20000000000000001` | Settling time (s) |
 | `--uhd_timeout` | value | `1000` | UHD TX timeout (ms) |

@@ -54,6 +54,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::string ber_expected_file;         // RX: known TX payload -> per-burst BER diagnostic
     double      tone_freq       = 100e3;   // sine/cosine baseband freq (Hz)
     float       tone_amp        = 0.5f;    // sine/cosine amplitude (< 1.0)
+    double      chirp_bw        = 0.0;     // LoRa/CSS chirp sweep bandwidth (Hz); 0 -> full tx-rate band
+    int         chirp_sf        = 7;       // LoRa spreading factor (7-12); symbol dur = 2^SF / bandwidth
+    bool        chirp_down      = false;   // generate a down-chirp instead of an up-chirp
     double      sense_window_ms   = 10.0;  // role sense: energy-integration window (ms)
     double      sense_threshold_db = -30.0;// role sense: busy if avg power_db exceeds this
     int         sense_count       = 1;     // role sense: number of windows to report
@@ -133,7 +136,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("message-type", po::value<std::string>(&message_type)->default_value("bytes"),
                      "payload: bytes (given text, default Star Wars crawl; set with "
                      "--message) | random (num_bits random bits) | sine | cosine "
-                     "(raw baseband test tone, role tx only)")
+                     "(raw baseband test tone) | chirp (LoRa/CSS up-chirp sweep; see "
+                     "--chirp-bw/--chirp-sf) — raw waveforms are role tx/rx only)")
         ("message", po::value<std::string>(&message_str),
                      "text payload for --message-type bytes (overrides the default "
                      "Star Wars crawl)")
@@ -164,6 +168,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "sine/cosine baseband frequency in Hz (default 100 kHz)")
         ("tone-amp", po::value<float>(&tone_amp)->default_value(0.5f),
                      "sine/cosine amplitude, keep < 1.0 to avoid DAC clipping")
+        ("chirp-bw", po::value<double>(&chirp_bw)->default_value(0.0),
+                     "LoRa/CSS chirp sweep bandwidth in Hz (--message-type chirp); "
+                     "0 = full sampled band (tx-rate)")
+        ("chirp-sf", po::value<int>(&chirp_sf)->default_value(7),
+                     "LoRa spreading factor 7-12; chirp symbol duration = 2^SF / bandwidth")
+        ("chirp-down", po::bool_switch(&chirp_down),
+                     "generate a down-chirp instead of an up-chirp (default up)")
         ("preamble", po::value<std::string>(&preamble_type)->default_value("m-sequence"),
                      "Preamble type: m-sequence or zadoff")
         ("m",        po::value<int>(&config.preamble_length)->default_value(5),
@@ -671,16 +682,17 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // chunks or CRC — so it cannot be ACKed. Only role tx (transmit) and role rx
     // (monitor) make sense; ARQ roles are rejected.
     const bool is_tone = (message_type == "sine" || message_type == "cosine");
-    if (is_tone && config.role != "tx" && config.role != "rx") {
-        std::cerr << "[ERROR] --message-type " << message_type << " (test tone) needs "
+    const bool is_chirp = (message_type == "chirp");             // LoRa/CSS raw chirp
+    if ((is_tone || is_chirp) && config.role != "tx" && config.role != "rx") {
+        std::cerr << "[ERROR] --message-type " << message_type << " (raw waveform) needs "
                   << "--role tx (transmit) or --role rx (monitor); it is not framed "
                   << "data, so ARQ (source_arq/sink_arq) does not apply.\n";
         return EXIT_FAILURE;
     }
 
-    // Channel sensing (--role sense), like a tone, carries no framed payload.
+    // Channel sensing (--role sense), like a tone/chirp, carries no framed payload.
     const bool sense_mode = (config.role == "sense");
-    const bool no_payload = is_tone || sense_mode;
+    const bool no_payload = is_tone || is_chirp || sense_mode;
 
     // Framed payload: given bytes (text) or random bits. Both are split into
     // fixed-size chunks below, so message length / --num_bits drive the chunk count.
@@ -708,7 +720,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                   << num_bits << " bits)\n";
     } else if (!no_payload) {
         std::cerr << "[ERROR] unknown --message-type '" << message_type
-                  << "' (use: bytes | random | sine | cosine)\n";
+                  << "' (use: bytes | random | sine | cosine | chirp)\n";
         return EXIT_FAILURE;
     }
 
@@ -893,23 +905,47 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         // transmit until Ctrl-C (a repeating data loop, or an unbroken carrier for
         // the sine/cosine test tone).
         const bool continuous = (tx_mode == "continuous");
-        if (is_tone) {
-            // ── Raw test-tone generator: push samples straight to the USRP,
-            //    bypassing modulation & pulse-shaping. ──
+        if (is_tone || is_chirp) {
+            // ── Raw waveform generator: push samples straight to the USRP,
+            //    bypassing modulation & pulse-shaping (test tone or LoRa/CSS chirp). ──
             const bool   cosine = (message_type == "cosine");
             const int    N      = 8000;                                // ~5 ms/block @ 1.6 MHz
+            // tone state
             const double dphi   = 2.0 * M_PI * tone_freq / config.tx_rate;
             double phase = 0.0;
-            std::cout << "[TX] Test tone: " << message_type << " @ " << tone_freq/1e3
-                      << " kHz  amp=" << tone_amp << "  (" << tx_mode
-                      << ").  Ctrl-C to stop.\n";
+            // chirp state: linear frequency sweep over 2^SF/BW seconds, cyclic (LoRa base up-chirp)
+            const double BW  = (chirp_bw > 0.0) ? chirp_bw : config.tx_rate;
+            const long   Nc  = std::max(1L, std::lround(std::pow(2.0, chirp_sf)
+                                                        * config.tx_rate / BW));
+            const double csign = chirp_down ? -1.0 : 1.0;
+            double cphase = 0.0; long ci = 0;
+            if (is_chirp)
+                std::cout << "[TX] LoRa/CSS chirp: BW=" << BW/1e3 << " kHz  SF=" << chirp_sf
+                          << "  (" << Nc << " samp/symbol)  amp=" << tone_amp
+                          << (chirp_down ? "  down" : "  up") << "  (" << tx_mode
+                          << ").  Ctrl-C to stop.\n";
+            else
+                std::cout << "[TX] Test tone: " << message_type << " @ " << tone_freq/1e3
+                          << " kHz  amp=" << tone_amp << "  (" << tx_mode
+                          << ").  Ctrl-C to stop.\n";
             auto gen = [&](std::vector<std::complex<float>>& blk) {
                 blk.resize(N);
                 for (int n = 0; n < N; ++n) {
-                    float s = tone_amp * static_cast<float>(cosine ? std::cos(phase)
-                                                                   : std::sin(phase));
-                    blk[n] = std::complex<float>(s, 0.0f);
-                    phase += dphi; if (phase > 2.0 * M_PI) phase -= 2.0 * M_PI;
+                    if (is_chirp) {                                   // cyclic linear chirp
+                        double f = csign * (-BW / 2.0 + BW * (double)ci / (double)Nc);
+                        blk[n] = std::complex<float>(
+                            static_cast<float>(tone_amp * std::cos(cphase)),
+                            static_cast<float>(tone_amp * std::sin(cphase)));
+                        cphase += 2.0 * M_PI * f / config.tx_rate;
+                        if (cphase >  M_PI) cphase -= 2.0 * M_PI;
+                        else if (cphase < -M_PI) cphase += 2.0 * M_PI;
+                        if (++ci >= Nc) ci = 0;
+                    } else {                                         // fixed test tone
+                        float s = tone_amp * static_cast<float>(cosine ? std::cos(phase)
+                                                                       : std::sin(phase));
+                        blk[n] = std::complex<float>(s, 0.0f);
+                        phase += dphi; if (phase > 2.0 * M_PI) phase -= 2.0 * M_PI;
+                    }
                 }
             };
             std::vector<std::complex<float>> blk;

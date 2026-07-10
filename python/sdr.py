@@ -37,7 +37,7 @@ OPTIONS = {
     "num_bits": (True, '1000', "Payload bits per packet"),
     "interval": (True, '3000', "TX interval between packets (ms)"),
     "tx-mode": (True, 'burst', "role tx transmission mode: burst (discrete packets/tone bursts with --interval gaps, repeated --tx-reps times then stop) or continuous (transmit until Ctrl-C — a continuous data loop or an unbroken carrier for sine/cosine)"),
-    "message-type": (True, 'bytes', "payload: bytes (given text, default Star Wars crawl; set with --message) | random (num_bits random bits) | sine | cosine (raw baseband test tone, role tx only)"),
+    "message-type": (True, 'bytes', "payload: bytes (given text, default Star Wars crawl; set with --message) | random (num_bits random bits) | sine | cosine (raw baseband test tone) | chirp (LoRa/CSS up-chirp sweep; see --chirp-bw/--chirp-sf) — raw waveforms are role tx/rx only)"),
     "message": (True, None, "text payload for --message-type bytes (overrides the default Star Wars crawl)"),
     "bytes-length": (True, '125', "payload bytes per chunk (default 125). Larger chunks amortise the per-burst detect/sync/ACK overhead — higher throughput. MUST match on TX and RX. Total chunks <= 255."),
     "payload-file": (True, None, "TX: send the raw bytes of this file as the payload (binary, e.g. a serialized gradient). Overrides --message / --message-type."),
@@ -48,6 +48,9 @@ OPTIONS = {
     "sense-count": (True, '1', "role sense: number of consecutive windows to measure/report (0 = stream forever until Ctrl-C — for a persistent sensing feed)"),
     "tone-freq": (True, '100000', "sine/cosine baseband frequency in Hz (default 100 kHz)"),
     "tone-amp": (True, '0.5', "sine/cosine amplitude, keep < 1.0 to avoid DAC clipping"),
+    "chirp-bw": (True, '0', "LoRa/CSS chirp sweep bandwidth in Hz (--message-type chirp); 0 = full sampled band (tx-rate)"),
+    "chirp-sf": (True, '7', "LoRa spreading factor 7-12; chirp symbol duration = 2^SF / bandwidth"),
+    "chirp-down": (False, None, "generate a down-chirp instead of an up-chirp (default up)"),
     "preamble": (True, 'm-sequence', "Preamble type: m-sequence or zadoff"),
     "m": (True, '5', "m-sequence order (length = 2^m-1)"),
     "add_preamble": (True, '1', "Prepend preamble to each packet"),
@@ -146,6 +149,9 @@ PY2CPP = {
     "sense_count": "sense-count",
     "tone_freq": "tone-freq",
     "tone_amp": "tone-amp",
+    "chirp_bw": "chirp-bw",
+    "chirp_sf": "chirp-sf",
+    "chirp_down": "chirp-down",
     "preamble": "preamble",
     "m": "m",
     "add_preamble": "add_preamble",
@@ -256,6 +262,9 @@ class SDR:
                  sense_count=_UNSET, # =1  role sense: number of consecutive windows to measure/report...
                  tone_freq=_UNSET, # =100000  sine/cosine baseband frequency in Hz (default 100 kHz)
                  tone_amp=_UNSET, # =0.5  sine/cosine amplitude, keep < 1.0 to avoid DAC clipping
+                 chirp_bw=_UNSET, # =0  LoRa/CSS chirp sweep bandwidth in Hz (--message-type...
+                 chirp_sf=_UNSET, # =7  LoRa spreading factor 7-12; chirp symbol duration = 2^SF /...
+                 chirp_down=_UNSET, # flag  generate a down-chirp instead of an up-chirp (default up)
                  preamble=_UNSET, # =m-sequence  Preamble type: m-sequence or zadoff
                  m=_UNSET, # =5  m-sequence order (length = 2^m-1)
                  add_preamble=_UNSET, # =1  Prepend preamble to each packet
@@ -354,6 +363,9 @@ class SDR:
             sense_count=sense_count,
             tone_freq=tone_freq,
             tone_amp=tone_amp,
+            chirp_bw=chirp_bw,
+            chirp_sf=chirp_sf,
+            chirp_down=chirp_down,
             preamble=preamble,
             m=m,
             add_preamble=add_preamble,
