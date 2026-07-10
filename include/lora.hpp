@@ -111,17 +111,29 @@ inline std::vector<uint8_t> symbols_to_bits(const std::vector<int>& syms, int SF
     return bits;
 }
 
-// ── modulate a full frame: preamble up-chirps + SFD down-chirps + data symbols. ──
+// A 1-byte sync word (network id) -> two data symbols, LoRa-style: each nibble × 8
+// (so they stay well separated for SF7-12). Default 0x12 = private network.
+inline void sync_symbols(int sync_word, int SF, int& s1, int& s2) {
+    int N = 1 << SF;
+    s1 = (((sync_word >> 4) & 0xF) << 3) % N;
+    s2 = ((sync_word & 0xF) << 3) % N;
+}
+
+// ── modulate a full frame: preamble up-chirps + SYNC WORD (2 symbols) + SFD
+//    down-chirps + data symbols. ──
 inline std::vector<cf> modulate(const std::vector<uint8_t>& bits, int SF,
-                                int n_preamble = 8) {
+                                int n_preamble = 8, int sync_word = 0x12) {
     int N = 1 << SF;
     auto up = base_chirp(SF, false), down = base_chirp(SF, true);
     std::vector<cf> out;
-    out.reserve((n_preamble + 2 + bits.size() / SF + 1) * N);
+    out.reserve((n_preamble + 4 + bits.size() / SF + 1) * N);
     for (int p = 0; p < n_preamble; ++p) out.insert(out.end(), up.begin(), up.end());
+    std::vector<cf> sym;
+    int s1, s2; sync_symbols(sync_word, SF, s1, s2);     // 2 sync-word symbols
+    mod_symbol(s1, SF, up, sym); out.insert(out.end(), sym.begin(), sym.end());
+    mod_symbol(s2, SF, up, sym); out.insert(out.end(), sym.begin(), sym.end());
     out.insert(out.end(), down.begin(), down.end());     // 2 down-chirps = SFD
     out.insert(out.end(), down.begin(), down.end());
-    std::vector<cf> sym;
     for (int s : bits_to_symbols(bits, SF)) {
         mod_symbol(s, SF, up, sym);
         out.insert(out.end(), sym.begin(), sym.end());
@@ -132,13 +144,14 @@ inline std::vector<cf> modulate(const std::vector<uint8_t>& bits, int SF,
 // ── find the frame: locate the SFD (down-chirps) after the up-chirp preamble, and
 //    estimate an integer CFO from the up/down dechirp peak split. Returns the sample
 //    index where DATA begins, or -1 if not found. `cfo_bins` gets the coarse CFO. ──
-inline long sync(const std::vector<cf>& r, int SF, int n_preamble, int& cfo_bins) {
+inline long sync(const std::vector<cf>& r, int SF, int n_preamble, int& cfo_bins,
+                 int sync_word = 0x12) {
     int N = 1 << SF;
     auto up = base_chirp(SF, false), down = base_chirp(SF, true);
     cfo_bins = 0;
     // Slide symbol-by-symbol; a run of consistent up-chirp peaks = preamble, then the
-    // dechirp-with-up peak jumps when the SFD down-chirps start.
-    long maxstart = (long)r.size() - (long)(n_preamble + 4) * N;
+    // 2 sync-word symbols, then the SFD down-chirps.
+    long maxstart = (long)r.size() - (long)(n_preamble + 6) * N;
     const float QMIN = std::max(6.0f, (float)N / 32.0f);  // sharp dechirp peak (rejects noise/junk)
     for (long off = 0; off <= maxstart; ++off) {
         // (1) COARSE detect: n_preamble up-chirps decode to the same bin AND dechirp
@@ -156,13 +169,13 @@ inline long sync(const std::vector<cf>& r, int SF, int n_preamble, int& cfo_bins
         if (!consistent) continue;
 
         // (2) FINE timing: the coarse `off` is only aligned to within a symbol. The
-        // SFD (2 down-chirps) begins at frame_start + n_preamble*N; search the sample
-        // shift tau in [0,N) that makes BOTH SFD down-chirps decode sharply and to the
-        // same bin (dechirped with the UP ref). That pins the true frame boundary and
-        // separates timing from CFO (which the single up-chirp peak can't do alone).
+        // SFD (2 down-chirps) begins at frame_start + (n_preamble+2)*N (after the 2
+        // sync-word symbols); search the sample shift tau in [0,N) that makes BOTH SFD
+        // down-chirps decode sharply and to the same bin (dechirped with the UP ref).
+        // That pins the true frame boundary and separates timing from CFO.
         int best_tau = -1; float best_q = -1.0f; int best_d = 0;
         for (int tau = 0; tau < N; ++tau) {
-            long sfd = off + tau + (long)n_preamble * N;
+            long sfd = off + tau + (long)(n_preamble + 2) * N;
             if (sfd + 2 * N > (long)r.size()) break;
             float qa, qb;
             int da = demod_symbol_q(&r[sfd], SF, up, qa);
@@ -179,21 +192,31 @@ inline long sync(const std::vector<cf>& r, int SF, int n_preamble, int& cfo_bins
         float qu;
         int upk = demod_symbol_q(&r[frame + N], SF, down, qu);
         cfo_bins = (upk >= N / 2) ? upk - N : upk;
+
+        // (4) SYNC WORD: verify the 2 sync symbols (right after the preamble) match the
+        // expected network id — reject frames from a foreign network. The dechirp peak
+        // is shifted by the CFO, so compare against (expected + cfo) mod N.
+        int es1, es2; sync_symbols(sync_word, SF, es1, es2);
+        int m1 = demod_symbol(&r[frame + (long)n_preamble * N], SF, down);
+        int m2 = demod_symbol(&r[frame + (long)(n_preamble + 1) * N], SF, down);
+        int x1 = ((es1 + cfo_bins) % N + N) % N, x2 = ((es2 + cfo_bins) % N + N) % N;
 #ifdef LORA_SYNC_DEBUG
-        std::fprintf(stderr, "[sync] off=%ld tau=%d frame=%ld cfo=%d (b0=%d d=%d)\n",
-                     off, best_tau, frame, cfo_bins, b0, best_d);
+        std::fprintf(stderr, "[sync] off=%ld tau=%d frame=%ld cfo=%d sync m=(%d,%d) exp=(%d,%d)\n",
+                     off, best_tau, frame, cfo_bins, m1, m2, x1, x2);
 #endif
-        return frame + (long)(n_preamble + 2) * N;        // data starts after preamble+SFD
+        if (m1 != x1 || m2 != x2) continue;               // wrong sync word -> foreign frame
+
+        return frame + (long)(n_preamble + 4) * N;        // data after preamble+sync+SFD
     }
     return -1;
 }
 
 // ── full receive: sync, correct integer CFO, demod all data symbols to bits. ──
 inline std::vector<uint8_t> demodulate(const std::vector<cf>& rx, int SF, size_t nbits,
-                                       int n_preamble = 8) {
+                                       int n_preamble = 8, int sync_word = 0x12) {
     int N = 1 << SF;
     int cfo = 0;
-    long data = sync(rx, SF, n_preamble, cfo);
+    long data = sync(rx, SF, n_preamble, cfo, sync_word);
     if (data < 0) return {};
     auto down = base_chirp(SF, true);
     std::vector<cf> corr = rx;

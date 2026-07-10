@@ -349,6 +349,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
          po::value<int>(&config.lora_sf)->default_value(8),
          "LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF chips/symbol; "
          "higher = more processing gain / range, slower)")
+        ("lora-sync-word",
+         po::value<int>(&config.lora_sync_word)->default_value(0x12),
+         "LoRa network id (2 sync symbols after the preamble); RX rejects frames with "
+         "a different word. 18=0x12 private, 52=0x34 public. Must match TX & RX")
         ("sps",
          po::value<int>(&config.sps)->default_value(2),
          "Samples per symbol (informational)")
@@ -798,7 +802,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     auto bits = build_packet_bits(chunks[idx], (uint8_t)idx,
                                                   (uint8_t)chunks.size());
                     if (config.fec) bits = fec_encode_block(bits);
-                    auto samps = lora::modulate(bits, SF, 8);
+                    auto samps = lora::modulate(bits, SF, 8, config.lora_sync_word);
                     transceiver.transmit_samples(samps);
                     std::cout << "[LoRa TX] chunk " << idx + 1 << "/" << chunks.size()
                               << " -> " << samps.size() << " samples\n";
@@ -811,10 +815,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         } else {                                                       // role rx
             std::cout << "[MAIN] LoRa/CSS RX: SF=" << SF << " listening (Ctrl-C to stop)\n";
             int nsym = (mod_bits + SF - 1) / SF;
-            size_t framelen = (size_t)(8 + 2 + nsym + 2) * N;          // preamble+SFD+data(+slack)
+            size_t framelen = (size_t)(8 + 2 + 2 + nsym) * N;          // preamble+sync+SFD+data
             while (!global_stop_signal.load()) {
                 auto samps = transceiver.capture_raw(framelen * 2);    // 2x for a full frame in-window
-                auto bits = lora::demodulate(samps, SF, mod_bits, 8);
+                auto bits = lora::demodulate(samps, SF, mod_bits, 8, config.lora_sync_word);
                 if (bits.empty()) continue;
                 if (config.fec) bits = fec_decode_block(bits);
                 auto [idx, tot, payload, crc_ok] = decode_packet_bits(bits);

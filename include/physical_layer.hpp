@@ -144,6 +144,7 @@ struct PHYSICAL_CONFIG {
     int         ofdm_fft        = 64;      // FFT size (subcarriers)
     int         ofdm_cp         = 16;      // cyclic prefix length
     int         lora_sf         = 8;       // LoRa/CSS spreading factor (waveform=lora): 2^SF chips/sym
+    int         lora_sync_word  = 0x12;    // LoRa network id (2 sync symbols); 0x12 private / 0x34 public
     float       ofdm_tx_peak    = 0.5f;    // TX scaling (OFDM high PAPR → avoid clip)
 
     // Timing recovery loop

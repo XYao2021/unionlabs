@@ -917,3 +917,61 @@ with no guarantee, versus a ~$100 reference clock that is guaranteed.
 preamble CFO estimation + continuous pilot tracking (which we have) *and* factory-calibrated TX LO
 leakage (which the B210, uncalibrated on a direct cable, lacks). Closing that gap is exactly the
 DSP-vs-shared-clock trade-off above.
+
+## 14. LoRa / CSS (chirp spread spectrum) — decodable receiver
+
+A parallel waveform to `sc`/`ofdm`, added in `include/lora.hpp` with the radio path in
+`src/main.cpp` (`--waveform lora`). Unlike the constellation pipeline (m-sequence
+preamble + RRC + PLL), CSS has its own chirp-based sync and demod, so it runs at the
+sample level via `transmit_samples` / `PHYSICAL_LAYER::capture_raw` (like the tone path),
+bypassing the ACQ threads.
+
+### Modulation
+Spreading factor SF → N = 2^SF chips per symbol, SF bits/symbol. The base up-chirp is
+`u(n) = exp(j·2π(n²/2N − n/2))`. Symbol `s ∈ [0,N)` is the base up-chirp cyclically
+shifted by `s`: `x_s(n) = u((n+s) mod N)`.
+
+### Demodulation (the decodable receiver)
+Dechirp (multiply by the conjugate base chirp = down-chirp) then FFT — the peak bin is
+the symbol. The FFT coherently integrates all N chips, giving the LoRa **processing
+gain**: validated to decode at **−10 dB SNR** (below the noise floor). Steps:
+1. **Preamble detection** — slide and find `n_preamble` up-chirps that dechirp to the
+   *same* bin with a **sharp** peak (peak/avg gated, so noise/constant junk can't
+   false-lock).
+2. **Fine timing** — brute-force the sample shift τ∈[0,N) that makes the SFD down-chirps
+   decode cleanly; this pins the frame boundary and separates timing from CFO.
+3. **CFO** — the aligned preamble up-chirp peak gives the integer carrier-frequency
+   offset (bins); de-rotated before data demod.
+4. **Sync-word check** — verify the 2 sync symbols (below); reject foreign frames.
+5. **Data** — dechirp+FFT argmax per symbol → symbols → bits → CRC/FEC framing.
+
+### Frame + sync word
+```
+[ preamble: 8 base up-chirps ][ sync word: 2 up-chirp symbols ][ SFD: 2 down-chirps ][ data symbols ]
+```
+The **sync word** is a 1-byte network id sent as 2 symbols (each nibble × 8, LoRa-style):
+`--lora-sync-word` **default 0x12 (=18) private**, `0x34 (=52)` public. The receiver
+rejects frames whose sync symbols don't match — network isolation. (Before this, the
+scheme had *no* sync word; the preamble was plain up-chirps straight into the SFD.)
+
+### `include/lora.hpp` API
+- `base_chirp(SF, down)` — base up/down chirp of N samples.
+- `mod_symbol(s, SF, up, out)` / `demod_symbol[_q](r, SF, ref[, q])` — one symbol; `q` is
+  the peak/avg (sharpness) used to reject false locks.
+- `bits_to_symbols` / `symbols_to_bits` — SF-bit packing.
+- `sync_symbols(sync_word, SF, s1, s2)` — network id → 2 symbols.
+- `modulate(bits, SF, n_preamble=8, sync_word=0x12)` → complex samples (full frame).
+- `sync(r, SF, n_preamble, cfo_bins&, sync_word=0x12)` → data-start sample index (−1 if
+  no valid frame); fills the integer CFO.
+- `demodulate(rx, SF, nbits, n_preamble=8, sync_word=0x12)` → bits.
+
+### Options
+`--waveform lora`, `--lora-sf` (7–12), `--lora-sync-word` (int; must match TX/RX). The
+raw jamming sweep is separate: `--message-type chirp` with `--chirp-bw/--chirp-sf/--chirp-down`.
+
+### Validation & status
+`tools/lora_loopback_test.cpp` (`c++ -std=c++17 -O2 -Iinclude tools/lora_loopback_test.cpp
+-o /tmp/lora_test && /tmp/lora_test`) — ALL PASS: clean, +137-sample timing offset, AWGN
+to −10 dB, integer CFO, and sync-word rejection. The over-the-air `--waveform lora` link
+compiles and the Python API is wired, but is **pending hardware validation** (needs the
+radios). One-way only for now — folding LoRa into `sink_arq`/`source_arq` is the follow-up.

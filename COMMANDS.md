@@ -204,6 +204,45 @@ as text, so the payload arrives bit-error-free or not at all. Tones are raw wave
 (no preamble/CRC) — for a clean RX capture use `--tx-mode burst` so each burst triggers
 detection, and set both ends to `--message-type sine|cosine`.
 
+## LoRa / CSS (chirp spread spectrum)
+
+Two chirp features share the same base up-chirp:
+
+**1. Chirp jamming waveform** (`--message-type chirp`) — a raw cyclic frequency sweep,
+no decode. The most effective broadband jammer; also a candidate test waveform.
+
+```bash
+# continuous full-band up-chirp sweep
+./sdr_system --role tx --message-type chirp --chirp-bw 1.6e6 --chirp-sf 8 \
+  --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 85 --tx-args serial=30CD424
+#   --chirp-bw = sweep Hz (0 = full band), --chirp-sf = 7-12 (2^SF/BW symbol dur),
+#   --chirp-down = down-chirp.  See applications/jammer/jammer.py for a full jammer.
+```
+
+**2. Decodable LoRa data link** (`--waveform lora`) — CSS modulation that *carries data*:
+bits → cyclically-shifted up-chirps; the RX dechirps + FFTs (peak bin = symbol), giving
+the LoRa processing gain (decodes below the noise floor). Reuses the CRC/FEC framing.
+
+```bash
+# RX (start first)
+./sdr_system --role rx --waveform lora --lora-sf 8 --lora-sync-word 18 \
+  --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 --rx-args serial=30CD3F7
+#   -> [LoRa RX] chunk 0/1  CRC=OK  payload="..."
+# TX
+./sdr_system --role tx --waveform lora --lora-sf 8 --lora-sync-word 18 \
+  --message "hello LoRa" --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 80 --tx-args serial=30CD424
+```
+
+- `--lora-sf` (7–12): spreading factor; higher = more gain/range, longer symbols.
+- `--lora-sync-word` (**default 18 = 0x12 private**, 52 = 0x34 public): the network id,
+  sent as 2 sync symbols after the preamble. **The RX rejects frames with a different
+  word** — must match on both ends. Frame = `preamble(8 up-chirps) + sync word(2 syms) +
+  SFD(2 down-chirps) + data`.
+
+The CSS DSP is validated in-repo by `tools/lora_loopback_test.cpp` (clean / timing / CFO
+/ −10 dB SNR / sync-word rejection all pass). One-way for now (no ARQ). See
+`SYSTEM_REFERENCE.md` §14.
+
 ## Channel sensing (occupancy / listen-before-talk)
 
 `--role sense` integrates received power over a `--sense-window` (ms) and prints

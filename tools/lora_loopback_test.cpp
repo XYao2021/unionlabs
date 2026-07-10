@@ -89,6 +89,19 @@ int main() {
         fails += (e != 0);
     }
 
+    // 5) sync word: right word decodes, wrong word is rejected (foreign network)
+    {
+        auto bits = rand_bits(NBITS, rng);
+        auto tx = lora::modulate(bits, SF, NPRE, 0x34);         // public-network sync word
+        auto good = lora::demodulate(tx, SF, NBITS, NPRE, 0x34);
+        auto bad = lora::demodulate(tx, SF, NBITS, NPRE, 0x12); // wrong word -> must reject
+        int e = ber(bits, good);
+        bool rejected = bad.empty();
+        printf("[5] sync word 0x34: match errors=%d, mismatch rejected=%s  -> %s\n",
+               e, rejected ? "yes" : "NO", (e == 0 && rejected) ? "PASS" : "FAIL");
+        fails += !(e == 0 && rejected);
+    }
+
     printf("\n%s (%d check(s) failed)\n", fails == 0 ? "ALL PASS" : "SOME FAILED", fails);
     return fails == 0 ? 0 : 1;
 }
