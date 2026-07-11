@@ -115,6 +115,14 @@ endif()
 
 target_link_libraries(sdr_system ${LINK_LIBS})
 
+# ── Portability: force-include <atomic> ──────────────────────
+# Several worker-thread headers use std::atomic<bool> without including
+# <atomic>. clang/libc++ (macOS) pulls it in transitively as a COMPLETE type,
+# but g++/libstdc++ (Linux) only sees a forward declaration -> "incomplete type"
+# / "std::atomic has not been declared". Force-include <atomic> at the top of
+# every TU so it is complete everywhere. Honored by both gcc and clang.
+target_compile_options(sdr_system PRIVATE -include atomic)
+
 # ── Output directories ───────────────────────────────────────
 add_custom_command(TARGET sdr_system POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory

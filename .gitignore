@@ -21,6 +21,19 @@ transmit/
 received/
 debugging/
 
+# Generated visualizations (figure output written by --viz and the Python tools)
+viz/
+python/viz/
+
+# Training-run artifacts (torch models, plots, reward logs) — regenerable
+python/real_run.pt
+python/real_run.png
+python/real_run_rewards.txt
+
+# Python bytecode
+__pycache__/
+*.pyc
+
 # Misc
 .DS_Store
 *.txt.bak

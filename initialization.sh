@@ -101,19 +101,47 @@ fi
 
 # ── Optional: build the C++ PHY ──────────────────────────────────────────────
 if [ "$WITH_BUILD" -eq 1 ]; then
-    say "Configuring + building build/sdr_system..."
+    # Pick a cmake that is NOT Anaconda's — its pip cmake bakes a dead path into
+    # the Makefile and breaks 'make' (seen on the Dell).
+    CMAKE_BIN="$(command -v cmake || true)"
+    case "$CMAKE_BIN" in
+        *conda*|*anaconda*)
+            warn "cmake on PATH is Anaconda's ($CMAKE_BIN) — it breaks 'make'."
+            if [ -x /usr/bin/cmake ]; then
+                CMAKE_BIN=/usr/bin/cmake; say "using $CMAKE_BIN instead (run 'conda deactivate' to make this permanent)"
+            else
+                warn "no system cmake found — run: sudo apt-get install -y cmake, then re-run"
+            fi ;;
+    esac
+    [ -z "$CMAKE_BIN" ] && CMAKE_BIN=cmake
+    say "Configuring + building build/sdr_system (with $CMAKE_BIN)..."
+    # A COPIED build/ caches absolute paths from the source machine and won't
+    # reconfigure here — always start from a clean build dir.
+    rm -rf "$HERE/build"
     mkdir -p "$HERE/build"
-    ( cd "$HERE/build" && cmake .. && make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" )
+    ( cd "$HERE/build" && "$CMAKE_BIN" .. && make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" )
     say "Built: $HERE/build/sdr_system"
+fi
+
+# ── Confirm a connected USRP (best-effort) ───────────────────────────────────
+if command -v uhd_find_devices >/dev/null 2>&1; then
+    say "Checking for a connected USRP..."
+    if uhd_find_devices 2>&1 | grep -qi "serial"; then
+        uhd_find_devices 2>&1 | grep -iE "type:|serial:|product:"
+        say "USRP detected ✓"
+    else
+        warn "No USRP found. Plug into a USB 3 port. If you just installed uhd-host,"
+        warn "  unplug/replug the radio (udev rules need a re-enumeration), then: uhd_find_devices"
+        warn "If a device IS found but firmware fails to load: sudo uhd_images_downloader"
+    fi
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 say "Done. Verify:"
-echo "    uhd_find_devices           # should list your B210(s)"
 echo "    python3 -c 'import numpy, matplotlib' && echo 'python OK'"
 if [ "$WITH_BUILD" -eq 0 ]; then
     echo
-    say "To build the C++ PHY:"
-    echo "    mkdir -p build && cd build && cmake .. && make -j4"
+    say "To build the C++ PHY (deactivate Anaconda first so the system cmake is used):"
+    echo "    conda deactivate 2>/dev/null; rm -rf build && mkdir build && cd build && cmake .. && make -j4"
 fi
 say "Then run, e.g.:  cd python && python3 run.py --list"

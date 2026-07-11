@@ -8,7 +8,7 @@
     "scheme": "8-PSK", "fec": true,
     "ack_transport": "tcp", "ack_port": 5599, "det_mult": 3
   },
-  "rx": { "role": "sink_arq",   "rx_args": "serial=30CD3F7", "tx_args": "serial=30CD3F7", "rx_gain": 16 },
+  "rx": { "role": "sink_arq",   "rx_args": "serial=30CD3F7", "tx_args": "serial=30CD3F7", "rx_gain": 20 },
   "tx": { "role": "source_arq", "tx_args": "serial=30CD424", "rx_args": "serial=30CD424", "tx_gain": 86, "ack_host": "127.0.0.1", "timeout": 3000 },
   "pair": { "rx_head_start": 4, "rx_grace": 30 }
 }
