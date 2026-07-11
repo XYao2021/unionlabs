@@ -296,3 +296,53 @@ CFO 0–8 kHz, phase 0–120°, and 2 & 4 samples/symbol.
 5. **Final short chunk padded (`main.cpp`).** Chunks are padded to the full
    `bytes_length` so every packet is full size; a short final chunk is no longer
    dropped by the detect/sync length gate, so the whole message reassembles.
+
+---
+
+## CFO estimator: least-squares phase-slope (lower variance) + cross-burst prior
+
+**Motivation.** The single-carrier CFO stage was a *one-shot* estimate per burst
+with no tracking loop, and the estimator itself was adjacent-symbol differential
+(lag-1 only) → high variance (the ±1200 Hz jitter of §13). Differential schemes
+(DBPSK/DQPSK, the two-host cold-LO range test) have **no** mid-burst CFO tracking,
+so they live or die on that single estimate — making its variance the thing to fix
+first, and one that needs no shared clock.
+
+**What changed (`include/frequency_offset.hpp`, `include/physical_layer.hpp`):**
+1. New `CFOEstimator::estimate_ls_slope()` — strips the modulation off every
+   preamble symbol, unwraps, and does a **magnitude-weighted least-squares
+   straight-line fit** of the phase progression. Uses all preamble symbols jointly
+   (the data-aided ML / CRLB estimate) instead of lag-1 differencing → same
+   unambiguous range, ~$L^2$ lower variance. See SYSTEM_REFERENCE §5.4-C.
+2. New `CFOCorrector::Method::PILOT_LS`, now the **pipeline default** (was
+   `PILOT_AIDED`). The old differential estimator is kept for comparison.
+3. **Cross-burst EMA prior** (`CFOCorrector::set_prior_smoothing(α)`, CLI
+   `--cfo_prior_alpha`, default `1.0`). `1.0` = pure per-burst, the correct/safe
+   choice for a **cold per-fire LO** (two-host DQPSK). `<1.0` blends history and is
+   for a **warm resident LO** only. Exposed through Python `_phy()` so
+   `AccessPoint(cfo_prior_alpha=0.5)` reaches the warm sink; omitted by default so
+   the cold-LO path is unaffected.
+
+**Verification (no radio was connected):** full `sdr_system` builds clean against
+UHD; `sdr.py`/`OPTIONS.md` regenerated with the new option; a hardware-free
+Monte-Carlo (`scratchpad/cfo_ls_test.cpp`) shows the LS estimator ~halves CFO RMSE
+at operating SNR (≈450 Hz vs ≈1050 Hz at 12 dB), matching/beating the §13 figure,
+and the Python command-builder passes/omits the flag correctly. **Still to do on
+the rig:** the end-to-end on-hardware Python check (per the project's
+verify-Python-after-C++ rule) — the ~2× gain is *sim-validated, not yet
+hardware-confirmed*. This widens the QPSK/8-PSK/DQPSK margin but does **not** lift
+the dense-QAM wall (§13); a shared reference clock is still required for 16-QAM+.
+
+**Residual-CFO FLL investigated and rejected (negative result).** A blind
+M-th-power frequency-locked loop (`FreqTracker`, `include/phase_offset.hpp`) was
+built and A/B-tested to add *mid-burst* CFO tracking. It does **not** help this
+link and was **not** wired in: (1) on the differential path it *degrades* BER —
+differential detection is already immune to a constant/slow residual CFO up to
+±45°, so the FLL only adds M-th-power noise (sim: raw DQPSK = 0 BER up to 0.6
+rad/sym residual even at 30 dB; +FLL is worse); (2) on the coherent path the
+existing 2nd-order phase PLL (§5.5) already pulls CFO in to its decision limit, so
+an FLL front-end adds nothing (sim: FLL+PLL ≈ PLL alone). With the LS estimator
+above leaving ~milliradian residual, no tracker is needed. The `FreqTracker` class
+is retained as a documented building block for a possible future large-CFO
+coherent-acquisition experiment; sims live in `scratchpad/fll_test.cpp` and
+`fll_coh_test.cpp`.

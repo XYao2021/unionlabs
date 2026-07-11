@@ -365,6 +365,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
          po::value<float>(&config.timing_damping)->default_value(0.707f),
          "Gardner TED damping factor")
 
+        // Carrier frequency offset
+        ("cfo_prior_alpha",
+         po::value<float>(&config.cfo_prior_alpha)->default_value(1.0f),
+         "Cross-burst CFO estimate smoothing (EMA alpha). 1.0=per-burst (cold LO, "
+         "default); <1.0 blends history (warm resident LO only, e.g. 0.5)")
+
         // Phase correction
         ("phase_loop_bw",
          po::value<float>(&config.phase_loop_bw)->default_value(0.02f),

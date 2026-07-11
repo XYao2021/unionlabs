@@ -151,6 +151,14 @@ struct PHYSICAL_CONFIG {
     float       timing_loop_bw  = 0.015f;
     float       timing_damping  = 0.707f;
 
+    // Carrier frequency offset (CFO)
+    // Cross-burst EMA smoothing of the per-burst CFO estimate.
+    //   1.0 (default) = pure per-burst, no memory — correct for a COLD per-fire LO
+    //   (two-host range test / DQPSK), where the CFO changes every burst.
+    //   <1.0 = blend history — use ONLY with a WARM resident LO (stable burst-to-
+    //   burst CFO); further cuts estimate variance to help a coherent tracker lock.
+    float       cfo_prior_alpha = 1.0f;
+
     // Phase offset correction
     float       phase_loop_bw   = 0.02f;
     float       phase_damping   = 0.707f;
@@ -576,8 +584,9 @@ private:
         threads_.emplace_back(CFO_correction_thread,
             std::ref(synced_fifo_), std::ref(cfo_fifo_),
             preamble_copy, cfg_.symbol_rate, 1,
-            CFOCorrector::Method::PILOT_AIDED,
-            std::ref(stop_flag_));
+            CFOCorrector::Method::PILOT_LS,
+            std::ref(stop_flag_),
+            static_cast<double>(cfg_.cfo_prior_alpha));
 
         // 8. Carrier phase offset correction (required for QPSK / QAM) — AFTER
         //    time sync and CFO. Preamble-ML bulk estimate + optional PLL tracking.

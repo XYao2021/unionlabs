@@ -68,7 +68,7 @@ def _phy(a):
     DQPSK: differential encoding is robust to the free-running-clock carrier offset
     (data rides the phase *difference*), so single bursts decode where coherent QPSK
     fails (~83% vs ~17% delivery on this rig without a shared clock)."""
-    return dict(
+    d = dict(
         scheme=a.get("scheme", "DQPSK"), waveform="sc", fec=True,
         rx_freq=a.get("freq", 915e6), tx_freq=a.get("freq", 915e6),
         rx_rate=1.6e6, tx_rate=1.6e6,
@@ -77,6 +77,13 @@ def _phy(a):
         bytes_length=a.get("packet_bytes", PACKET_BYTES),
         timer_interval=20, viz=False,
     )
+    # Cross-burst CFO smoothing (RX/sink side). Only pass it when explicitly set,
+    # so the C++ default (1.0 = per-burst, correct for the cold-LO DQPSK path)
+    # stays the default. Set <1.0 (e.g. 0.5) ONLY with a warm resident LO — see
+    # AccessPoint / CFOCorrector::set_prior_smoothing.
+    if a.get("cfo_prior_alpha") is not None:
+        d["cfo_prior_alpha"] = a["cfo_prior_alpha"]
+    return d
 
 
 def _scratch(tag):

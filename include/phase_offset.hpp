@@ -336,6 +336,95 @@ private:
 
 
 // ─────────────────────────────────────────────────────────────
+//  2b.  FreqTracker  —  blind M-th-power frequency-locked loop
+//
+//  Purpose: give DIFFERENTIAL schemes (DBPSK/DQPSK/8-DPSK) the mid-burst
+//  residual-CFO tracking that the decision-directed PhaseTracker cannot provide
+//  for them (differential data has no absolute-phase decision to lock onto). The
+//  one-shot CFO stage (§5.4) leaves a slow phase ramp = residual CFO; for a
+//  differential burst nothing currently follows it, so a long burst rotates.
+//
+//  How it works: raising an M-PSK symbol to the M-th power strips the data
+//  (s^M = const · e^{jMφ}), leaving a pure carrier tone at M×(residual CFO). A
+//  cross-product discriminator on consecutive M-th-power samples measures that
+//  residual frequency WITHOUT any constellation decision, so it is immune to the
+//  differential-vs-coherent distinction. The estimate drives an NCO that
+//  derotates the stream — a first-order FLL (frequency integrator + phase accum).
+//
+//  M must be the number of DISTINCT phase points (2/4/8). Note: π/4-DQPSK alternates
+//  two QPSK grids → use M=8 (its 8 distinct phases), not 4, or the M-th power picks
+//  up a spurious ±π per symbol. Blind M-th power does NOT strip QAM — this loop is
+//  for PSK/DPSK only (dense QAM is clock-limited anyway, §13).
+//
+//  STATUS — retained as a building block, NOT wired into the pipeline. Hardware-free
+//  sims (scratchpad/fll_test.cpp, fll_coh_test.cpp) showed it does not help this
+//  link: differential detection is already immune to constant/slow residual CFO up
+//  to ±45°, so an FLL only adds M-th-power noise there; and the coherent path's
+//  existing 2nd-order phase PLL (§5.5) already pulls in CFO to its decision limit, so
+//  an FLL front-end adds nothing. With the §5.4-C LS estimator leaving ~milliradian
+//  residual per symbol, no tracker is needed. Kept for a future large-CFO / coherent
+//  acquisition experiment; if you wire it, re-validate against the phase PLL first.
+// ─────────────────────────────────────────────────────────────
+class FreqTracker {
+public:
+    // M       : PSK order (distinct phases): 2=BPSK/DBPSK, 4=QPSK/DQPSK, 8=8-PSK/8-DPSK.
+    // loop_bw : FLL gain (per-symbol); small, e.g. 0.005–0.02. Larger = faster
+    //           pull-in but noisier (noise is raised to the M-th power).
+    FreqTracker(int M, float loop_bw)
+        : M_(M < 1 ? 1 : M), mu_(loop_bw),
+          phi_(0.0f), freq_(0.0f), have_prev_(false), prev_(0.0f, 0.0f)
+    {
+        std::cout << "[FreqTracker] M=" << M_ << "  loop_bw=" << mu_ << "\n";
+    }
+
+    std::vector<std::complex<float>>
+    process(const std::vector<std::complex<float>>& syms)
+    {
+        std::vector<std::complex<float>> out;
+        out.reserve(syms.size());
+        for (const auto& r : syms) {
+            // 1. Derotate by the current NCO estimate.
+            std::complex<float> c = r * std::polar(1.0f, -phi_);
+            out.push_back(c);
+
+            // 2. Blind M-th-power frequency discriminator (needs a previous sample).
+            if (have_prev_) {
+                std::complex<float> a = ipow(c,     M_);
+                std::complex<float> b = ipow(prev_, M_);
+                // arg(a·conj(b)) = M·(residual phase advance per symbol); /M → rad/sym.
+                float e = std::arg(a * std::conj(b)) / static_cast<float>(M_);
+
+                // 3. First-order FLL: integrate frequency, advance phase.
+                freq_ += mu_ * e;
+                phi_  += freq_;
+                while (phi_ >  static_cast<float>(M_PI)) phi_ -= 2.0f * static_cast<float>(M_PI);
+                while (phi_ < -static_cast<float>(M_PI)) phi_ += 2.0f * static_cast<float>(M_PI);
+            }
+            prev_      = c;
+            have_prev_ = true;
+        }
+        return out;
+    }
+
+    void  reset() { phi_ = 0.0f; freq_ = 0.0f; have_prev_ = false; prev_ = {0.0f, 0.0f}; }
+    float get_frequency() const { return freq_; }   // rad/symbol
+
+private:
+    static std::complex<float> ipow(std::complex<float> x, int n) {
+        std::complex<float> r(1.0f, 0.0f);
+        for (int i = 0; i < n; ++i) r *= x;
+        return r;
+    }
+    int   M_;
+    float mu_;
+    float phi_;        // NCO phase (rad)
+    float freq_;       // NCO frequency (rad/sym) — the residual-CFO estimate
+    bool  have_prev_;
+    std::complex<float> prev_;
+};
+
+
+// ─────────────────────────────────────────────────────────────
 //  3.  PhaseOffsetCorrector
 //
 //  Full pipeline:

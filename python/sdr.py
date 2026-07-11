@@ -111,6 +111,7 @@ OPTIONS = {
     "sps": (True, '2', "Samples per symbol (informational)"),
     "timing_loop_bw": (True, '0.0149999997', "Gardner TED loop bandwidth BnT"),
     "timing_damping": (True, '0.707000017', "Gardner TED damping factor"),
+    "cfo_prior_alpha": (True, '1', "Cross-burst CFO estimate smoothing (EMA alpha). 1.0=per-burst (cold LO, default); <1.0 blends history (warm resident LO only, e.g. 0.5)"),
     "phase_loop_bw": (True, '0.0199999996', "Phase PLL loop bandwidth"),
     "phase_damping": (True, '0.707000017', "Phase PLL damping factor"),
     "eq_taps": (True, '11', "Number of equaliser taps"),
@@ -213,6 +214,7 @@ PY2CPP = {
     "sps": "sps",
     "timing_loop_bw": "timing_loop_bw",
     "timing_damping": "timing_damping",
+    "cfo_prior_alpha": "cfo_prior_alpha",
     "phase_loop_bw": "phase_loop_bw",
     "phase_damping": "phase_damping",
     "eq_taps": "eq_taps",
@@ -328,6 +330,7 @@ class SDR:
                  sps=_UNSET, # =2  Samples per symbol (informational)
                  timing_loop_bw=_UNSET, # =0.0149999997  Gardner TED loop bandwidth BnT
                  timing_damping=_UNSET, # =0.707000017  Gardner TED damping factor
+                 cfo_prior_alpha=_UNSET, # =1  Cross-burst CFO estimate smoothing (EMA alpha). 1.0=per-...
                  phase_loop_bw=_UNSET, # =0.0199999996  Phase PLL loop bandwidth
                  phase_damping=_UNSET, # =0.707000017  Phase PLL damping factor
                  eq_taps=_UNSET, # =11  Number of equaliser taps
@@ -431,6 +434,7 @@ class SDR:
             sps=sps,
             timing_loop_bw=timing_loop_bw,
             timing_damping=timing_damping,
+            cfo_prior_alpha=cfo_prior_alpha,
             phase_loop_bw=phase_loop_bw,
             phase_damping=phase_damping,
             eq_taps=eq_taps,

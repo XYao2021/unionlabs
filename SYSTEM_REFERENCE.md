@@ -359,10 +359,10 @@ exactly one sample per symbol out.
 first), early-late gate, zero-crossing TED.
 
 ### 5.4 Carrier frequency offset (CFO) estimation & correction
-A constant CFO spins the constellation at $2\pi\,\Delta f/f_s$ rad/sample. Two estimators are
-provided (`CFOEstimator`), both **data-aided** off the preamble, then `FrequencyShifter` removes
+A constant CFO spins the constellation at $2\pi\,\Delta f/f_s$ rad/sample. Three estimators are
+provided (`CFOEstimator`), all **data-aided** off the preamble, then `FrequencyShifter` removes
 it by multiplying sample $n$ by $e^{-j2\pi(\Delta f/f_s)n}$ (a running phase accumulator, so
-blocks join seamlessly).
+blocks join seamlessly). The pipeline default is **(C) least-squares phase-slope**.
 
 ![A residual CFO makes the phase ramp $\varphi[n]=2\pi(\Delta f/f_s)n$ — the constellation smears from clean clusters into arcs and finally a full ring (exactly the failure mode seen with uncorrected OFDM over the air).](figures/cfo_effect.png)
 
@@ -382,7 +382,20 @@ $$ P = \sum_{n=0}^{L-1} r[n]\; r^{*}[n+L] \;\approx\; |A|^2 L\; e^{\,j2\pi(\Delt
    \qquad \widehat{\Delta f} = \frac{f_s}{2\pi L}\,\arg(P). $$
 
 Unambiguous range $|\Delta f| < f_s/(2L)$ — smaller $L$ → wider capture range but noisier. This is
-the same estimator OFDM uses (§5.6), where $L = N/2$.
+the same estimator OFDM uses (§5.6), where $L = N/2$. Note (B) needs a **repeated** preamble; the
+single-carrier default preamble is a single m-sequence, so (B) is not used there.
+
+**(C) Least-squares phase-slope (default).** Strip the modulation from every preamble symbol,
+$\theta_k = \arg(r[k\,\text{sps}]\,p^{*}[k]) = \varphi_0 + 2\pi(\Delta f/f_s)\,\text{sps}\,k + \text{noise}$,
+unwrap, and fit a magnitude-weighted straight line; the slope $b$ gives
+$\widehat{\Delta f} = b\,f_s/(2\pi\,\text{sps})$. Because it uses **all** preamble symbols jointly
+(vs (A)'s lag-1 differencing) this is the data-aided ML / CRLB estimate — same $\pm f_s/(2\,\text{sps})$
+range as (A) but **~$L^2$ lower variance**. A hardware-free Monte-Carlo (length-31 m-seq) puts the
+CFO-estimate RMSE at ~450 Hz vs ~1050 Hz for (A) at 12 dB symbol SNR — i.e. it roughly **halves** the
+$\pm1200$ Hz jitter of §13 — and it wins at every SNR the link actually decodes at (both fail near
+0 dB, where phase unwrap breaks down). A **cross-burst EMA prior** (`--cfo_prior_alpha`, default
+`1.0` = per-burst) can further smooth the estimate for a *warm resident LO*; keep it at `1.0` for a
+cold per-fire LO (two-host DQPSK), whose CFO changes every burst.
 
 **Why residual CFO still matters.** $\arg(\cdot)$ limits the estimate; whatever is left is a slow
 phase ramp the **phase tracker (§5.5)** or **OFDM pilot CPE (§3.2)** cleans up. Getting this
@@ -885,7 +898,11 @@ shows a **phase-rotating ring**, OFDM a **blob at the origin**.
 
 ### Root cause
 The two B210s run on **independent TCXOs** (no shared clock), so there is a real carrier frequency
-offset whose estimate jitters ±1200 Hz. On the cable, the **TX carrier / LO leakage couples
+offset whose estimate jitters ±1200 Hz. (The default CFO estimator is now the least-squares
+phase-slope of §5.4-C, which ~halves that jitter to ≈±450 Hz at 12 dB SNR — this *widens the margin*
+for QPSK/8-PSK and the DQPSK range test, but does **not** lift the wall below: the residual beat
+still rotates a 16-point constellation faster than the DD PLL can track, so a shared reference clock
+remains required for dense QAM.) On the cable, the **TX carrier / LO leakage couples
 straight into the RX** (a ~40 dB spike near DC) and **beats at that CFO** — a slowly drifting
 near-DC tone. It (a) rotates the constellation, which QPSK's wide decision regions survive but
 16-QAM's don't (and the decision-directed phase PLL can't lock 16 points), and (b) dominates the
