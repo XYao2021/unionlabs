@@ -332,6 +332,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
          "Forward Error Correction (rate-1/2 K=7 convolutional + Viterbi). "
          "Corrects bit errors so a noisy link decodes error-free; must match on "
          "both ends. Halves the payload rate (2x the symbols).")
+        ("fec_soft",
+         po::bool_switch(&config.fec_soft)->default_value(false),
+         "Soft-decision Viterbi (needs --fec true). RX passes per-bit LLRs to the "
+         "decoder for ~2-3 dB coding gain vs hard-decision. Coherent schemes only "
+         "(differential fall back to hard). RX-side only; TX unaffected.")
         ("waveform",
          po::value<std::string>(&config.waveform)->default_value("sc"),
          "Waveform: sc (single-carrier) or ofdm. OFDM handles multipath/CFO "
@@ -934,7 +939,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             }
             std::cout << "[SINK-ARQ] Waiting for chunks; ACKing verified ones via "
                       << ack->name() << (config.fec ? ", FEC on" : "") << ".\n";
-            SINK sink(transceiver, *ack, timer_interval, config.fec, bytes_length);
+            SINK sink(transceiver, *ack, timer_interval, config.fec, bytes_length, config.fec_soft);
             if (!ber_expected_file.empty()) {
                 std::ifstream bf(ber_expected_file, std::ios::binary);
                 if (bf) sink.set_ber_expected(std::vector<uint8_t>(

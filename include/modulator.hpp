@@ -106,8 +106,13 @@ void modulation_thread(MutexFIFO<std::vector<uint8_t>>& fifo,
                        std::string& scheme, std::atomic<bool>& stop_sign,
                        std::vector<std::complex<float>> preamble_sequence, bool& add_preamble);
 
-void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& fifo, 
+void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& fifo,
                        MutexFIFO<std::pair<size_t, std::vector<uint8_t>>>& fifo_out,
-                       std::string& scheme, std::atomic<bool>& stop_sign);
+                       std::string& scheme, std::atomic<bool>& stop_sign,
+                       // Optional soft-decision output: when non-null, also emit one
+                       // LLR per coded bit (soft_demodulate_llr) into *llr_out for the
+                       // FEC soft decoder. Differential/pi4 push an empty vector (soft
+                       // undefined there) to keep the two FIFOs in lockstep.
+                       MutexFIFO<std::pair<size_t, std::vector<float>>>* llr_out = nullptr);
 
 #endif

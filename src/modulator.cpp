@@ -640,14 +640,18 @@ void modulation_thread(MutexFIFO<std::vector<uint8_t>>& fifo,
     std::cout << "[MODULATION] Thread stopped gracefully." << std::endl;
 }
 
-void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& fifo, 
+void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& fifo,
                        MutexFIFO<std::pair<size_t, std::vector<uint8_t>>>& fifo_out,
-                       std::string& scheme, std::atomic<bool>& stop_sign)
-{   
+                       std::string& scheme, std::atomic<bool>& stop_sign,
+                       MutexFIFO<std::pair<size_t, std::vector<float>>>* llr_out)
+{
     // Unified scheme dispatch — mirrors modulation_thread().
     ModulationType mod_type = string_to_mod_type(scheme);
     reject_unsupported_differential_qam(mod_type, scheme);
     const bool is_pi4 = (mod_type == ModulationType::PI4QPSK);
+    // Soft LLRs only defined for coherent (non-differential) schemes.
+    const bool emit_llr = (llr_out != nullptr) && !is_pi4
+                          && !Modulator(mod_type).is_differential_scheme();
 
     Modulator Modulation = Modulator(mod_type);
     PI4QPSKModulator pi4;               // used only when is_pi4
@@ -681,6 +685,15 @@ void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
         // BUG FIX (Bug 4): always push; the old guard (message_block_id > 1)
         // silently discarded the first decoded block.
         fifo_out.push({symbols.first, bits});
+
+        // Soft-decision: emit one LLR per coded bit for the FEC soft decoder.
+        // Always push (empty for differential/pi4) so llr_out stays block-for-block
+        // aligned with fifo_out; the sink falls back to hard on an empty vector.
+        if (llr_out) {
+            std::vector<float> llr;
+            if (emit_llr) llr = soft_demodulate_llr(symbols.second, Modulation, 1.0f);
+            llr_out->push({symbols.first, std::move(llr)});
+        }
 
         // save_bits_to_txt(bits, symbols.first, "demodulated");
         // std::cout << std::endl;

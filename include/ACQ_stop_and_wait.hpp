@@ -156,9 +156,9 @@ public:
     // fec/payload_bytes: if fec, Viterbi-decode the received bits (truncated to
     // the coded length for a `payload_bytes`-byte chunk) before the CRC check.
     SINK(PHYSICAL_LAYER& phy, AckLink& ack, int ack_interval_ms,
-         bool fec = false, size_t payload_bytes = 0)
+         bool fec = false, size_t payload_bytes = 0, bool fec_soft = false)
         : phy_(phy), ack_(ack), ack_interval_ms_(ack_interval_ms),
-          fec_(fec), payload_bytes_(payload_bytes)
+          fec_(fec), payload_bytes_(payload_bytes), soft_(fec_soft)
     {}
 
     void start() {
@@ -220,6 +220,7 @@ private:
     AckLink&         ack_;
     int              ack_interval_ms_;
     bool             fec_{false};
+    bool             soft_{false};        // soft-decision Viterbi (uses phy_.rx_llr_fifo)
     size_t           payload_bytes_{0};
     std::atomic<bool> running_{false};
     std::atomic<bool> done_{false};
@@ -241,8 +242,27 @@ private:
             std::vector<uint8_t> raw = rx.second;
             if (fec_) {                                   // Viterbi-decode first
                 int coded = fec_encoded_len(16 + (int)payload_bytes_ * 8 + 16);
-                if ((int)raw.size() >= coded) raw.resize(coded);
-                raw = fec_decode_block(raw);
+                bool soft_done = false;
+                if (soft_) {
+                    // Pop the LLR block demodulation_thread pushed in lockstep with
+                    // this bits block (bits pushed first, LLRs right after — so it's
+                    // already present; the wait is just a safety bound).
+                    std::pair<size_t, std::vector<float>> lm;
+                    for (int w = 0; w < 200 && running_ && !phy_.rx_llr_fifo.pop(lm); ++w)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    if (!lm.second.empty()) {             // empty ⇒ differential ⇒ hard
+                        std::vector<float> llr = std::move(lm.second);
+                        // one LLR per coded bit → trim to the coded length like the
+                        // hard path trims raw bits.
+                        if ((int)llr.size() >= coded) llr.resize(coded);
+                        raw = fec_soft_decode_block(llr);
+                        soft_done = true;
+                    }
+                }
+                if (!soft_done) {                         // hard-decision path
+                    if ((int)raw.size() >= coded) raw.resize(coded);
+                    raw = fec_decode_block(raw);
+                }
             }
             auto [idx, tot, payload, crc_ok] = decode_packet_bits(raw);
 

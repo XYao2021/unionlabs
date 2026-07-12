@@ -346,3 +346,41 @@ above leaving ~milliradian residual, no tracker is needed. The `FreqTracker` cla
 is retained as a documented building block for a possible future large-CFO
 coherent-acquisition experiment; sims live in `scratchpad/fll_test.cpp` and
 `fll_coh_test.cpp`.
+
+---
+
+## Soft-decision FEC wired in (opt-in `--fec_soft`)
+
+The convolutional code already had a **soft-decision Viterbi decoder** (`decode_soft`)
+and a Max-Log LLR generator (`soft_demodulate_llr`), but nothing called them — the RX
+always hard-decided. This wires the soft path end-to-end for **~2-3 dB of coding gain**
+at the same SNR.
+
+**How it flows:** `demodulation_thread` now optionally emits one **LLR per coded bit**
+(`soft_demodulate_llr`) into a new `PHYSICAL_LAYER::rx_llr_fifo`, block-for-block
+aligned with `rx_bits_fifo`. The ARQ `SINK` (`ACQ_stop_and_wait.hpp`) pops the matching
+LLR block and calls the new `fec_soft_decode_block()` instead of the hard
+`fec_decode_block()`.
+
+**Scope / safety:**
+- **Opt-in, default OFF** (`--fec_soft`, needs `--fec true`). The hard path is byte-for-byte
+  unchanged when off — the demod passes `nullptr` for the LLR FIFO and the SINK never
+  touches it.
+- **Coherent single-carrier only.** Differential (DBPSK/DQPSK/8-DPSK), π/4-DQPSK and OFDM
+  push an **empty** LLR vector (soft LLRs are undefined for differential detection; the
+  OFDM demod has its own path), so the SINK transparently **falls back to hard** — no
+  crash, just no soft gain there.
+- RX-side only; the transmitter is unaffected (it still FEC-encodes the same way).
+
+**Files:** `include/fec.hpp` (`fec_soft_decode_block`), `include/modulator.{hpp}` /
+`src/modulator.cpp` (LLR emit), `include/physical_layer.hpp` (`rx_llr_fifo`, `fec_soft`
+config, demod launch), `include/ACQ_stop_and_wait.hpp` (SINK soft path), `src/main.cpp`
+(`--fec_soft`).
+
+**Verification:** hardware-free Monte-Carlo (`scratchpad/soft_fec_test.cpp`) confirms the
+primitives give the expected gain — e.g. QPSK CRC-OK 4%→78% @4 dB, 16-QAM 16%→95% @10 dB,
+and the LLR sign convention is correct (negated LLRs decode to 0%). Full `sdr_system`
+builds clean; the hard-path fake-channel regression is unchanged. **Still to verify on
+the rig:** the live `rx_llr_fifo`↔SINK lockstep inside the ARQ loop can't be exercised
+hardware-free — run a QPSK A/B (`--fec_soft` on the sink) at a *marginal* gain where hard
+FEC drops chunks; soft should recover them.

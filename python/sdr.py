@@ -102,6 +102,7 @@ OPTIONS = {
     "tx-dc-q": (True, '0', "Manual TX LO-leakage null, Q component (normalized [-1,1])."),
     "scheme": (True, 'QPSK', "Modulation: QPSK / DQPSK / DBPSK / 16-QAM / ..."),
     "fec": (True, '0', "Forward Error Correction (rate-1/2 K=7 convolutional + Viterbi). Corrects bit errors so a noisy link decodes error-free; must match on both ends. Halves the payload rate (2x the symbols)."),
+    "fec_soft": (False, None, "Soft-decision Viterbi (needs --fec true). RX passes per-bit LLRs to the decoder for ~2-3 dB coding gain vs hard-decision. Coherent schemes only (differential fall back to hard). RX-side only; TX unaffected."),
     "waveform": (True, 'sc', "Waveform: sc (single-carrier) or ofdm. OFDM handles multipath/CFO natively (per-subcarrier equalization) — best for dense QAM."),
     "ofdm-fft": (True, '64', "OFDM FFT size (number of subcarriers)"),
     "ofdm-cp": (True, '16', "OFDM cyclic-prefix length (>= channel delay spread)"),
@@ -205,6 +206,7 @@ PY2CPP = {
     "tx_dc_q": "tx-dc-q",
     "scheme": "scheme",
     "fec": "fec",
+    "fec_soft": "fec_soft",
     "waveform": "waveform",
     "ofdm_fft": "ofdm-fft",
     "ofdm_cp": "ofdm-cp",
@@ -321,6 +323,7 @@ class SDR:
                  tx_dc_q=_UNSET, # =0  Manual TX LO-leakage null, Q component (normalized [-1,1]).
                  scheme=_UNSET, # =QPSK  Modulation: QPSK / DQPSK / DBPSK / 16-QAM / ...
                  fec=_UNSET, # =0  Forward Error Correction (rate-1/2 K=7 convolutional +...
+                 fec_soft=_UNSET, # flag  Soft-decision Viterbi (needs --fec true). RX passes per-bit...
                  waveform=_UNSET, # =sc  Waveform: sc (single-carrier) or ofdm. OFDM handles...
                  ofdm_fft=_UNSET, # =64  OFDM FFT size (number of subcarriers)
                  ofdm_cp=_UNSET, # =16  OFDM cyclic-prefix length (>= channel delay spread)
@@ -425,6 +428,7 @@ class SDR:
             tx_dc_q=tx_dc_q,
             scheme=scheme,
             fec=fec,
+            fec_soft=fec_soft,
             waveform=waveform,
             ofdm_fft=ofdm_fft,
             ofdm_cp=ofdm_cp,

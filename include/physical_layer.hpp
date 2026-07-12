@@ -137,6 +137,10 @@ struct PHYSICAL_CONFIG {
     // frame — ~3-4 dB coding gain (hard decision). Applied in main.cpp, so it
     // works for both single-carrier and OFDM.
     bool        fec             = false;
+    // Soft-decision Viterbi (opt-in). RX demod emits per-bit LLRs and the sink
+    // soft-decodes → ~2-3 dB coding gain vs hard-decision at the same SNR. Coherent
+    // schemes only (differential/pi4 fall back to hard). Requires fec=true.
+    bool        fec_soft        = false;
 
     // Waveform: "sc" = single-carrier (RRC + match filter + timing + eq),
     //           "ofdm" = OFDM (IFFT/CP; OFDM does its own sync/CFO/equalize).
@@ -183,6 +187,9 @@ public:
     MutexFIFO<std::vector<uint8_t>>                              tx_bits_fifo;
     // Output FIFO: pop {block_id, bits} here after reception
     MutexFIFO<std::pair<size_t, std::vector<uint8_t>>>           rx_bits_fifo;
+    // Soft-decision LLRs, one block per rx_bits_fifo block (populated only when
+    // fec_soft is on; consumed by the SINK's soft Viterbi decode).
+    MutexFIFO<std::pair<size_t, std::vector<float>>>            rx_llr_fifo;
 
     explicit PHYSICAL_LAYER(const PHYSICAL_CONFIG& cfg) : cfg_(cfg) {
         preamble_ = generate_preamble(cfg_.preamble_type, cfg_.preamble_length);
@@ -658,6 +665,7 @@ private:
         // scheme string and abort with "Unknown scheme".
         threads_.emplace_back(demodulation_thread,
             std::ref(eq_fifo_), std::ref(rx_bits_fifo),
-            std::ref(cfg_.scheme), std::ref(stop_flag_));
+            std::ref(cfg_.scheme), std::ref(stop_flag_),
+            (cfg_.fec && cfg_.fec_soft) ? &rx_llr_fifo : nullptr);
     }
 };
