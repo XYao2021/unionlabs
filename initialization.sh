@@ -70,7 +70,8 @@ case "$PM" in
         sudo apt-get install -y build-essential cmake \
             libuhd-dev uhd-host \
             libboost-program-options-dev libboost-system-dev \
-            libfftw3-dev libvolk2-dev python3-pip
+            libfftw3-dev libvolk2-dev python3-pip \
+            python3-numpy python3-matplotlib   # apt, not pip: PEP 668 blocks system pip
         # UHD images (Debian/Ubuntu ships the downloader with uhd-host):
         command -v uhd_images_downloader >/dev/null 2>&1 && \
             sudo uhd_images_downloader || warn "run 'sudo uhd_images_downloader' once before using a radio"
@@ -81,11 +82,22 @@ esac
 say "Installing Python dependencies (numpy, matplotlib, python-pptx)..."
 PY="$(command -v python3 || true)"
 [ -z "$PY" ] && { warn "python3 not found"; exit 1; }
-"$PY" -m pip install --upgrade pip >/dev/null 2>&1 || true
-# --user keeps it out of the system site-packages; drop it inside a venv.
+# Three cases. A venv → pip is unrestricted. Debian/Raspberry Pi OS system python
+# → pip is PEP 668 "externally-managed" and refuses to install (the error seen on
+# the Pi); numpy+matplotlib were installed via apt above, and only python-pptx
+# (slide generation) still needs pip, so try apt then a --break-system-packages
+# pip, non-fatal. Any other system python → the old --user path.
 if "$PY" -c 'import sys; sys.exit(0 if sys.prefix!=sys.base_prefix else 1)' 2>/dev/null; then
+    "$PY" -m pip install --upgrade pip >/dev/null 2>&1 || true
     "$PY" -m pip install --upgrade numpy matplotlib python-pptx        # in a venv
+elif [ "$PM" = "apt" ]; then
+    say "numpy + matplotlib installed via apt (PEP 668: system pip is blocked)."
+    if ! sudo apt-get install -y python3-pptx 2>/dev/null; then
+        "$PY" -m pip install --break-system-packages --upgrade python-pptx 2>/dev/null \
+            || warn "python-pptx not installed (only used for slide generation) — skipping"
+    fi
 else
+    "$PY" -m pip install --upgrade pip >/dev/null 2>&1 || true
     "$PY" -m pip install --user --upgrade numpy matplotlib python-pptx # system python
 fi
 
