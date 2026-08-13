@@ -173,4 +173,4 @@ Add `--steps N` to control how many rounds run. `./run.sh --help` lists every op
 - ☐ `spec` is optional — the wire format is self-describing, so shapes/dtypes are carried for you.
 
 More detail: the full contract and the framework functions are in `algorithms/README.md`; the PHY options
-are in `phy/GUIDE.md`.
+are in `drivers/usrp_uhd/GUIDE.md`.

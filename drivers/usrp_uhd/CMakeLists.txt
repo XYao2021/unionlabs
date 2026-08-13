@@ -141,7 +141,7 @@ if(PYTHON3_EXE)
         COMMAND ${PYTHON3_EXE} ${CMAKE_SOURCE_DIR}/tools/gen_python_api.py
                 --binary $<TARGET_FILE:sdr_system>
                 --out   ${CMAKE_SOURCE_DIR}/python/sdr.py
-                --md    ${CMAKE_SOURCE_DIR}/../PARAMETERS.md
+                --md    ${CMAKE_SOURCE_DIR}/../../PARAMETERS.md
         COMMENT "Regenerating python/sdr.py + PARAMETERS.md from sdr_system --help")
     add_custom_command(TARGET sdr_system POST_BUILD
         COMMAND ${PYTHON3_EXE} ${CMAKE_SOURCE_DIR}/tools/gen_config_template.py

@@ -37,7 +37,7 @@ import sys
 import time
 
 # import the auto-generated PHY wrapper from ../../python
-_PHY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "phy", "python"))
+_PHY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "drivers", "usrp_uhd", "python"))
 sys.path.insert(0, _PHY)
 import sdr  # noqa: E402
 

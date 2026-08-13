@@ -21,39 +21,43 @@ Hardware_update/
 │
 ├── algorithms/          YOUR algorithms — one folder per algorithm, each with app.py
 │   ├── _template/        copy this to start
-│   ├── echo/ plain_echo/ fl/ clip_semcom/ marl/ marl_multi/   worked examples
+│   ├── echo/ plain_echo/ fl/ clip_semcom/ marl/ marl_multi/ stc_aircomp/   worked examples
 │   └── README.md
 │
-├── phy/                 THE PHY LAYER  (UHD-based software-defined radio)
-│   ├── src/ include/     C++ engine sources + headers
-│   ├── build/sdr_system  the compiled radio engine (the modem)
-│   ├── CMakeLists.txt     build; POST_BUILD regenerates sdr.py + PARAMETERS.md
-│   ├── bindings/          pyphy — the DSP blocks as numpy functions (pybind11 .so)
-│   ├── tests/ sim/        C++ tests / simulations
-│   ├── tools/             gen_python_api.py (codegen), md/pdf + plotting helpers
-│   ├── GUIDE.md           beginner's guide to the PHY-layer codes
-│   └── python/            the Python you call:
-│       ├── run_algo.py      run an uploaded algorithm over the PHY (uniform API loader)
-│       ├── phy_link.py      the uniform API framework (contract, Codec, channels, drivers)
-│       ├── sdr.py           AUTO-GENERATED wrapper over sdr_system (do not edit)
-│       ├── run.py           run the PHY from a JSON config
-│       ├── configs/         ready-made JSON configs (per-scheme ARQ pairs, tones)
-│       ├── example.py       hand-written usage examples
-│       ├── phy_flow_example.py   a worked pyphy block flowgraph
-│       └── channel_sense.py / freq_scan.py / power_monitor.py / ber_*.py   RF utilities
+├── union/               THE ABSTRACTION / MIDDLEWARE  (one; all testbeds + all PHYs)
+│   ├── phy_link.py        uniform contract: SdrApp · PayloadSpec · Codec · channels · drivers
+│   ├── run_algo.py        discovers + adapts + runs any algorithm (loopback/multi/aircomp/tx/rx)
+│   └── driver.py          the PhyDriver interface every backend implements
+│                          (transfer / broadcast / superpose)
 │
-├── applications/        WORKED APPS built on the PHY
+├── applications/        WORKED APPS  (curated; code to the union/ contract, not to a driver)
 │   ├── MARL_RA_Union/    multi-agent random access (RL)
 │   ├── FL_Union/         federated learning (MNIST)
 │   ├── CLIP_SemCom_Union/ CLIP semantic communication
-│   ├── STC_AirComp_Union/ space-time over-the-air computation (design)
+│   ├── STC_AirComp_Union/ STC over-the-air computation (the AJOU app; phase-1 built)
 │   ├── jammer/           configurable RF interferer
-│   ├── APPLICATIONS_INTRO.pdf   EXPERIMENT_GUIDE.pdf   (intro + step-by-step run commands)
+│   └── APPLICATIONS_INTRO.pdf   EXPERIMENT_GUIDE.pdf   (intro + step-by-step run commands)
 │
-├── results/             figures / run outputs (gitignored, regenerable)
+├── drivers/             THE DRIVER LAYER  (many; one per PHY × testbed)
+│   ├── usrp_uhd/         the USRP/UHD PHY  (built)
+│   │   ├── src/ include/     C++ engine sources + headers
+│   │   ├── build/sdr_system  the compiled modem
+│   │   ├── CMakeLists.txt     build; POST_BUILD regenerates sdr.py + PARAMETERS.md
+│   │   ├── bindings/          pyphy — DSP blocks as numpy functions (pybind11 .so)
+│   │   ├── tools/ tests/ sim/ GUIDE.md
+│   │   └── python/            sdr.py (auto-gen) · run.py · configs/ · phy_flow_example.py · RF utils
+│   ├── sim/             radio-free driver: ideal / pyphy  (impl. as channels in union/phy_link.py)
+│   └── lora_arduino/    (planned) Arduino LoRa PHY — a different PHY, same contract
+│
+├── results/             figures / run outputs (regenerable)
 ├── deploy/              Docker + install (initialization.sh, run_sink/source.sh, docker/)
 └── docs/                diagrams, slides, changelog (CHANGES.md), pandoc assets
 ```
+
+**Two layers (the UnionLabs model):** `union/` is the **abstraction / middleware** — one
+contract, shared across every testbed and PHY; `drivers/<name>/` is the **driver layer** — one
+per (PHY × testbed). Experiments in `algorithms/` and `applications/` code to `union/` only, so
+the same experiment runs on any driver. This middleware is what POWDER / AERPAW don't expose.
 
 ## The two stacks
 
@@ -63,20 +67,20 @@ Hardware_update/
 algorithms/<name>/app.py        your algorithm: transmit() / receive() / on_result()
         │  make(role)
         ▼
-phy/python/run_algo.py          discovers + adapts your algorithm
-phy/python/phy_link.py          Codec (array⇄bytes) · channels (ideal|pyphy|radio) · drivers
+union/run_algo.py          discovers + adapts your algorithm
+union/phy_link.py          Codec (array⇄bytes) · channels (ideal|pyphy|radio) · drivers
         │  bytes
         ▼
-phy/build/sdr_system            the modem, over the air        (or pyphy, radio-free)
+drivers/usrp_uhd/build/sdr_system            the modem, over the air        (or pyphy, radio-free)
 ```
 
 **Direct radio API** (auto-generated from the C++ CLI — the single source of truth):
 
 ```
-phy/build/sdr_system --help     Boost program_options CLI  (source of truth)
+drivers/usrp_uhd/build/sdr_system --help     Boost program_options CLI  (source of truth)
         │
-        ▼  phy/tools/gen_python_api.py   (CMake POST_BUILD)
-        ├──► phy/python/sdr.py           AUTO-GENERATED wrapper (do not edit)
+        ▼  drivers/usrp_uhd/tools/gen_python_api.py   (CMake POST_BUILD)
+        ├──► drivers/usrp_uhd/python/sdr.py           AUTO-GENERATED wrapper (do not edit)
         └──► PARAMETERS.md               AUTO-GENERATED option reference (repo root)
 ```
 
@@ -85,15 +89,15 @@ a new or changed C++ option appears in Python and in the docs automatically — 
 Regenerate by hand:
 
 ```bash
-python3 phy/tools/gen_python_api.py --binary phy/build/sdr_system \
-        --out phy/python/sdr.py --md PARAMETERS.md
+python3 drivers/usrp_uhd/tools/gen_python_api.py --binary drivers/usrp_uhd/build/sdr_system \
+        --out drivers/usrp_uhd/python/sdr.py --md PARAMETERS.md
 ```
 
 ## Build
 
 ```bash
-cd phy && cmake -S . -B build && cmake --build build        # compiles build/sdr_system
-phy/bindings/build.sh                                        # builds pyphy (the blocks)
+cd drivers/usrp_uhd && cmake -S . -B build && cmake --build build   # compiles build/sdr_system
+drivers/usrp_uhd/bindings/build.sh                                  # builds pyphy (the blocks)
 ```
 
 `deploy/initialization.sh --build` installs the toolchain and compiles the engine in one step.

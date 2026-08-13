@@ -39,7 +39,7 @@ import torch
 from torch.distributions.categorical import Categorical
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "phy", "python"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "drivers", "usrp_uhd", "python"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "applications", "MARL_RA_Union"))
 from MARL_learning_Union import Actor_A2C, Critic          # noqa: E402

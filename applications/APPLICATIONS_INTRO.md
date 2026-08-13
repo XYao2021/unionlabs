@@ -340,8 +340,8 @@ Getting all three behind one interface is the point of the abstraction layer.
 | Radio (WITH_UHD) | `Radio(role,args,freq,rate,symbol_rate,gain,subdev,ant)` · `.transmit()` · `.capture()` |
 | **To add (App 2)** | `capture2`, `stlc_encode`, `stlc_combine`, `estimate_channel` |
 
-Build: `phy/bindings/build.sh` (DSP only, builds anywhere) or `WITH_UHD=1 bindings/build.sh`
-(adds the Radio block, on the lab host). Worked flowgraph: `phy/python/phy_flow_example.py`.
+Build: `drivers/usrp_uhd/bindings/build.sh` (DSP only, builds anywhere) or `WITH_UHD=1 bindings/build.sh`
+(adds the Radio block, on the lab host). Worked flowgraph: `drivers/usrp_uhd/python/phy_flow_example.py`.
 
 ### 5.2 Hardware inventory
 

@@ -25,7 +25,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "phy", "python"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "drivers", "usrp_uhd", "python"))
 from mnist_sgd_over_sdr import TinyMLP, load_mnist   # noqa: E402  (reuse)
 
 MODEL_MAGIC = b"MODL"

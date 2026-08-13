@@ -45,7 +45,7 @@ import numpy as np
 
 # Import the auto-generated SDR wrapper (same module run.py uses).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "phy", "python"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "drivers", "usrp_uhd", "python"))
 import sdr  # noqa: E402
 
 MAGIC = b"GRAD"

@@ -27,7 +27,7 @@ list raw **`sdr_system` CLI** commands. The equivalent **Python (`sdr.py`)** com
 interface users worked with — are shown here alongside. **Mapping rule:** every CLI `--option value`
 becomes the Python keyword `option=value` (hyphens → underscores); a bare `--flag` becomes
 `flag=True`; the `--role` picks the helper (`tx`/`rx`/`both`/`sink_arq`/`source_arq`). Run the Python
-forms from `phy/python/` (`from sdr import ...`).
+forms from `drivers/usrp_uhd/python/` (`from sdr import ...`).
 
 **Transmit only (B210)**
 ```bash
@@ -98,7 +98,7 @@ full option list is in `PARAMETERS.md`. `radio.sh` and `run.sh` wrap these for o
 | `CMakeLists.txt` | Build for `sdr_system`; POST_BUILD regenerates `sdr.py` + `PARAMETERS.md`. |
 | `phy.cfg` | Fully-defaulted config-file template (every option = its default). |
 
-### `phy/python/` — the Python you call
+### `drivers/usrp_uhd/python/` — the Python you call
 
 | File | Description |
 |---|---|
@@ -118,14 +118,14 @@ full option list is in `PARAMETERS.md`. `radio.sh` and `run.sh` wrap these for o
 | `tx_repeats_viz.py` | Visualize repeated-transmission behavior. |
 | `phy_outputs/**` | Runtime `--viz` signal dumps per scheme (tx/rx waves + symbols; gitignored). |
 
-### `phy/bindings/` — the block API
+### `drivers/usrp_uhd/bindings/` — the block API
 
 | File | Description |
 |---|---|
 | `pyphy.cpp` | pybind11 module exposing DSP stages (modulate/FEC/sync/OFDM/Radio) as numpy functions. |
 | `build.sh` | Builds the `pyphy` extension (add `WITH_UHD=1` for the Radio block). |
 
-### `phy/src/` — C++ engine
+### `drivers/usrp_uhd/src/` — C++ engine
 
 | File | Description |
 |---|---|
@@ -135,7 +135,7 @@ full option list is in `PARAMETERS.md`. `radio.sh` and `run.sh` wrap these for o
 | `synchronization.cpp` | Acquisition/preamble synchronization implementation. |
 | `transceiver.cpp` | UHD transmit/receive streaming implementation. |
 
-### `phy/include/` — C++ headers
+### `drivers/usrp_uhd/include/` — C++ headers
 
 | File | Description |
 |---|---|
@@ -152,7 +152,7 @@ full option list is in `PARAMETERS.md`. `radio.sh` and `run.sh` wrap these for o
 | `lora.hpp` | LoRa/CSS chirp waveform (transmit-side). |
 | `viz.hpp` | Capture TX/RX signals to `phy_outputs/` for plotting. |
 
-### `phy/tools/` — codegen, docs, plotting
+### `drivers/usrp_uhd/tools/` — codegen, docs, plotting
 
 | File | Description |
 |---|---|
@@ -165,7 +165,7 @@ full option list is in `PARAMETERS.md`. `radio.sh` and `run.sh` wrap these for o
 | `plot_viz.py` / `plot_evidence*.py` / `plot_fec_*.py` / `plot_waveform_snr.py` / `ofdm_spectrum.py` | Plotting utilities for captured signals, chain evidence, FEC comparisons, spectra. |
 | `lora_loopback_test.cpp` | Radio-free LoRa waveform loopback check. |
 
-### `phy/sim/` and `phy/tests/`
+### `drivers/usrp_uhd/sim/` and `drivers/usrp_uhd/tests/`
 
 | File | Description |
 |---|---|
@@ -196,7 +196,7 @@ full option list is in `PARAMETERS.md`. `radio.sh` and `run.sh` wrap these for o
 
 | File | Description |
 |---|---|
-| `initialization.sh` | Installs the toolchain (`--build` also compiles `phy/build/sdr_system`). |
+| `initialization.sh` | Installs the toolchain (`--build` also compiles `drivers/usrp_uhd/build/sdr_system`). |
 | `run_sink.sh` · `run_source.sh` · `fec_test.env` | One-line FEC-test wrappers for the sink/source + their shared env. |
 | `Dockerfile` · `Dockerfile.novnc` · `DOCKER.md` | Container image for the PHY / VNC variant / container docs. |
 | `docker/*.sh` · `launch.py` · `reservation.example.json` · `README.md` | Container build/run scripts, a launcher, an example reservation, and the container readme. |

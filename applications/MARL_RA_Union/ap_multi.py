@@ -219,7 +219,7 @@ class MultiAP:
         Python by agent id, so role rx (one-way decode) is exactly right."""
         import shlex
         import sys as _sys
-        _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "phy", "python"))
+        _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "drivers", "usrp_uhd", "python"))
         import sdr
         # tx_rate MUST be set even though this is receive-only: every process runs
         # the full rate-chain consistency check (tx_rate == symbol_rate*U/D), and it
@@ -330,7 +330,7 @@ class AgentAckClient:
                  warmup_s=6.0, launch_tx=True, announce_intent=False, **opts):
         import sys as _sys
         import tempfile
-        _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "phy", "python"))
+        _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "drivers", "usrp_uhd", "python"))
         import sdr
         from marl_phy import known_payload, PACKET_BYTES, _phy
         self.id = agent_id

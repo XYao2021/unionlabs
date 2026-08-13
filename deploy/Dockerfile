@@ -40,15 +40,15 @@ RUN pip3 install --no-cache-dir numpy==2.1.3
 WORKDIR /opt/sdr/Hardware_update
 COPY . .
 # .dockerignore drops the host (macOS) build/; rebuild clean for linux/amd64.
-RUN rm -rf phy/build \
- && cmake -S phy -B phy/build -DCMAKE_BUILD_TYPE=Release \
- && cmake --build phy/build -j"$(nproc)" \
- && test -x phy/build/sdr_system
+RUN rm -rf drivers/usrp_uhd/build \
+ && cmake -S drivers/usrp_uhd -B drivers/usrp_uhd/build -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build drivers/usrp_uhd/build -j"$(nproc)" \
+ && test -x drivers/usrp_uhd/build/sdr_system
 
 # The Python wrapper (python/sdr.py) finds the binary via this env var; also put
 # sdr_system + the UHD tools on PATH.
-ENV SDR_SYSTEM_BIN=/opt/sdr/Hardware_update/phy/build/sdr_system
-ENV PATH=/opt/sdr/Hardware_update/phy/build:${PATH}
+ENV SDR_SYSTEM_BIN=/opt/sdr/Hardware_update/drivers/usrp_uhd/build/sdr_system
+ENV PATH=/opt/sdr/Hardware_update/drivers/usrp_uhd/build:${PATH}
 
 # Documentation only (EXPOSE does NOT restrict interfaces — that is a `docker run`
 # network choice). TCP control ports used by the AP/agents:

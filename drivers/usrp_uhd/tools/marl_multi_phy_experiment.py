@@ -31,7 +31,7 @@ import argparse, csv, math, os, sys
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(HERE))
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))   # tools->usrp_uhd->drivers->repo
 sys.path.insert(0, os.path.join(REPO, "applications", "MARL_RA_Union"))
 import torch                                                     # noqa: E402
 from torch.distributions.categorical import Categorical          # noqa: E402

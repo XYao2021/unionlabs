@@ -38,14 +38,14 @@ cmake ..            # if `cmake` is Anaconda's, use /usr/bin/cmake .. explicitly
 make -j
 ls ./sdr_system     # <- the binary
 ```
-Rebuilding also regenerates `phy/python/sdr.py` and `PARAMETERS.md` (CMake post-build).
+Rebuilding also regenerates `drivers/usrp_uhd/python/sdr.py` and `PARAMETERS.md` (CMake post-build).
 
 ### 0.3 Build the block API `pyphy` (needed for the CLIP `pyphy` channel; optional otherwise)
 ```bash
 cd Hardware_update/phy
 bindings/build.sh                 # DSP blocks only (builds anywhere)
 WITH_UHD=1 bindings/build.sh      # + the Radio source/sink (on the lab host, needs UHD)
-# On macOS run pyphy code as:  PYTHONPATH=phy/bindings arch -x86_64 python3 ...
+# On macOS run pyphy code as:  PYTHONPATH=drivers/usrp_uhd/bindings arch -x86_64 python3 ...
 ```
 
 ### 0.4 Confirm the radios are visible
@@ -195,7 +195,7 @@ cd applications/CLIP_SemCom_Union
 python3 semcom.py demo --mock                       # encode -> lossless channel -> classify (~0.99)
 
 # reproduce the paper's accuracy-vs-noise (Fig. 3) through OUR real modem + FEC:
-PYTHONPATH=../../phy/bindings arch -x86_64 python3 semcom.py demo --mock \
+PYTHONPATH=../../drivers/usrp_uhd/bindings arch -x86_64 python3 semcom.py demo --mock \
         --channel pyphy --scheme QPSK --fec turbo --snr-sweep 0,2,4,6,10
 
 python3 semcom.py demo --mock --model-sweep         # 3-CLIP-model accuracy / payload / delay / energy
@@ -236,7 +236,7 @@ sweep in Step 0 (radio-free), or the phase-2 single-shot mode in the INTEGRATION
 | CLIP accuracy ~0 even at high SNR (uncoded) | Any bit error wrecks the 512-float payload → add FEC (`--fec turbo`), use soft decode. |
 | RX won't stop on Ctrl-C | Press Ctrl-C again (escalating handler); emergency = `Ctrl-\` or `kill -9`. |
 | Two processes on one host clash | Give distinct ports: ARQ `--ack-port`, FL downlink `--net-port`, slot clock `--port 5600`. |
-| pyphy `Python.h not found` / arch mismatch (macOS) | Use `phy/bindings/build.sh` (adds `-isystem`, `python3-config`); run with `arch -x86_64 python3`. |
+| pyphy `Python.h not found` / arch mismatch (macOS) | Use `drivers/usrp_uhd/bindings/build.sh` (adds `-isystem`, `python3-config`); run with `arch -x86_64 python3`. |
 
 ---
 
@@ -248,7 +248,7 @@ sweep in Step 0 (radio-free), or the phase-2 single-shot mode in the INTEGRATION
 (cd applications/MARL_RA_Union && python3 marl_multi_train.py --mock --agents 4 --steps 800 --coll-penalty 0.5)
 (cd applications/FL_Union && python3 fl.py --mock --clients 2 --rounds 20)  # FL
 cd applications/CLIP_SemCom_Union && python3 semcom.py demo --mock   # CLIP
-PYTHONPATH=../../phy/bindings arch -x86_64 python3 semcom.py demo --mock --channel pyphy --fec turbo --snr-sweep 0,2,4,6,10
+PYTHONPATH=../../drivers/usrp_uhd/bindings arch -x86_64 python3 semcom.py demo --mock --channel pyphy --fec turbo --snr-sweep 0,2,4,6,10
 
 # ---- hardware (RX/AP host first, TX host second) ----
 # MARL single:   real_channel.py ap --rx-args serial=30CD3F7   |   marl_train.py --tx-args serial=30CD424 --steps 150

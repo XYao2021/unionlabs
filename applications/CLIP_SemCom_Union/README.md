@@ -41,7 +41,7 @@ cd applications/CLIP_SemCom_Union
 python3 semcom.py demo --mock
 
 # 2) reproduce the paper's accuracy-vs-noise (Fig. 3) through OUR real modem + FEC:
-PYTHONPATH=../../phy/bindings arch -x86_64 python3 semcom.py demo --mock \
+PYTHONPATH=../../drivers/usrp_uhd/bindings arch -x86_64 python3 semcom.py demo --mock \
     --channel pyphy --scheme QPSK --fec turbo --snr-sweep 0,2,4,6,10
 
 # 3) the 3-CLIP-model accuracy / payload / delay / energy tradeoff (Table I):
@@ -92,4 +92,4 @@ falls back to the mock, so nothing ever hard-fails. Models: `vit-b32`, `vit-b16`
 - `../EXPERIMENT_GUIDE.pdf` (or `.md`) — step-by-step commands to run every application (radio-free + hardware); this app is §3.
 - `../APPLICATIONS_INTRO.pdf` — all applications introduced together.
 - `../FL_Union/fl.py` — the FL data-transfer app this mirrors (same PHY byte-pipe).
-- `../../phy/bindings/pyphy.cpp` — the block API the `pyphy` channel backend uses.
+- `../../drivers/usrp_uhd/bindings/pyphy.cpp` — the block API the `pyphy` channel backend uses.

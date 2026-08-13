@@ -11,7 +11,7 @@ transmit and what to receive; a one-line make(role) binding lets the uniform API
                         transmit() = FedAvg aggregate -> the new global
 
 Reuses the existing FL library (TinyMLP / local_train / fedavg) unchanged.
-Run:  python3 phy/python/run_algo.py --algo fl --role loopback --steps 6
+Run:  python3 union/run_algo.py --algo fl --role loopback --steps 6
 """
 import os, sys
 import numpy as np

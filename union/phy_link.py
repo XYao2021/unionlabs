@@ -309,7 +309,9 @@ class RadioRoundTrip:
     def __init__(self, role, tx_args="", rx_args="", ack_host="127.0.0.1", ack_port=5599,
                  net_host="127.0.0.1", net_port=5700, scheme="DQPSK", waveform="sc",
                  tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A", chunk=125):
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        # sdr.py lives in the USRP driver (union/ -> repo -> drivers/usrp_uhd/python)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        "..", "drivers", "usrp_uhd", "python"))
         import sdr, socket, struct as _st
         self.sdr, self.socket, self._st = sdr, socket, _st
         self.role = role

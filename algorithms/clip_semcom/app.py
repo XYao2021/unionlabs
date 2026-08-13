@@ -11,7 +11,7 @@ binding lets the uniform API read it.
     tx: receive(label) -> compare to ground truth -> accuracy
 
 Reuses the existing semcom_core library (mock CLIP, no torch weights needed).
-Run:  python3 phy/python/run_algo.py --algo clip_semcom --role loopback --steps 45
+Run:  python3 union/run_algo.py --algo clip_semcom --role loopback --steps 45
 """
 import os, sys
 import numpy as np

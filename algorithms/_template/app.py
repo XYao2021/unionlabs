@@ -13,7 +13,7 @@ import from our framework and no PHY/radio code. Provide a plain object with:
 ...plus a one-line make(role) so the framework can build one per node. The framework
 reads this and handles the codec, round-trip, modem, and radio.
 
-Run radio-free:  python3 phy/python/run_algo.py --algo <your_name> --role loopback
+Run radio-free:  python3 union/run_algo.py --algo <your_name> --role loopback
 """
 import numpy as np
 

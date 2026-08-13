@@ -129,10 +129,10 @@ if [ "$WITH_BUILD" -eq 1 ]; then
     say "Configuring + building build/sdr_system (with $CMAKE_BIN)..."
     # A COPIED build/ caches absolute paths from the source machine and won't
     # reconfigure here — always start from a clean build dir.
-    rm -rf "$HERE/../phy/build"
-    mkdir -p "$HERE/../phy/build"
-    ( cd "$HERE/../phy/build" && "$CMAKE_BIN" .. && make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" )
-    say "Built: $HERE/../phy/build/sdr_system"
+    rm -rf "$HERE/../drivers/usrp_uhd/build"
+    mkdir -p "$HERE/../drivers/usrp_uhd/build"
+    ( cd "$HERE/../drivers/usrp_uhd/build" && "$CMAKE_BIN" .. && make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" )
+    say "Built: $HERE/../drivers/usrp_uhd/build/sdr_system"
 fi
 
 # ── Confirm a connected USRP (best-effort) ───────────────────────────────────

@@ -4,7 +4,7 @@ End-to-end digital communication system for two USRP B210 radios (UHD), written 
 This document lists **every feature, algorithm (with the math and the common alternatives),
 and command-line option** exposed by `sdr_system`.
 
-- Binary: `phy/build/sdr_system`
+- Binary: `drivers/usrp_uhd/build/sdr_system`
 - Help: `./sdr_system --help`
 - Two operating styles: **one-way** (`--role tx` / `--role rx`, repeated sends, auto-terminating RX)
   and **ARQ** (`--role source_arq` / `--role sink_arq`, stop-and-wait with ACK).
@@ -135,7 +135,7 @@ preferred for dense QAM on frequency-selective channels. Cost: high peak-to-aver
 (PAPR) and sensitivity
 to carrier frequency offset (loss of subcarrier orthogonality → inter-carrier interference).
 
-![Subcarrier orthogonality (shown for $N=16$): each subcarrier's spectrum is a sinc that peaks at its own index and is exactly zero at every other subcarrier — so they overlap in frequency yet don't interfere. (See `phy/tools/ofdm_spectrum.py` to view this on a real captured signal.)](results/figures/ofdm_orthogonality.png)
+![Subcarrier orthogonality (shown for $N=16$): each subcarrier's spectrum is a sinc that peaks at its own index and is exactly zero at every other subcarrier — so they overlap in frequency yet don't interfere. (See `drivers/usrp_uhd/tools/ofdm_spectrum.py` to view this on a real captured signal.)](results/figures/ofdm_orthogonality.png)
 
 **Channel estimation & pilots.** One known **channel-estimation symbol** (known value on every
 active subcarrier) gives $H[k] = Y_\text{chest}[k]/\text{ref}[k]$. **Scattered pilots** (every 8th active
@@ -702,7 +702,7 @@ gain over time. The energy detector's captured burst feeds the AGC before sync.
 TX/RX **time domain**, **spectrum** (FFT), and **constellation** with the ideal points overlaid
 and an **EVM %** readout. Rough EVM ceilings for reliable decode: QPSK tolerates ~30–35% (more
 with FEC), 16-QAM needs <~12%, 64-QAM <~6%. Render manually with
-`python3 phy/tools/plot_viz.py <dir> --fs 1.6e6 --save out.png`.
+`python3 drivers/usrp_uhd/tools/plot_viz.py <dir> --fs 1.6e6 --save out.png`.
 
 ### 10.1 Why a *messy* constellation can still decode perfectly
 
@@ -763,7 +763,7 @@ borderline but the stack still closes the gap; dense QAM/APSK is past it.
 `--config phy.cfg` reads `name = value` lines (`#` comments; long option name without `--`), and
 anything on the command line **overrides** the file — so you keep one edited config and tweak
 per-run. `phy.cfg` is a fully-defaulted template auto-generated on build
-(`phy/tools/gen_config_template.py`) from `sdr_system --help`, so it never drifts from the code.
+(`drivers/usrp_uhd/tools/gen_config_template.py`) from `sdr_system --help`, so it never drifts from the code.
 
 ### Mode / roles
 | Option | Default | Controls |
@@ -1034,7 +1034,7 @@ DSP-vs-shared-clock trade-off above.
 ## 14. LoRa / CSS (chirp spread spectrum) — decodable receiver
 
 A parallel waveform to `sc`/`ofdm`, added in `include/lora.hpp` with the radio path in
-`phy/src/main.cpp` (`--waveform lora`). Unlike the constellation pipeline (m-sequence
+`drivers/usrp_uhd/src/main.cpp` (`--waveform lora`). Unlike the constellation pipeline (m-sequence
 preamble + RRC + PLL), CSS has its own chirp-based sync and demod, so it runs at the
 sample level via `transmit_samples` / `PHYSICAL_LAYER::capture_raw` (like the tone path),
 bypassing the ACQ threads.

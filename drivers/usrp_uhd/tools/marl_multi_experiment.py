@@ -19,8 +19,8 @@ Run:  python3 phy/tools/marl_multi_experiment.py --agents 4 --slots 4000
 import argparse, csv, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(HERE))            # phy/tools -> phy -> repo
-sys.path.insert(0, os.path.join(REPO, "phy", "python"))
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))   # tools->usrp_uhd->drivers->repo
+sys.path.insert(0, os.path.join(REPO, "union"))
 import phy_link as pl                                     # noqa: E402
 import run_algo                                           # noqa: E402
 
@@ -39,7 +39,7 @@ def main():
     a = ap.parse_args()
 
     n = a.agents
-    factory, how = run_algo.load_app_factory(a.algo)
+    factory, how, _mod = run_algo.load_app_factory(a.algo)
     print(f"[exp] loaded algorithms/{a.algo} via {how}")
     agents = [factory("agent") for _ in range(n)]          # N independent TX agents -> 1 AP
     ch = (pl.make_channel("pyphy", scheme=a.scheme, fec=(a.fec or None), snr_db=a.snr_db)

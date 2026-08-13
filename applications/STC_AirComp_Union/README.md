@@ -94,5 +94,5 @@ path — it all lives on the `pyphy` block API. Details and the validation plan 
 - `../EXPERIMENT_GUIDE.pdf` (or `.md`) — step-by-step commands to run every application (radio-free + hardware); this app's planned bring-up sequence is in §2.
 - `../APPLICATIONS_INTRO.pdf` — both applications introduced side by side.
 - `../MARL_RA_Union/` — Application 1 (the reliable-link control archetype).
-- `../../phy/python/phy_flow_example.py` — worked `pyphy` flowgraph (the substrate this app builds on).
-- `../../phy/bindings/pyphy.cpp` — the block API; `phy/bindings/build.sh` to build it.
+- `../../drivers/usrp_uhd/python/phy_flow_example.py` — worked `pyphy` flowgraph (the substrate this app builds on).
+- `../../drivers/usrp_uhd/bindings/pyphy.cpp` — the block API; `drivers/usrp_uhd/bindings/build.sh` to build it.

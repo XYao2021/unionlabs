@@ -49,7 +49,7 @@ import tempfile
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "phy", "python"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "drivers", "usrp_uhd", "python"))
 import sdr  # noqa: E402
 from fl_core import (TinyMLP, deserialize_model, fedavg, get_dataset,  # noqa: E402
                      iid_shards, local_train, serialize_model)

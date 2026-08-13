@@ -14,10 +14,10 @@ options, and functions** — enough for a newcomer to use the codes without read
 The pieces you touch most:
 
 - **`algorithms/`** — your code (one folder per algorithm); **`run.sh`** runs it.
-- **`phy/build/sdr_system`** — the C++ radio engine (the modem); **`radio.sh`** runs raw TX/RX.
-- **`phy/python/`** — the Python you call: `run_algo.py`/`phy_link.py` (uniform API),
+- **`drivers/usrp_uhd/build/sdr_system`** — the C++ radio engine (the modem); **`radio.sh`** runs raw TX/RX.
+- **`drivers/usrp_uhd/python/`** — the Python you call: `run_algo.py`/`phy_link.py` (uniform API),
   `sdr.py`/`run.py`/`configs/` (direct radio), `channel_sense.py`/`freq_scan.py` (RF utils).
-- **`phy/bindings/pyphy`** — the DSP blocks as numpy functions.
+- **`drivers/usrp_uhd/bindings/pyphy`** — the DSP blocks as numpy functions.
 - **`applications/`** — worked apps (MARL, FL, CLIP, jammer).
 
 **Full repo layout → [`STRUCTURE.md`](../STRUCTURE.md); file-by-file index → [`MANIFEST.md`](../MANIFEST.md).**
@@ -102,7 +102,7 @@ When you want raw control of the modem (no algorithm layer), use the roles.
 > per-device defaults — **B210 is the default**; add `--device n210` or `--device x310`. E.g.
 > `./radio.sh rx --device n210 --freq 915e6`. Add `--dry-run` to just print the command.
 
-### From Python (`phy/python/sdr.py`)
+### From Python (`drivers/usrp_uhd/python/sdr.py`)
 ```python
 from sdr import tx, rx, both, source_arq, sink_arq, run_pair, options
 options()                                             # print every option + default
@@ -149,10 +149,10 @@ Two rules that save hours: **start the receiver before the transmitter**, and on
 free-running radios use **`DQPSK`** (single-carrier) or **`OFDM`** — plain coherent `QPSK`
 delivers poorly without a shared clock.
 
-### From a JSON file (`phy/python/run.py`)
+### From a JSON file (`drivers/usrp_uhd/python/run.py`)
 ```bash
-python3 phy/python/run.py --list                    # ready-made configs
-python3 phy/python/run.py configs/qpsk_arq_pair.json --dry-run   # print, don't run
+python3 drivers/usrp_uhd/python/run.py --list                    # ready-made configs
+python3 drivers/usrp_uhd/python/run.py configs/qpsk_arq_pair.json --dry-run   # print, don't run
 ```
 
 ---
@@ -160,8 +160,8 @@ python3 phy/python/run.py configs/qpsk_arq_pair.json --dry-run   # print, don't 
 ## 4. The building blocks (`pyphy`)
 
 Every DSP stage is also a plain Python function, so you can compose the chain yourself
-(GNU-Radio style). Build it with `phy/bindings/build.sh`; import with
-`PYTHONPATH=phy/bindings python3` (add `arch -x86_64` on macOS).
+(GNU-Radio style). Build it with `drivers/usrp_uhd/bindings/build.sh`; import with
+`PYTHONPATH=drivers/usrp_uhd/bindings python3` (add `arch -x86_64` on macOS).
 
 | Group | Functions |
 |---|---|
@@ -182,13 +182,13 @@ wave = pyphy.rrc_tx(syms, sps=2, beta=0.25)    # pulse-shape to a waveform
 # ... channel/radio ...
 back = pyphy.demodulate(pyphy.rrc_rx(wave, sps=2, beta=0.25)[::2], "QPSK")
 ```
-Worked flowgraph: `phy/python/phy_flow_example.py`.
+Worked flowgraph: `drivers/usrp_uhd/python/phy_flow_example.py`.
 
 ---
 
 ## 5. Function cheat-sheet (the Python API)
 
-**Uniform API — `phy/python/phy_link.py`**
+**Uniform API — `union/phy_link.py`**
 - `SdrApp` — base app: `produce()` / `consume(msg)` / `on_result(ack)` (advanced path)
 - `adapt(obj, role)` — wrap ANY object with `transmit()`/`receive()` into an `SdrApp`
 - `PayloadSpec(dtype, shape)` — declare an output's type + shape
@@ -197,16 +197,16 @@ Worked flowgraph: `phy/python/phy_flow_example.py`.
 - `run_loopback(tx, rx, channel, steps)` — radio-free round-trip driver
 - `RadioRoundTrip(role, …).step(app)` — the two-host radio round-trip
 
-**Runner — `phy/python/run_algo.py`**
+**Runner — `union/run_algo.py`**
 - `load_app_factory(name)` — find/adapt the algorithm in `algorithms/<name>/app.py`
 
-**Radio wrapper — `phy/python/sdr.py`**
+**Radio wrapper — `drivers/usrp_uhd/python/sdr.py`**
 - `SDR(**opts)` — one invocation; `.command()` (print), `.run()` (blocking), `.popen()` (background), `.set(**opts)`
 - helpers `tx / rx / both / source_arq / sink_arq / run_pair / options`
 
-**Spectrum — `phy/python/channel_sense.py`, `freq_scan.py`**
+**Spectrum — `drivers/usrp_uhd/python/channel_sense.py`, `freq_scan.py`**
 - `sense_channel(...)` — measure power at one frequency
-- `python3 phy/python/freq_scan.py --start 902 --stop 928 --rx-args addr=192.168.20.2` — find a quiet carrier
+- `python3 drivers/usrp_uhd/python/freq_scan.py --start 902 --stop 928 --rx-args addr=192.168.20.2` — find a quiet carrier
 
 ---
 
@@ -224,7 +224,7 @@ Worked flowgraph: `phy/python/phy_flow_example.py`.
 
 | Symptom | Fix |
 |---|---|
-| `pyphy` import / `Python.h` / arch error (macOS) | run via `./run.sh` (it sets `PYTHONPATH` + `arch -x86_64`), or build with `phy/bindings/build.sh` |
+| `pyphy` import / `Python.h` / arch error (macOS) | run via `./run.sh` (it sets `PYTHONPATH` + `arch -x86_64`), or build with `drivers/usrp_uhd/bindings/build.sh` |
 | `Exec format error` on `sdr_system` | rebuild on that machine: `cd phy && cmake -S . -B build && cmake --build build` |
 | receiver gets nothing / no ACK | start the **receiver first**; keep both radios on; use `DQPSK` or `OFDM` |
 | startup "rate check" fails | N210 needs `--rx-rate 2e6 --symbol-rate 1e6`; set `--tx-rate = --rx-rate` |

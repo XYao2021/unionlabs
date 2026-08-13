@@ -4,21 +4,21 @@ run_algo.py — load an uploaded algorithm from algorithms/<name>/app.py and run
 over the PHY through the uniform phy_link contract.
 
   # radio-free round-trip (lossless):
-  python3 phy/python/run_algo.py --algo echo --role loopback
+  python3 union/run_algo.py --algo echo --role loopback
 
   # radio-free through the REAL modem + AWGN:
-  PYTHONPATH=phy/bindings arch -x86_64 python3 phy/python/run_algo.py \
+  PYTHONPATH=drivers/usrp_uhd/bindings arch -x86_64 python3 union/run_algo.py \
       --algo echo --role loopback --channel pyphy --snr-db 6
 
   # over the radio (two hosts): rx first, then tx
-  python3 phy/python/run_algo.py --algo echo --role rx --rx-args addr=192.168.20.2
-  python3 phy/python/run_algo.py --algo echo --role tx --tx-args serial=30CD424 \
+  python3 union/run_algo.py --algo echo --role rx --rx-args addr=192.168.20.2
+  python3 union/run_algo.py --algo echo --role tx --tx-args serial=30CD424 \
       --ack-host <RX_IP> --net-host <RX_IP>
 """
 import argparse, importlib.util, inspect, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(HERE))          # phy/python -> phy -> repo
+REPO = os.path.dirname(HERE)                            # union/ -> repo
 sys.path.insert(0, HERE)
 import phy_link as pl
 

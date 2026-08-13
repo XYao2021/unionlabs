@@ -7,14 +7,14 @@ Round-trip: the tx sends a random float32 vector; the rx replies with
 whole contract (produce -> transmit -> consume -> reply -> transmit -> consume) end to
 end, with no radio.
 
-    python3 phy/python/run_algo.py --algo echo --role loopback
-    PYTHONPATH=phy/bindings arch -x86_64 python3 phy/python/run_algo.py \
+    python3 union/run_algo.py --algo echo --role loopback
+    PYTHONPATH=drivers/usrp_uhd/bindings arch -x86_64 python3 union/run_algo.py \
         --algo echo --role loopback --channel pyphy --snr-db 6
 """
 import os, sys
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "phy", "python"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "union"))
 from phy_link import SdrApp, PayloadSpec          # noqa: E402
 
 N = 16

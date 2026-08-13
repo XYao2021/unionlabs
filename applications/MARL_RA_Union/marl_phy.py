@@ -39,7 +39,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "phy", "python"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "drivers", "usrp_uhd", "python"))
 import sdr  # noqa: E402
 # Re-export the sensing helpers so a policy needs only this one module.
 from channel_sense import sense_channel, calibrate_floor, SenseStream  # noqa: E402,F401

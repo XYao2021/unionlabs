@@ -1,5 +1,5 @@
-# CMake build tree (regenerate with: cd phy && cmake -S . -B build && cmake --build build)
-phy/build/
+# CMake build tree (regenerate with: cd drivers/usrp_uhd && cmake -S . -B build && cmake --build build)
+drivers/usrp_uhd/build/
 **/build/
 
 # Compiled binaries / objects
@@ -8,14 +8,14 @@ phy/build/
 *.a
 *.so
 *.dylib
-phy/sim/tx_app
-phy/sim/rx_app
-phy/tests/frontend_repro
-phy/tests/pipeline2_verify
-phy/tests/integration_test
-phy/tests/mod_loopback_test
-phy/tests/rx_chain_sweep
-phy/tests/sync_reorder_demo
+drivers/usrp_uhd/sim/tx_app
+drivers/usrp_uhd/sim/rx_app
+drivers/usrp_uhd/tests/frontend_repro
+drivers/usrp_uhd/tests/pipeline2_verify
+drivers/usrp_uhd/tests/integration_test
+drivers/usrp_uhd/tests/mod_loopback_test
+drivers/usrp_uhd/tests/rx_chain_sweep
+drivers/usrp_uhd/tests/sync_reorder_demo
 
 # Runtime output dirs written by the transceiver (created at the binary's CWD)
 transmit/

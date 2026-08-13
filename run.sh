@@ -16,7 +16,7 @@
 # extension (needed for --channel pyphy and the radio roles) is wired automatically.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-RUN="$HERE/phy/python/run_algo.py"
+RUN="$HERE/union/run_algo.py"
 
 if [ "${1:-}" = "list" ]; then
   echo "algorithms in $HERE/algorithms/ :"
@@ -42,7 +42,7 @@ esac
 CMD=(python3 "$RUN" "${DEF[@]}" "$@")
 echo ">> ${CMD[*]}"
 if [ "$NEED_PYPHY" = 1 ]; then
-  export PYTHONPATH="$HERE/phy/bindings${PYTHONPATH:+:$PYTHONPATH}"
+  export PYTHONPATH="$HERE/drivers/usrp_uhd/bindings${PYTHONPATH:+:$PYTHONPATH}"
   [ "$(uname)" = "Darwin" ] && exec arch -x86_64 "${CMD[@]}"   # macOS: pyphy is x86_64
 fi
 exec "${CMD[@]}"

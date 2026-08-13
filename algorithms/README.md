@@ -7,7 +7,7 @@ touch the radio.
 > **How to add one → [`HOW_TO_ADD_ALGORITHM.md`](../HOW_TO_ADD_ALGORITHM.md)** — where to put it, how
 > to write `app.py`, how to link your existing code, and how to run it by name (`./run.sh --algo <name>`).
 > The framework internals it relies on (`PayloadSpec`, `Codec`, `PhyLink`, `run_loopback`,
-> `RadioRoundTrip`, the `adapt`/loader) live in `../phy/python/phy_link.py` + `run_algo.py`.
+> `RadioRoundTrip`, the `adapt`/loader) live in `../union/phy_link.py` + `run_algo.py`.
 
 ## Worked examples in this folder (the applications, ported as pure algorithms)
 

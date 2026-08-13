@@ -65,7 +65,7 @@ band hits every burst, while **burst** mode leaves gaps the policy can learn to 
   (`--message-type chirp`, `--chirp-bw`, `--chirp-sf`). It is transmit-only here;
   LoRa as a *decodable data* modulation is a separate PHY addition.
 - Verify a waveform is on the air with the tone monitor (another radio):
-  `python3 ../../phy/python/run.py configs/rx_tone_monitor.json` — a chirp shows as a
+  `python3 ../../drivers/usrp_uhd/python/run.py configs/rx_tone_monitor.json` — a chirp shows as a
   frequency that sweeps.
 - Jamming affects any receiver on that frequency. Use only on your own link /
   authorized test setup.

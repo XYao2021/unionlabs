@@ -15,7 +15,7 @@ set of worked **applications**. You bring an algorithm; the PHY moves its data o
 
 - **Add your own algorithm:** [`HOW_TO_ADD_ALGORITHM.md`](HOW_TO_ADD_ALGORITHM.md) — where to put it,
   how to write `app.py`, how to link your existing code, how to run it by name.
-- **Learn the PHY:** [`phy/GUIDE.md`](phy/GUIDE.md) — beginner's guide to every way to run it.
+- **Learn the PHY:** [`drivers/usrp_uhd/GUIDE.md`](drivers/usrp_uhd/GUIDE.md) — beginner's guide to every way to run it.
 - **Every option:** [`PARAMETERS.md`](PARAMETERS.md) — auto-generated, always current.
 - **Full layout:** [`STRUCTURE.md`](STRUCTURE.md) · **file index:** [`MANIFEST.md`](MANIFEST.md).
 
@@ -25,24 +25,25 @@ set of worked **applications**. You bring an algorithm; the PHY moves its data o
 |---|---|
 | `run.sh` / `radio.sh` | run an **algorithm** over the PHY / raw **TX·RX** on a USRP |
 | `algorithms/` | **your** algorithms (one folder each) |
-| `phy/` | the PHY layer: C++ engine (`build/sdr_system`), Python API (`python/`), blocks (`bindings/pyphy`) |
-| `applications/` | worked apps: MARL random access, federated learning, CLIP semantic comm, jammer |
+| `union/` | the **abstraction / middleware** — one contract for all testbeds + PHYs (`phy_link.py`, `run_algo.py`, `driver.py`) |
+| `drivers/` | the **driver layer** — one per PHY × testbed: `usrp_uhd/` (C++ engine + `pyphy`), `sim/`, `lora_arduino/` (planned) |
+| `applications/` | worked apps: MARL random access, federated learning, CLIP semantic comm, STC-AirComp (AJOU), jammer |
 | `docs/` `results/` `deploy/` | diagrams & slides / run outputs / Docker + install |
 
 ## Three ways to use the PHY
 
 1. **Uniform algorithm API** — the easiest path. Your algorithm only says *what to transmit /
-   what to receive*; `./run.sh --algo <name>` runs it. See `HOW_TO_ADD_ALGORITHM.md` and `phy/GUIDE.md §2`.
-2. **Direct radio** — drive the modem by role via `sdr.py` or `./radio.sh` (see below + `phy/GUIDE.md §3`).
+   what to receive*; `./run.sh --algo <name>` runs it. See `HOW_TO_ADD_ALGORITHM.md` and `drivers/usrp_uhd/GUIDE.md §2`.
+2. **Direct radio** — drive the modem by role via `sdr.py` or `./radio.sh` (see below + `drivers/usrp_uhd/GUIDE.md §3`).
 3. **`pyphy` blocks** — compose the DSP yourself (modulate/FEC/sync/OFDM as numpy functions).
-   See `phy/GUIDE.md §4`.
+   See `drivers/usrp_uhd/GUIDE.md §4`.
 
 ---
 
 ## Driving the radio directly
 
 For raw TX/RX and the **`sdr.py` Python API** — roles, options, JSON configs, channel sensing —
-see **[`phy/GUIDE.md §3`](phy/GUIDE.md)**. The one-line shortcut is `./radio.sh tx` / `./radio.sh rx`
+see **[`drivers/usrp_uhd/GUIDE.md §3`](drivers/usrp_uhd/GUIDE.md)**. The one-line shortcut is `./radio.sh tx` / `./radio.sh rx`
 (B210 default; `--device n210|x310`).
 
 **Where to find commands & options (each doc has one job):**
@@ -66,4 +67,4 @@ The same apps are also available as uploadable algorithms under `algorithms/`.
 
 ## Install
 
-`deploy/initialization.sh` installs the toolchain (`--build` also compiles `phy/build/sdr_system`).
+`deploy/initialization.sh` installs the toolchain (`--build` also compiles `drivers/usrp_uhd/build/sdr_system`).

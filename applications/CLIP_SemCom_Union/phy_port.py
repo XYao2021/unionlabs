@@ -21,7 +21,7 @@ import os, sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "phy", "python"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "drivers", "usrp_uhd", "python"))
 import semcom_core as core
 
 
@@ -121,7 +121,7 @@ class RadioPhyLink:
                  scheme="DQPSK", waveform="sc", tx_gain=70, rx_gain=30,
                  rx_subdev="A:0", tx_subdev="A:A", chunk=125, timeout=8.0, max_attempts=50):
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                        "..", "..", "phy", "python"))
+                                        "..", "..", "drivers", "usrp_uhd", "python"))
         import sdr, tempfile, atexit
         self.sdr, self.tempfile, self.atexit = sdr, tempfile, atexit
         self.cfg = dict(scheme=scheme, waveform=waveform, fec=True, rx_freq=915e6, tx_freq=915e6,
