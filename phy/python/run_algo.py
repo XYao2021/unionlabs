@@ -42,12 +42,12 @@ def load_app_factory(name):
 
     # 1) a make(role) binding -> read ANY (untouched) algorithm
     if callable(getattr(mod, "make", None)):
-        return (lambda role: pl.adapt(mod.make(role), role)), "make(role) binding"
+        return (lambda role: pl.adapt(mod.make(role), role)), "make(role) binding", mod
     own = [c for _, c in inspect.getmembers(mod, inspect.isclass) if c.__module__ == mod.__name__]
     # 2) an SdrApp subclass (advanced/stateful)
     subs = [c for c in own if issubclass(c, pl.SdrApp) and c is not pl.SdrApp]
     if subs:
-        return (lambda role: subs[0](role)), f"SdrApp subclass {subs[0].__name__}"
+        return (lambda role: subs[0](role)), f"SdrApp subclass {subs[0].__name__}", mod
     # 3) a plain class exposing transmit()/receive()
     plains = [c for c in own if _has_io(c)]
     if plains:
@@ -58,10 +58,10 @@ def load_app_factory(name):
             except TypeError:
                 obj = cls()
             return pl.adapt(obj, role)
-        return f, f"plain class {cls.__name__}"
+        return f, f"plain class {cls.__name__}", mod
     # 4) module-level transmit()/receive() (single instance)
     if _has_io(mod):
-        return (lambda role: pl.adapt(mod, role)), "module-level transmit/receive"
+        return (lambda role: pl.adapt(mod, role)), "module-level transmit/receive", mod
     sys.exit(f"{path} exposes no algorithm interface "
              f"(need make(role), a class/SdrApp with transmit()/receive(), or module functions)")
 
@@ -69,7 +69,8 @@ def load_app_factory(name):
 def main():
     ap = argparse.ArgumentParser(description="run an uploaded algorithm over the PHY")
     ap.add_argument("--algo", required=True, help="folder name under algorithms/")
-    ap.add_argument("--role", default="loopback", choices=["loopback", "tx", "rx", "multi"])
+    ap.add_argument("--role", default="loopback",
+                    choices=["loopback", "tx", "rx", "multi", "aircomp"])
     ap.add_argument("--channel", default="ideal", choices=["ideal", "pyphy"],
                     help="loopback/multi channel: ideal (lossless) or pyphy (real modem + AWGN)")
     ap.add_argument("--steps", type=int, default=5)
@@ -86,7 +87,7 @@ def main():
     ap.add_argument("--net-port", type=int, default=5700)
     a = ap.parse_args()
 
-    factory, how = load_app_factory(a.algo)
+    factory, how, mod = load_app_factory(a.algo)
     print(f"[run_algo] loaded algorithms/{a.algo} via {how}")
 
     if a.role == "loopback":
@@ -109,6 +110,12 @@ def main():
               f"(slotted-ALOHA optimum = {opt:.2f})  "
               f"collision-rate={st['collisions']/max(1,st['slots']):.2f}  "
               f"per-agent P(transmit)=[{', '.join(f'{p:.2f}' for p in ptx)}]")
+    elif a.role == "aircomp":
+        # COMPUTE archetype: N sensors superpose -> AP recovers Σ v_i (the app owns the driver)
+        if not callable(getattr(mod, "run", None)) or not callable(getattr(mod, "make", None)):
+            sys.exit(f"algorithms/{a.algo} needs make(role) + run(sensors, ...) for --role aircomp")
+        sensors = [mod.make("sensor") for _ in range(a.agents)]
+        mod.run(sensors, snr_db=a.snr_db, steps=a.steps)
     else:
         link = pl.RadioRoundTrip(role=a.role, tx_args=a.tx_args, rx_args=a.rx_args,
                                  ack_host=a.ack_host, net_host=a.net_host, net_port=a.net_port,

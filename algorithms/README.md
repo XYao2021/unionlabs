@@ -22,6 +22,7 @@ Each is the real algorithm with **all PHY plumbing removed** — only `transmit`
 | **`clip_semcom`** | BS `transmit()` = CLIP embedding; user `receive()` classifies, replies the label | **40/40** classified; @6 dB **40/40 correct** on **38/40** CRC-clean frames — *semantic robustness* |
 | **`marl_multi`** | **real multi-agent** random access: N independent A2C agents contend for 1 AP; learn to avoid collisions | 4 agents → **throughput 0.42/slot = the slotted-ALOHA optimum**, collision-rate 0.35→0.23 |
 | **`marl`** | **online single-agent A2C** — observes [AoI, queue], learns transmit/defer from the ACK reward (the real `Actor`/`Critic`) | `P(transmit\|queued)` climbs **0.51→0.75** over 400 steps; also learns over the pyphy modem |
+| **`stc_aircomp`** | **compute archetype** — N sensors `produce()` a scalar; they transmit *at once*, the air sums them, the AP recovers Σvᵢ (STLC 2-antenna CSI-free combine); `--role aircomp` | 8 sensors, NMSE(Σvᵢ) **0.1→1.3e-4** vs SNR; STLC removes the single-antenna error floor |
 
 ```bash
 ./run.sh --algo fl          --steps 6

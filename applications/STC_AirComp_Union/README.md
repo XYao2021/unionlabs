@@ -10,9 +10,19 @@ computation (AirComp) — using a **Space-Time Line Code (STLC)** for **receive 
 > Communications Letters*, vol. 15, pp. 31–35, 2026. (Companion: "Digital Over-the-Air
 > Computation with Space-Time Processing for 6G Massive IoT Networks.")
 
-**Status:** design mapped onto the platform; not yet implemented. Blocked on the paper's
-exact STLC precoding/combiner and estimator equations, and on building a synchronized
-2-channel RX capture. See `INTEGRATION.md` for the full build plan and open questions.
+**Status:** **phase-1 DSP built and validated radio-free** (design note `INTEGRATION.md` §8).
+`stc_core.py` implements the STLC precoder/combiner + digital-AirComp bit-slicing, and
+`stc_aircomp.py` reproduces the paper's **NMSE-vs-SNR** curve (→ `results/stc_aircomp/`),
+showing STLC's diversity removes the single-antenna error floor. Also available through the
+uniform API as the **compute archetype** (`algorithms/stc_aircomp/`, `--role aircomp`):
+
+```
+python3 applications/STC_AirComp_Union/stc_aircomp.py --sensors 8 --bits 4   # NMSE-vs-SNR figure
+./run.sh --algo stc_aircomp --role aircomp --agents 8 --snr-db 15 --steps 200 # uniform-API port
+```
+
+Remaining for hardware (phases 2–5): the synchronized 2-channel RX capture (`capture2`) and
+the on-air bring-up. See `INTEGRATION.md` for the plan and open questions.
 
 ---
 
@@ -69,9 +79,10 @@ CSI-free linear combine**. Consequences that suit our hardware:
 | BPSK / DBPSK modulation | **have** — `pyphy.modulate` |
 | Custom TX preprocessing (quantize, bit-slice, STLC) | **have** — compose on `pyphy` blocks |
 | Simultaneous, slot-aligned TX from N sensors | **have** — `../MARL_RA_Union/slot_sync.py` + `Radio.transmit` |
-| **Receive diversity (≥2 RX antennas)** | **build** — `capture2` (B210 / X310 are 2×2) |
+| STLC encode / combine, quantize / bit-slice, sum reconstruction | **built** — `stc_core.py` (validated radio-free) |
+| NMSE-vs-SNR evaluation + uniform-API port | **built** — `stc_aircomp.py`, `algorithms/stc_aircomp/` |
 | Local CSI estimation (channel sounding) | expose — wrap existing pilot estimator |
-| STLC encode / combine, sum reconstruction | **build** — small numpy blocks |
+| **Receive diversity (≥2 RX antennas)** | **build** — `capture2` (B210 / X310 are 2×2) |
 
 The realistic work: **one engine addition** (a synchronized 2-channel RX capture) **+ three
 small numpy blocks** + wiring the sounding step. None of it touches the `sdr_system` decode
