@@ -1,0 +1,715 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\PassOptionsToPackage{dvipsnames,svgnames*,x11names*}{xcolor}
+%
+\documentclass[
+  10pt,
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{lmodern}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math}
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+  \setmainfont[]{Charter}
+  \setmonofont[Scale=0.80]{Menlo}
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\IfFileExists{bookmark.sty}{\usepackage{bookmark}}{\usepackage{hyperref}}
+\hypersetup{
+  colorlinks=true,
+  linkcolor={RoyalBlue},
+  filecolor={Maroon},
+  citecolor={Blue},
+  urlcolor={RoyalBlue},
+  pdfcreator={LaTeX via pandoc}}
+\urlstyle{same} % disable monospaced font for URLs
+\usepackage[margin=0.9in]{geometry}
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{newunicodechar}
+\newunicodechar{→}{\ensuremath{\rightarrow}}
+\newunicodechar{←}{\ensuremath{\leftarrow}}
+\newunicodechar{↔}{\ensuremath{\leftrightarrow}}
+\newunicodechar{⇒}{\ensuremath{\Rightarrow}}
+\newunicodechar{≈}{\ensuremath{\approx}}
+\newunicodechar{≤}{\ensuremath{\leq}}
+\newunicodechar{≥}{\ensuremath{\geq}}
+\newunicodechar{≠}{\ensuremath{\neq}}
+\newunicodechar{×}{\ensuremath{\times}}
+\newunicodechar{±}{\ensuremath{\pm}}
+\newunicodechar{∈}{\ensuremath{\in}}
+\newunicodechar{≪}{\ensuremath{\ll}}
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+
+\title{SDR Platform — Applications Introduction}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+{
+\hypersetup{linkcolor=}
+\setcounter{tocdepth}{2}
+\tableofcontents
+}
+\hypertarget{sdr-platform--applications-introduction}{%
+\section{SDR Platform --- Applications
+Introduction}\label{sdr-platform--applications-introduction}}
+
+A single software-defined-radio physical layer (\texttt{sdr\_system},
+C++/UHD) carries several very different \textbf{applications}. This
+document introduces each one in detail: what it computes, how it uses
+the radio, the exact signal chain it exercises, the hardware topology it
+runs on, and its current status. It is written for a collaborator coming
+to the code fresh (OSU experiments / UnionLabs deep-dive).
+
+Two applications exist today, and they sit at \textbf{opposite ends of
+the design space}:
+
+\begin{longtable}[]{@{}lll@{}}
+\toprule
+& \textbf{Application 1 --- Reliable Digital Link} & \textbf{Application
+2 --- Over-the-Air Computation} \\
+\midrule
+\endhead
+Paradigm & decode-and-forward (one packet, one receiver) & analog
+superposition (many senders, one function) \\
+Transmitters active at once & \textbf{1} (per slot) & \textbf{N}
+(simultaneously) \\
+What the receiver produces & the \textbf{delivered bytes} + an ACK & an
+\textbf{aggregate} (the sum) of all senders \\
+Receiver work & full sync + demod + FEC decode + CRC & CSI + a fixed
+linear combine \\
+Hosts & MARL random access, OSU, Federated Learning & STLC digital
+AirComp (Lee--Lee--Jung, WCL 2026) \\
+Status & validated over the air & design mapped; new blocks to build \\
+\bottomrule
+\end{longtable}
+
+The rest of the document is: the shared substrate both applications
+stand on (§1), then each application in full (§2, §3), then how they
+unify under one abstraction (§4), and a reference appendix (§5).
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{1-the-shared-substrate}{%
+\subsection{1. The shared substrate}\label{1-the-shared-substrate}}
+
+Everything below the application logic is common. An application never
+re-implements DSP; it either drives the monolithic engine through a CLI
+wrapper, or composes the PHY as GNU-Radio-style blocks in Python.
+
+\hypertarget{11-the-phy-engine-sdr_system-c}{%
+\subsubsection{\texorpdfstring{1.1 The PHY engine (\texttt{sdr\_system},
+C++)}{1.1 The PHY engine (sdr\_system, C++)}}\label{11-the-phy-engine-sdr_system-c}}
+
+A complete two-radio digital link. Full detail lives in
+\texttt{../SYSTEM\_REFERENCE.pdf}; the parts the applications rely on:
+
+\begin{verbatim}
+TX:  message -> chunk -> CRC-16 -> [FEC encode] -> bits->symbols (modulator)
+        |-- single-carrier: RRC pulse-shape -> preamble -> USRP TX
+        |-- OFDM:            QAM -> IFFT+CP frame -> USRP TX
+RX:  USRP RX -> energy gate -> AGC -> sync
+        |-- single-carrier: matched filter -> timing -> [equalize] -> demod
+        |-- OFDM:            Schmidl-Cox + CFO -> FFT -> 1-tap eq -> pilot CPE -> demod
+     -> [FEC decode] -> CRC-16 -> (ARQ: ACK if OK) -> reassemble
+\end{verbatim}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Modulation:} BPSK, QPSK, 8-PSK, 16/32/64/128/256-QAM, and
+  differential DBPSK / DQPSK / 8-DPSK / PI4-QPSK.
+\item
+  \textbf{Waveform:} single-carrier (RRC, roll-off 0.25) or OFDM
+  (per-subcarrier pilots that track a free-running carrier-frequency
+  offset).
+\item
+  \textbf{FEC:} rate-1/2 convolutional (K=7) + Viterbi, \textbf{LDPC}
+  (IRA/staircase, normalized min-sum belief propagation), and
+  \textbf{turbo} (punctured PCCC, iterative max-log-MAP BCJR). Hard or
+  soft decision; tunable block size \texttt{k}, iterations, and
+  normalization.
+\item
+  \textbf{Reliability:} CRC-16, stop-and-wait ARQ, ACK carried over TCP
+  or over RF.
+\item
+  \textbf{Channel awareness:} energy sensing, \texttt{freq\_scan.py},
+  live EVM and pre-/post-FEC BER.
+\end{itemize}
+
+\textbf{Free-running-LO fact that shapes both applications:} the two
+radios' local oscillators run independently. Coherent single-carrier
+QPSK then fails (\textasciitilde50 \% BER) because the carrier phase
+spins; the two remedies are \textbf{differential} modulation
+(DQPSK/DBPSK --- no absolute phase reference needed) or \textbf{OFDM}
+(pilots track the offset). This is why differential modes are
+first-class, and it directly informs the AirComp design in §3.
+
+\hypertarget{12-the-block-api-pyphy}{%
+\subsubsection{\texorpdfstring{1.2 The block API
+(\texttt{pyphy})}{1.2 The block API (pyphy)}}\label{12-the-block-api-pyphy}}
+
+Every DSP stage is also exposed as a numpy-in / numpy-out function via
+pybind11, so an application can compose the chain in Python and insert
+its own operations between stages (exactly the GNU Radio model):
+
+\begin{verbatim}
+framing : frame / unframe
+fec     : fec_encode / fec_decode / fec_decode_soft        (conv|ldpc|turbo)
+mod     : modulate / demodulate / soft_llr
+sc      : rrc_tx / rrc_rx
+sync    : preamble / acq / cfo_correct / phase_correct
+ofdm    : ofdm_mod / ofdm_demod
+radio   : Radio('tx'|'rx', ...).transmit(wave) / .capture(n)      (WITH_UHD build)
+\end{verbatim}
+
+The same C++ the binary uses, so behaviour is identical. This block API
+is the substrate Application 2 will be built on (custom transmit math +
+raw multi-antenna capture + custom receiver estimation are impossible in
+the monolithic binary but natural here).
+
+\hypertarget{13-the-abstraction-layer-in-progress}{%
+\subsubsection{1.3 The abstraction layer (in
+progress)}\label{13-the-abstraction-layer-in-progress}}
+
+For the UnionLabs collaboration we are standardizing how an algorithm
+plugs into the PHY: an \texttt{SdrApp} implements three methods ---
+\texttt{next\_payload()\ -\textgreater{}\ float32{[}{]}} (PHY grabs it
+to transmit), \texttt{on\_payload(float32{[}{]})} (received data handed
+back), \texttt{on\_result(ack)} (delivered / collision, i.e. the reward)
+--- and declares one \texttt{PayloadSpec(dtype,\ shape)}. Adding an
+application becomes "3 methods + 1 spec"; nothing below the seam
+changes. §4 revisits this once both applications are on the table,
+because Application 2 stretches the contract.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{2-application-1--reliable-digital-link}{%
+\subsection{2. Application 1 --- Reliable Digital
+Link}\label{2-application-1--reliable-digital-link}}
+
+\hypertarget{21-what-it-is}{%
+\subsubsection{2.1 What it is}\label{21-what-it-is}}
+
+A classic \textbf{decode-and-forward} link: one device transmits a
+packet, one access point recovers the exact bytes, and an ACK closes the
+loop. The "application" living on top decides \emph{what} to send and
+\emph{what the ACK means}. Three algorithms share this link, in two
+archetypes:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Data-transfer} --- the payload \emph{is} the information (a
+  float32 vector). Uses \texttt{next\_payload()} +
+  \texttt{on\_payload()}. Example: \textbf{Federated Learning}.
+\item
+  \textbf{Control / random-access} --- the payload is fixed; the
+  \emph{outcome} is the signal. Uses \texttt{next\_payload()} +
+  \texttt{on\_result(ack)}, where the \textbf{ACK boolean is the
+  reinforcement-learning reward}. Examples: \textbf{MARL} random access
+  and \textbf{OSU}.
+\end{itemize}
+
+The full PHY chain of §1.1 is exercised end-to-end: framing, FEC,
+modulation, sync, demodulation, decoding, CRC, ARQ.
+
+\hypertarget{22-marl-random-access-control-archetype}{%
+\subsubsection{2.2 MARL random access (control
+archetype)}\label{22-marl-random-access-control-archetype}}
+
+Multi-agent reinforcement learning over a contended channel. Topology is
+\textbf{N transmitting agents -\textgreater{} 1 receiving access point}.
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{The reward is the ACK.} Each agent fires a single-shot burst
+  (\texttt{-\/-max-attempts\ 1}); if its frame decodes and the AP routes
+  back an ACK, that is a success (reward), otherwise a timeout means
+  collision/loss. The policy --- not the PHY --- owns retransmission.
+\item
+  \textbf{Per-agent ACK routing (1 RX -\textgreater{} N TX).} You do not
+  need N receivers. The agent id is carried in payload byte 0; the AP
+  runs the C++ decoder with \texttt{role\ rx\ -\/-marl-report}, which
+  prints one
+  \texttt{{[}BURST{]}\ id=\ldots{}\ idx\ tot\ nbytes\ hex=\ldots{}} line
+  per CRC-OK burst. \texttt{ap\_multi.py} parses those lines and routes
+  an ACK to the agent whose frame decoded. A collision produces no line,
+  hence no ACK, hence a natural timeout.
+\item
+  \textbf{Slotted time (\texttt{slot\_sync.py}).} So contention is well
+  defined, a standalone TCP slot clock broadcasts
+  \texttt{SLOT\ \textless{}k\textgreater{}} every \texttt{-\/-slot-ms};
+  agents block on \texttt{wait\_slot()} at the top of each decision. The
+  AP arbitrates at each slot boundary: \textgreater=2 intents
+  -\textgreater{} COLLISION (no ACK to anyone, even if one happened to
+  decode via capture); exactly 1 intent that decoded -\textgreater{}
+  real ACK; 1 intent that did not decode -\textgreater{} real loss; 0
+  -\textgreater{} idle. ACKs are emitted only at arbitration, so
+  collisions are deterministic rather than dependent on RF-overlap
+  timing.
+\item
+  \textbf{Warm radios.} Both source and sink stay warm (LOs run
+  continuously) so the CFO is stable and trackable --- this lets
+  coherent QPSK win (85 \% vs DQPSK 62 \% delivery on the directional
+  link) instead of being forced onto differential by cold-LO jumps.
+\item
+  \textbf{Observation vs payload.} The agent's RL state
+  \texttt{{[}AoI,\ queue,\ channel-busy{]}} (float32) is \emph{local}
+  and is \textbf{not} transported --- only the fixed burst crosses the
+  air. This is the clean separation the abstraction layer formalizes.
+\end{itemize}
+
+\hypertarget{23-osu-control-archetype}{%
+\subsubsection{2.3 OSU (control
+archetype)}\label{23-osu-control-archetype}}
+
+OSU is the same control loop as MARL with a different policy swapped in.
+It observes its state, decides transmit-or-defer, fires one burst
+through the adapter, and reads back delivered/collision as reward. It is
+the reference application we are porting onto the \texttt{SdrApp}
+contract first; the goal of the deep-dive is to make "bring your own
+policy" a 3-methods-and-a-spec exercise.
+
+\hypertarget{24-federated-learning-data-transfer-archetype}{%
+\subsubsection{2.4 Federated Learning (data-transfer
+archetype)}\label{24-federated-learning-data-transfer-archetype}}
+
+FedAvg of an MNIST classifier over the radio (\texttt{fl.py} /
+\texttt{fl\_core.py}, numpy-only, torch-free).
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{What crosses the air:} model updates as float32 vectors. In
+  the default \textbf{compressed} mode all nodes share an init seed and
+  exchange only \textbf{top-k sparse deltas} with error feedback both
+  directions; the server FedAvg-averages the sparse client deltas and
+  broadcasts the sparse aggregate. This is \textasciitilde20 KB/delta
+  versus \textasciitilde200 KB for the full model. Mock-validated live
+  on MNIST: \textbf{0.71 -\textgreater{} 0.93 accuracy in 20 rounds, 2
+  clients} (beating full-model 0.925).
+\item
+  \textbf{Per-direction channel.} Because the rig has an RX-only N210
+  and TX-only B210s, the only RF path is B210 -\textgreater{} N210
+  (uplink). \texttt{-\/-uplink\ \{wireless,tcp\}} /
+  \texttt{-\/-downlink\ \{wireless,tcp\}} lets uplink go over RF while
+  the model broadcast returns over plain TCP (the N210 never has to
+  transmit). All-TCP mode runs the whole protocol radio-free and was
+  validated end-to-end: MNIST 0.92 in 12 rounds.
+\item
+  \textbf{Waveform choice.} \texttt{-\/-waveform\ sc} uses differential
+  DQPSK (default); \texttt{-\/-waveform\ ofdm} uses coherent QPSK, whose
+  per-subcarrier pilots track the free-running CFO --- so OFDM-QPSK
+  works where single-carrier coherent QPSK would fail.
+\end{itemize}
+
+\hypertarget{25-hardware-topology-and-operating-points}{%
+\subsubsection{2.5 Hardware topology and operating
+points}\label{25-hardware-topology-and-operating-points}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Radios:} N210 (\texttt{addr=192.168.20.2}, subdev
+  \texttt{A:0}, gain 0--31.5 dB, rate 100e6/int) as the access point /
+  server; B210s (\texttt{serial=30CD424}, \texttt{30CD3F7}, subdev
+  \texttt{A:A}, gain up to \textasciitilde89 dB, flexible rate, 2×2
+  MIMO) as the agents / clients.
+\item
+  \textbf{Rates:} the MARL stack uses a self-consistent 1.6e6 sample /
+  0.8e6 symbol default; the N210 needs its exact 2e6/1e6 pairing (1.6e6
+  does not snap on the 100 MHz clock).
+\item
+  \textbf{Operating envelope:} validated per-scheme B210 gains and EVM
+  ceilings at 915 MHz; dense constellations (16-QAM and up) need a
+  cable, coherent QPSK needs the warm regime.
+\end{itemize}
+
+\hypertarget{26-status}{%
+\subsubsection{2.6 Status}\label{26-status}}
+
+MARL: per-agent ACK routing, slot sync and logical collision arbitration
+are built and sim-validated; hardware pieces (N210 decoded a DQPSK burst
+from a B210, \texttt{{[}BURST{]}} line emits and parses) are proven. FL:
+compression and the TCP/wireless channel split are done and validated
+over TCP; the wireless run is command-ready and waiting on radio time.
+This application is mature.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{3-application-2--stlc-digital-over-the-air-computation}{%
+\subsection{3. Application 2 --- STLC Digital Over-the-Air
+Computation}\label{3-application-2--stlc-digital-over-the-air-computation}}
+
+\begin{quote}
+Y.-S. Lee, K.-H. Lee, and B. C. Jung, "Space-time coded over-the-air
+computation with receive diversity for 6G massive IoT networks,"
+\emph{IEEE Wireless Communications Letters}, vol. 15, pp. 31--35, 2026.
+(Companion work: "Digital Over-the-Air Computation with Space-Time
+Processing for 6G Massive IoT Networks.")
+\end{quote}
+
+\hypertarget{31-what-it-is--and-how-it-differs-from-application-1}{%
+\subsubsection{3.1 What it is --- and how it differs from Application
+1}\label{31-what-it-is--and-how-it-differs-from-application-1}}
+
+\textbf{Over-the-air computation (AirComp)} turns the wireless medium
+itself into a calculator: many IoT sensors transmit
+\textbf{simultaneously}, their signals \textbf{superimpose} in the air,
+and the access point reads a \textbf{function} of them --- the
+\textbf{sum / average} --- \emph{without ever decoding an individual
+packet}. Where Application 1 asks "did this one device's bytes arrive?",
+Application 2 asks "what is the aggregate of all devices' measurements?"
+For massive IoT (thousands of sensors reporting to a fusion center) that
+is exactly the quantity of interest, and computing it over the air
+removes the per-device access bottleneck.
+
+This specific scheme is \textbf{digital} AirComp (values are quantized,
+not sent as raw analog amplitudes --- far more noise-robust than
+classical analog AirComp) combined with a \textbf{Space-Time Line Code
+(STLC)} for \textbf{receive diversity}.
+
+\hypertarget{32-the-scheme}{%
+\subsubsection{3.2 The scheme}\label{32-the-scheme}}
+
+\textbf{Each sensor (single transmit antenna, knows only its own
+channel):}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Quantize} its measurement to bits.
+\item
+  \textbf{Bit-slice} the bits into \textbf{low-order-modulated} symbols
+  --- the paper focuses on \textbf{BPSK and DBPSK}.
+\item
+  \textbf{STLC-encode} across \textbf{2 time slots}, precoding with its
+  \emph{own} channel estimate (local CSI at the transmitter).
+\item
+  \textbf{Transmit} --- time-aligned with every other sensor, so the
+  signals \textbf{superimpose} at the access point.
+\end{enumerate}
+
+\textbf{Access point (\textgreater= 2 receive antennas):}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\setcounter{enumi}{4}
+\tightlist
+\item
+  \textbf{Capture} the 2 time slots on the diversity antennas.
+\item
+  \textbf{Linear-combine} (the STLC combiner) --- a \emph{fixed,
+  CSI-free} operation --- to detect the \textbf{superimposed (summed)}
+  symbols with full diversity.
+\item
+  \textbf{De-map / de-bit-slice / de-quantize} to reconstruct the
+  \textbf{aggregate}.
+\end{enumerate}
+
+\hypertarget{33-why-stlc-and-why-the-receiver-is-nearly-free}{%
+\subsubsection{3.3 Why STLC, and why the receiver is nearly
+free}\label{33-why-stlc-and-why-the-receiver-is-nearly-free}}
+
+A \textbf{Space-Time Line Code} is the transmit-side dual of the
+familiar space-time \emph{block} code (Alamouti). In an STBC the
+transmitter has no channel knowledge and the \emph{receiver} does the
+channel-aware combining. In an \textbf{STLC the transmitter} uses
+\textbf{local} CSI to precode across the 2 time slots so that the
+receiver achieves full diversity with a \textbf{simple, CSI-free linear
+combine} --- the channel effects cancel in the combining by
+construction.
+
+Two consequences make this a good fit for massive IoT and for our
+hardware:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Only local CSI at the transmitter} (each sensor its own
+  channel) --- no global CSI, low overhead. This is Bang Chul Jung's
+  group's signature technique.
+\item
+  \textbf{The receiver does almost no work.} As the collaborator
+  confirmed: \emph{in their frame there is no data processing on the
+  receive side except the CSI computation.} The AP estimates CSI (the
+  sounding that feeds the transmit precoding), does the fixed linear
+  combine, and de-quantizes. There is \textbf{no per-device
+  equalization, no FEC, no ARQ} on this path --- the diversity is
+  manufactured at the transmitter.
+\end{itemize}
+
+\textbf{DBPSK is significant for us:} it is differential, so the AP
+needs \textbf{no absolute phase reference}. Given our free-running LOs
+(§1.1), this likely removes the shared-10 MHz-reference requirement that
+coherent superposition would otherwise impose --- the differential
+detection tolerates the independent oscillators. Time alignment across
+sensors is still required, and the STLC precoding still needs the local
+CSI.
+
+\hypertarget{34-mapping-onto-our-platform}{%
+\subsubsection{3.4 Mapping onto our
+platform}\label{34-mapping-onto-our-platform}}
+
+Because the receiver is so light and the modulation is low-order, most
+of Application 1's heavy machinery (FEC, the full sync/CFO/phase/demod
+pipeline, ARQ/CRC) is \textbf{not on this application's critical path}.
+What we already have, and what we must add:
+
+\begin{longtable}[]{@{}ll@{}}
+\toprule
+Need & Status \\
+\midrule
+\endhead
+Low-order modulation (BPSK / DBPSK) & \textbf{have} ---
+\texttt{pyphy.modulate} \\
+Custom transmit preprocessing (quantize, bit-slice, STLC) &
+\textbf{have} --- compose on the \texttt{pyphy} blocks \\
+Simultaneous, slot-aligned transmission from N sensors & \textbf{have}
+--- reuse \texttt{slot\_sync.py} + \texttt{Radio.transmit} \\
+Raw superposition capture at the AP & partial --- \texttt{capture} is
+single-antenna today \\
+\textbf{Receive diversity (\textgreater= 2 RX antennas)} &
+\textbf{build} --- 2-channel capture (\texttt{capture2}) on B210/X310
+(both 2×2) \\
+Local CSI estimation (channel sounding) & expose --- wrap existing pilot
+channel-estimation as a block \\
+STLC encode / combine, sum reconstruction & \textbf{build} --- small
+numpy blocks \\
+\bottomrule
+\end{longtable}
+
+So the realistic work is \textbf{one engine addition (a synchronized
+2-channel RX capture) + three small numpy blocks (\texttt{stlc\_encode},
+\texttt{stlc\_combine}, and the quantize/bit-slice/aggregate app logic)
++ wiring the sounding step}. None of it touches the \texttt{sdr\_system}
+decode path; it all lives on the block API of §1.2.
+
+\hypertarget{35-concrete-build-list}{%
+\subsubsection{3.5 Concrete build list}\label{35-concrete-build-list}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Engine:}
+  \texttt{Radio.capture2(n)\ -\textgreater{}\ (ant0,\ ant1)} --- a
+  synchronized 2-channel UHD RX stream (the one real engine addition;
+  receive diversity needs it).
+\item
+  \textbf{Blocks (numpy):}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \texttt{stlc\_encode(sym,\ h)} --- device side, 2-slot precoding
+    from local CSI.
+  \item
+    \texttt{stlc\_combine(y0,\ y1{[},\ \ldots{}{]})} --- AP side, the
+    fixed CSI-free linear combiner -\textgreater{} superimposed symbol.
+  \item
+    \texttt{estimate\_channel(rx,\ pilot)\ -\textgreater{}\ h} ---
+    expose the existing preamble/pilot estimator.
+  \item
+    \texttt{quantize} / \texttt{bit\_slice} / \texttt{dequantize} /
+    \texttt{aggregate} --- pure-Python application logic.
+  \end{itemize}
+\item
+  \textbf{App loop:} \texttt{slot\_sync} aligns the sensors
+  -\textgreater{} each \texttt{stlc\_encode}s its quantized value and
+  fires -\textgreater{} AP \texttt{capture2} -\textgreater{}
+  \texttt{stlc\_combine} -\textgreater{} de-quantize -\textgreater{} the
+  aggregate. Validate a 2-sensor -\textgreater{} 1-AP sum in loopback
+  the same way the SC/OFDM chains were validated (0 errors through a
+  known offset).
+\end{itemize}
+
+\hypertarget{36-open-questions-need-the-papers-equations-to-finalize}{%
+\subsubsection{3.6 Open questions (need the paper's equations to
+finalize)}\label{36-open-questions-need-the-papers-equations-to-finalize}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{How is local CSI obtained} --- TDD reciprocity (sensor
+  estimates from an AP downlink pilot) or AP-estimates-then-feeds-back?
+  This decides whether the AP transmits at all, which matters given our
+  RX-only N210 vs the TX-capable B210s.
+\item
+  \textbf{Number of AP receive antennas M} (diversity order is 2M) ---
+  two, or more?
+\item
+  The exact \textbf{STLC precoding matrix} and \textbf{combiner} (the
+  2-slot formulas), the \textbf{quantization + bit-slicing} map, and
+  what \textbf{synchronization} the system model assumes.
+\end{enumerate}
+
+\hypertarget{37-status}{%
+\subsubsection{3.7 Status}\label{37-status}}
+
+Paradigm analyzed and mapped to concrete platform work; the block API is
+the right substrate. Not yet implemented --- blocked on the paper's
+precise STLC/estimator equations and on building the 2-channel capture.
+This is the immediate next application to construct.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{4-how-the-two-applications-unify}{%
+\subsection{4. How the two applications
+unify}\label{4-how-the-two-applications-unify}}
+
+Application 1 fits the existing two archetypes cleanly:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Data-transfer} (FL): \texttt{next\_payload()} +
+  \texttt{on\_payload()}.
+\item
+  \textbf{Control / random-access} (MARL, OSU): \texttt{next\_payload()}
+  + \texttt{on\_result(ack)}, ACK = reward.
+\end{itemize}
+
+Application 2 does \textbf{not} fit either --- its "output" is neither
+delivered bytes nor an ACK, but a \textbf{computed aggregate}, produced
+by \textbf{many senders transmitting at once} into a
+\textbf{multi-antenna} receiver. It is a \textbf{third archetype:
+compute / aggregation.} This is a useful stress test for the UnionLabs
+abstraction: the layer must support \emph{simultaneous multi-node
+transmission} and \emph{multi-antenna reception}, not only
+point-to-point. Concretely, the \texttt{SdrApp} contract extends so that
+a sensor contributes an STLC-encoded quantized value and the AP
+"receiver" is a combine-and-aggregate step rather than
+decode-one-packet.
+
+Stated as one seam:
+
+\begin{longtable}[]{@{}llll@{}}
+\toprule
+Archetype & Senders & Receiver output & Example \\
+\midrule
+\endhead
+Data-transfer & 1 & the bytes & Federated Learning \\
+Control / random-access & 1 of N (contending) & ACK bool (reward) &
+MARL, OSU \\
+\textbf{Compute / aggregation} & \textbf{N simultaneous} & \textbf{an
+aggregate} & \textbf{STLC AirComp} \\
+\bottomrule
+\end{longtable}
+
+Getting all three behind one interface is the point of the abstraction
+layer.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{5-reference-appendix}{%
+\subsection{5. Reference appendix}\label{5-reference-appendix}}
+
+\hypertarget{51-pyphy-block-reference}{%
+\subsubsection{5.1 pyphy block
+reference}\label{51-pyphy-block-reference}}
+
+\begin{longtable}[]{@{}ll@{}}
+\toprule
+Group & Blocks \\
+\midrule
+\endhead
+Framing & \texttt{frame}, \texttt{unframe} \\
+FEC & \texttt{fec\_encode}, \texttt{fec\_decode},
+\texttt{fec\_decode\_soft}, \texttt{fec\_encoded\_len} (conv \textbar{}
+ldpc \textbar{} turbo, k) \\
+Modulation & \texttt{modulate}, \texttt{demodulate},
+\texttt{soft\_llr} \\
+Single-carrier & \texttt{rrc\_tx}, \texttt{rrc\_rx} \\
+Sync & \texttt{preamble}, \texttt{acq}, \texttt{cfo\_correct},
+\texttt{phase\_correct} \\
+OFDM & \texttt{ofdm\_mod}, \texttt{ofdm\_demod},
+\texttt{ofdm\_data\_per\_sym} \\
+Radio (WITH\_UHD) &
+\texttt{Radio(role,args,freq,rate,symbol\_rate,gain,subdev,ant)} ·
+\texttt{.transmit()} · \texttt{.capture()} \\
+\textbf{To add (App 2)} & \texttt{capture2}, \texttt{stlc\_encode},
+\texttt{stlc\_combine}, \texttt{estimate\_channel} \\
+\bottomrule
+\end{longtable}
+
+Build: \texttt{phy/bindings/build.sh} (DSP only, builds anywhere) or
+\texttt{WITH\_UHD=1\ bindings/build.sh} (adds the Radio block, on the
+lab host). Worked flowgraph: \texttt{phy/python/phy\_flow\_example.py}.
+
+\hypertarget{52-hardware-inventory}{%
+\subsubsection{5.2 Hardware inventory}\label{52-hardware-inventory}}
+
+\begin{longtable}[]{@{}llllll@{}}
+\toprule
+Device & Role & Address / serial & Subdev & Rate & Notes \\
+\midrule
+\endhead
+N210 & AP / server (RX-only on the rig) & \texttt{addr=192.168.20.2} &
+\texttt{A:0} & 2e6/1e6 exact & gain 0--31.5 dB; 100e6/int clock \\
+B210 \#1 & agent / client (TX) & \texttt{serial=30CD424} & \texttt{A:A}
+& flexible & gain \textasciitilde0--89 dB; 2×2 MIMO \\
+B210 \#2 & agent / client (TX) & \texttt{serial=30CD3F7} & \texttt{A:A}
+& flexible & 2×2 MIMO (a diversity-RX candidate for App 2) \\
+X310 & (optional) & \texttt{addr=} & --- & 200e6/int & 2×2 MIMO \\
+\bottomrule
+\end{longtable}
+
+\hypertarget{53-where-to-read-the-code-bottom---top}{%
+\subsubsection{5.3 Where to read the code (bottom -\textgreater{}
+top)}\label{53-where-to-read-the-code-bottom---top}}
+
+\texttt{sdr\_system} (C++ engine, \texttt{-\/-help} surface)
+-\textgreater{} \texttt{sdr.py} (auto-generated CLI wrapper)
+-\textgreater{} \texttt{marl\_phy.py} / \texttt{real\_channel.py}
+(WarmSource / AccessPoint adapters) -\textgreater{}
+\texttt{marl\_env.py} (obs / action / reward around the ACK)
+-\textgreater{} proposed \texttt{phy\_link.py} (the \texttt{SdrApp} +
+\texttt{PayloadSpec} + \texttt{Codec} contract). Full engine reference:
+\texttt{../SYSTEM\_REFERENCE.pdf}.
+
+\end{document}

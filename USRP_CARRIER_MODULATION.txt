@@ -1,0 +1,186 @@
+==============================================================================
+ USRP RUN COMMANDS  —  carriers x modulation schemes x device types
+==============================================================================
+ sdr_system CLI reference for driving different USRP models (N210 / B210 / X310)
+ at different carrier frequencies and modulations. Run every command from the
+ dir containing ./sdr_system (the build/ dir).
+
+ Roles:
+   --role tx           one-way transmit (no ACK)            } quick link tests
+   --role rx           one-way receive  (prints CRC pass/fail)
+   --role source_arq   TX end of stop-and-wait ARQ (TCP ACK back-channel)
+   --role sink_arq     RX end of ARQ  (TCP ACK server)      } reliable delivery
+ For a full FEC (LDPC/turbo) test matrix + wrapper scripts see COMMANDS_FEC_TESTS.txt.
+
+------------------------------------------------------------------------------
+ 1. DEVICE QUICK REFERENCE
+------------------------------------------------------------------------------
+ | Device | Address arg           | subdev | TX ant | RX ant | gain range | rate rule                |
+ |--------|-----------------------|--------|--------|--------|------------|--------------------------|
+ | N210   | addr=192.168.20.2     | A:0    | TX/RX  | RX2    | 0 - 31.5   | rate = 100e6 / integer   |
+ | B210   | serial=<8-hex>        | A:A    | TX/RX  | RX2    | 0 - ~89    | flexible (auto MCR)      |
+ | X310   | addr=192.168.40.2     | A:0    | TX/RX  | RX2    | 0 - 31.5*  | rate = 200e6 / integer   |
+   *X310/N210 gain range depends on the daughterboard (SBX/UBX/WBX ~0-31.5 dB).
+   Find devices / serials:  uhd_find_devices        (add --args addr=... for a wired N210/X310)
+
+ RATE CHAIN (checked at startup, FATAL on mismatch):
+   tx_rate = symbol_rate * U/D   (U/D defaults to 2/1)      rx_rate = tx_rate
+   => with symbol_rate = 1e6 you get tx_rate = rx_rate = 2e6.
+   * N210 exact rates: 2e6 (=100/50), 1.5625e6 (=100/64). 2e6/1e6 is the clean pick.
+   * X310 exact rates: 2e6 (=200/100), 5e6 (=200/40), etc. Can go much higher (10GbE).
+   * B210 takes any rate (auto master-clock), 2e6/1e6 or 1.6e6/0.8e6 both fine.
+   Set ALL THREE on BOTH ends: --tx-rate --rx-rate --symbol_rate.
+
+------------------------------------------------------------------------------
+ 2. CARRIER FREQUENCIES  (set --tx-freq AND --rx-freq to the SAME value)
+------------------------------------------------------------------------------
+ Common licence-free ISM bands (pick per your antennas/daughterboard range):
+   900 MHz ISM  902-928 MHz :  910e6 (cleaner)  915e6 (default)
+                                avoid 918e6 and 924-928e6 (noisy in our scans)
+   2.4 GHz ISM  2400-2483 MHz:  2412e6 (ch1)  2437e6 (ch6)  2462e6 (ch11)
+                                (WiFi-congested; raise --det-mult to reject ambient)
+   Sub-GHz / other: set whatever your daughterboard tunes to (both ends identical).
+
+ Device tuning ranges (approx, board-dependent):
+   B210  : 70 MHz - 6 GHz (fully integrated, no daughterboard)
+   N210  : per daughterboard  (WBX 50MHz-2.2GHz, SBX 400MHz-4.4GHz, ...)
+   X310  : per daughterboard  (UBX 10MHz-6GHz, SBX 400MHz-4.4GHz, ...)
+
+ A carrier is a per-run choice: change  --tx-freq/--rx-freq  and keep them EQUAL
+ on TX and RX. Nothing else about the command changes with the carrier.
+
+------------------------------------------------------------------------------
+ 3. MODULATION SCHEMES  (--scheme) and where they work
+------------------------------------------------------------------------------
+ COHERENT single-carrier (need carrier phase lock -> shared 10 MHz ref OR warm LO):
+   BPSK    1 bit/sym   most robust
+   QPSK    2 bit/sym   solid with a locked carrier
+   8-PSK   3 bit/sym   needs more TX power (tighter decisions)
+   16-QAM  4 bit/sym   needs a CABLED link + shared ref (fails OTA free-running)
+ DIFFERENTIAL single-carrier (CFO-immune -> work on FREE-RUNNING LOs):
+   DBPSK   1 bit/sym   most robust, longest reach
+   DQPSK   2 bit/sym   solid
+   8-DPSK  3 bit/sym   needs more TX power
+ OFDM (--waveform ofdm; pilots track CFO -> COHERENT works free-running):
+   BPSK / QPSK over OFDM   good on free-running links; add --ofdm-tx-peak 0.5
+   (do NOT combine --waveform ofdm with a differential D* scheme)
+
+ RULE OF THUMB per link type:
+   Two radios sharing a 10 MHz ref (--ref external): any coherent scheme, incl. 16-QAM (cabled).
+   Free-running, single-carrier : use DIFFERENTIAL (DQPSK/DBPSK/8-DPSK).
+   Free-running, coherent QPSK/BPSK : use OFDM.
+
+------------------------------------------------------------------------------
+ 4. COMMAND TEMPLATES  (fill in <...>)
+------------------------------------------------------------------------------
+ Placeholders:  <DEV_ARGS> <SUBDEV> <ANT> <FREQ> <RATE> <SYM> <GAIN> <SCHEME> <WAVE>
+
+ --- ONE-WAY TX (any device) ---
+ ./sdr_system --role tx \
+   --tx-args <DEV_ARGS> --tx-subdev <SUBDEV> --tx-ant TX/RX \
+   --tx-freq <FREQ> --tx-rate <RATE> --rx-rate <RATE> --symbol_rate <SYM> --tx-gain <GAIN> \
+   --scheme <SCHEME> --waveform <WAVE> --tx-reps 50 --viz false
+
+ --- ONE-WAY RX (any device) ---
+ ./sdr_system --role rx \
+   --rx-args <DEV_ARGS> --rx-subdev <SUBDEV> --rx-ant RX2 \
+   --rx-freq <FREQ> --rx-rate <RATE> --tx-rate <RATE> --symbol_rate <SYM> --rx-gain <GAIN> \
+   --scheme <SCHEME> --waveform <WAVE> --rx-idle-timeout 30 --viz false --det-mult 3
+
+ --- ARQ: SINK (RX end, start first) + SOURCE (TX end) ---
+ (sink is the TCP ACK server; source connects to it with --ack-host <sink-IP>)
+ SINK:  ./sdr_system --role sink_arq  --rx-args <DEV_ARGS> --rx-subdev <SUBDEV> --rx-ant RX2 \
+          --rx-freq <FREQ> --rx-rate <RATE> --tx-rate <RATE> --symbol_rate <SYM> --rx-gain <GAIN> \
+          --scheme <SCHEME> --waveform <WAVE> --ack-transport tcp --ack-port 45999 \
+          --stop-on-complete true --rx-idle-timeout 30 --viz false --det-mult 3
+ SOURCE:./sdr_system --role source_arq --tx-args <DEV_ARGS> --tx-subdev <SUBDEV> --tx-ant TX/RX \
+          --tx-freq <FREQ> --tx-rate <RATE> --rx-rate <RATE> --symbol_rate <SYM> --tx-gain <GAIN> \
+          --scheme <SCHEME> --waveform <WAVE> --ack-transport tcp --ack-host <SINK_IP> --ack-port 45999 \
+          --max-attempts 50 --timeout 3000 --viz false
+
+ Add FEC on BOTH ends (optional): --fec true --fec-type ldpc|turbo|conv --ldpc-k 256
+   (+ --fec_soft on the RX/sink for coherent schemes). See COMMANDS_FEC_TESTS.txt.
+
+------------------------------------------------------------------------------
+ 5. READY EXAMPLES  (copy-paste; change freq/scheme as needed)
+------------------------------------------------------------------------------
+
+ 5a. N210 @ 915 MHz, DQPSK single-carrier (free-running friendly)
+   RX:  ./sdr_system --role rx --rx-args addr=192.168.20.2 --rx-subdev A:0 --rx-ant RX2 \
+          --rx-freq 915e6 --rx-rate 2e6 --tx-rate 2e6 --symbol_rate 1e6 --rx-gain 25 \
+          --scheme DQPSK --waveform sc --rx-idle-timeout 30 --viz false --det-mult 3
+   TX:  ./sdr_system --role tx --tx-args addr=192.168.20.2 --tx-subdev A:0 --tx-ant TX/RX \
+          --tx-freq 915e6 --tx-rate 2e6 --rx-rate 2e6 --symbol_rate 1e6 --tx-gain 25 \
+          --scheme DQPSK --waveform sc --tx-reps 50 --viz false
+
+ 5b. N210 @ 2.437 GHz, QPSK over OFDM (coherent, free-running friendly)
+   RX:  ./sdr_system --role rx --rx-args addr=192.168.20.2 --rx-subdev A:0 --rx-ant RX2 \
+          --rx-freq 2437e6 --rx-rate 2e6 --tx-rate 2e6 --symbol_rate 1e6 --rx-gain 22 \
+          --scheme QPSK --waveform ofdm --rx-idle-timeout 30 --viz false --det-mult 4
+   TX:  ./sdr_system --role tx --tx-args addr=192.168.20.2 --tx-subdev A:0 --tx-ant TX/RX \
+          --tx-freq 2437e6 --tx-rate 2e6 --rx-rate 2e6 --symbol_rate 1e6 --tx-gain 25 \
+          --scheme QPSK --waveform ofdm --ofdm-tx-peak 0.5 --tx-reps 50 --viz false
+
+ 5c. B210 @ 915 MHz, QPSK single-carrier (needs warm/stable LO or shared ref)
+   RX:  ./sdr_system --role rx --rx-args serial=30CD3F7 --rx-subdev A:A --rx-ant RX2 \
+          --rx-freq 915e6 --rx-rate 2e6 --tx-rate 2e6 --symbol_rate 1e6 --rx-gain 20 \
+          --scheme QPSK --waveform sc --rx-idle-timeout 30 --viz false --det-mult 3
+   TX:  ./sdr_system --role tx --tx-args serial=30CD424 --tx-subdev A:A --tx-ant TX/RX \
+          --tx-freq 915e6 --tx-rate 2e6 --rx-rate 2e6 --symbol_rate 1e6 --tx-gain 78 \
+          --scheme QPSK --waveform sc --tx-reps 50 --viz false
+
+ 5d. B210 @ 915 MHz, DBPSK (max robustness / reach, free-running)
+   ...as 5c but on BOTH ends: --scheme DBPSK --waveform sc  (rx-gain 20 / tx-gain 78)
+
+ 5e. B210 @ 2.412 GHz, 8-PSK single-carrier (more TX power, lower RX gain)
+   RX:  --scheme 8-PSK --waveform sc --rx-freq 2412e6 --rx-gain 16    (rest as 5c RX)
+   TX:  --scheme 8-PSK --waveform sc --tx-freq 2412e6 --tx-gain 86    (rest as 5c TX)
+
+ 5f. B210 <-> B210, 16-QAM, CABLED + shared 10 MHz ref (dense QAM)
+   Requires a shared clock (--ref external, e.g. OctoClock/GPSDO) on BOTH, and an
+   SMA cable + attenuator (OTA free-running cannot reach the needed EVM).
+   RX:  ./sdr_system --role rx --rx-args serial=30CD3F7 --rx-subdev A:A --rx-ant RX2 \
+          --rx-freq 915e6 --rx-rate 2e6 --tx-rate 2e6 --symbol_rate 1e6 --rx-gain 21 \
+          --scheme 16-QAM --waveform sc --ref external --rx-idle-timeout 30 --viz false
+   TX:  ./sdr_system --role tx --tx-args serial=30CD424 --tx-subdev A:A --tx-ant TX/RX \
+          --tx-freq 915e6 --tx-rate 2e6 --rx-rate 2e6 --symbol_rate 1e6 --tx-gain 80 \
+          --scheme 16-QAM --waveform sc --ref external --tx-reps 50 --viz false
+
+ 5g. X310 @ 915 MHz, QPSK (10GbE, higher rate example)
+   RX:  ./sdr_system --role rx --rx-args addr=192.168.40.2 --rx-subdev A:0 --rx-ant RX2 \
+          --rx-freq 915e6 --rx-rate 5e6 --tx-rate 5e6 --symbol_rate 2.5e6 --rx-gain 20 \
+          --scheme QPSK --waveform sc --rx-idle-timeout 30 --viz false
+   TX:  ./sdr_system --role tx --tx-args addr=192.168.40.2 --tx-subdev A:0 --tx-ant TX/RX \
+          --tx-freq 915e6 --tx-rate 5e6 --rx-rate 5e6 --symbol_rate 2.5e6 --tx-gain 20 \
+          --scheme QPSK --waveform sc --tx-reps 50 --viz false
+
+ 5h. Cross-device: B210 TX -> N210 RX @ 915 MHz, DQPSK (the two-host lab link)
+   SINK (N210 host): ./sdr_system --role sink_arq --rx-args addr=192.168.20.2 --rx-subdev A:0 \
+          --rx-ant RX2 --rx-freq 915e6 --rx-rate 2e6 --tx-rate 2e6 --symbol_rate 1e6 --rx-gain 25 \
+          --scheme DQPSK --waveform sc --ack-transport tcp --ack-port 45999 \
+          --stop-on-complete true --rx-idle-timeout 30 --viz false --det-mult 3
+   SOURCE (B210 host): ./sdr_system --role source_arq --tx-args serial=30CD424 --tx-subdev A:A \
+          --tx-ant TX/RX --tx-freq 915e6 --tx-rate 2e6 --rx-rate 2e6 --symbol_rate 1e6 --tx-gain 78 \
+          --scheme DQPSK --waveform sc --ack-transport tcp --ack-host <N210_HOST_IP> --ack-port 45999 \
+          --max-attempts 50 --timeout 3000 --viz false
+   (cross-device rates: use the N210/X310 exact rate on BOTH; the B210 matches it.)
+
+------------------------------------------------------------------------------
+ 6. GAIN CHEAT-SHEET  (starting points; tune to your link)
+------------------------------------------------------------------------------
+   Robust SC (BPSK/QPSK/DBPSK/DQPSK) : B210 rx 20 / tx 78    N210 rx 25 / tx(N/A, use B210 TX)
+   8-ary  (8-PSK / 8-DPSK)           : rx 16 / tx 86
+   OFDM (BPSK/QPSK)                  : rx 22 / tx 80  + --ofdm-tx-peak 0.5
+   16-QAM (cabled + shared ref)      : rx 21 / tx 80, add attenuation until not clipping
+   N210 RX gain caps at 31.5 dB (NOT 78). Push TX power (not RX gain) to lower EVM.
+
+------------------------------------------------------------------------------
+ 7. NOTES
+------------------------------------------------------------------------------
+ * --tx-freq and --rx-freq must be EQUAL on both ends; likewise the rate triple.
+ * --scheme and --waveform must MATCH on both ends (and --fec* if used).
+ * Free-running (no shared ref): SC=differential, OFDM=coherent. 16-QAM needs a ref.
+ * Over-the-air 2.4 GHz is WiFi-noisy -> raise --det-mult (4-8) to reject ambient RF.
+ * uhd_find_devices lists what's connected; addr= for wired N210/X310, serial= for B210.
+ * Stuck radio process: kill -9 $(pgrep -f sdr_system)  (Ctrl-C won't break a blocked radio).
+==============================================================================

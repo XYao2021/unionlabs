@@ -51,7 +51,7 @@ Run the jammer on a spare radio alongside the agents to add real contention:
 # jammer on its radio — pulsed, so agents see intermittent busy channel
 python3 jammer.py --tx-args serial=<JAMMER> --freq 915e6 --mode burst \
     --interval 150 --duration 300 --tx-gain 80 &
-# then run the agents (see ../../python/README.md — decentralized multi-node)
+# then run the agents (see ../../README.md — decentralized multi-node)
 ```
 
 The jammer's energy raises the agents' carrier-sense `busy` and causes their bursts
@@ -65,7 +65,12 @@ band hits every burst, while **burst** mode leaves gaps the policy can learn to 
   (`--message-type chirp`, `--chirp-bw`, `--chirp-sf`). It is transmit-only here;
   LoRa as a *decodable data* modulation is a separate PHY addition.
 - Verify a waveform is on the air with the tone monitor (another radio):
-  `python3 ../../python/run.py configs/rx_tone_monitor.json` — a chirp shows as a
+  `python3 ../../phy/python/run.py configs/rx_tone_monitor.json` — a chirp shows as a
   frequency that sweeps.
 - Jamming affects any receiver on that frequency. Use only on your own link /
   authorized test setup.
+
+## See also
+
+- `../EXPERIMENT_GUIDE.pdf` (or `.md`) — step-by-step commands to run every application
+  (radio-free + hardware); the jammer appears under §1A as an optional contention source.

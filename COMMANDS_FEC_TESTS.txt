@@ -1,0 +1,177 @@
+==============================================================================
+ LDPC & TURBO FEC HARDWARE TEST SHEET  —  N210 (RX) <-> B210 (TX), cross-host
+==============================================================================
+ Link: free-running LOs (no shared 10 MHz ref). Uplink = B210 TX -> N210 RX over
+ the air; ACK = TCP back-channel. Rates 2e6/2e6, symbol_rate 1e6 (N210 clock).
+
+ Rule of thumb for this link:
+   * Single-carrier (sc)  -> use DIFFERENTIAL schemes (DQPSK/DBPSK/8-DPSK).
+                             FEC runs HARD-decision (differential has no soft LLRs).
+   * OFDM                 -> use COHERENT schemes (QPSK/BPSK); pilots track the
+                             free-running CFO AND now yield soft LLRs -> FEC runs
+                             SOFT (the real strength of LDPC/turbo).
+   * SC coherent (QPSK/BPSK) only works with a WARM/stable LO or shared ref.
+
+------------------------------------------------------------------------------
+ 0. ONCE PER SESSION (both hosts)
+------------------------------------------------------------------------------
+ # Rebuild natively - the OFDM soft-LLR fix is in the C++, so BOTH hosts need it:
+ conda deactivate; rm -rf build && mkdir build && cd build && cmake .. && make -j
+
+ # On the N210/sink host: clear stale receivers + raise the FD limit
+ pkill -9 -f sdr_system ; ulimit -n 65536
+
+ # Set in EVERY terminal (put the N210 host's current LAN IP in N210_HOST):
+ N210_HOST=10.245.80.237      # <-- check with `hostname -I` on the N210 host (DHCP drifts)
+ ACKPORT=45999
+
+ # From the B210 host, confirm the ACK path before transmitting:
+ nc -vz -w3 $N210_HOST $ACKPORT      # "refused" = path OK; "timeout" = wrong IP / firewall
+
+------------------------------------------------------------------------------
+ QUICK LAUNCH VIA WRAPPER SCRIPTS  (recommended - no long commands to type)
+------------------------------------------------------------------------------
+ Files (in this dir): fec_test.env, run_sink.sh, run_source.sh
+   1) Edit fec_test.env once per session (N210_HOST, ACKPORT, serials, K...).
+   2) chmod +x run_sink.sh run_source.sh     # first time only
+   3) Launch (from the dir with the scripts; the binary is auto-found in ./ or ./build):
+
+   # N210 SINK:    ./run_sink.sh   FEC  SCHEME  WAVE  RXG  [soft]  [extra sdr args...]
+   # B210 SOURCE:  ./run_source.sh FEC  SCHEME  WAVE  TXG  [peak]  [extra sdr args...]
+
+   Examples (one line each, matching the matrix below):
+     A1  sink:  ./run_sink.sh   ldpc  DQPSK sc   25
+         src:   ./run_source.sh ldpc  DQPSK sc   78
+     A2  sink:  ./run_sink.sh   turbo DQPSK sc   25
+         src:   ./run_source.sh turbo DQPSK sc   78
+     B2  sink:  ./run_sink.sh   turbo QPSK  ofdm 22 soft
+         src:   ./run_source.sh turbo QPSK  ofdm 80 peak
+     add per-burst BER:  ./run_sink.sh turbo QPSK ofdm 22 soft --ber-expected
+     bigger block (both ends):  edit K=512 in fec_test.env
+
+ The word "soft" (sink) adds --fec_soft; "peak" (source) adds --ofdm-tx-peak 0.5.
+ The full raw commands the scripts build are shown below for reference.
+
+------------------------------------------------------------------------------
+ CONFIG FILE FOR *ALL* PHY OPTIONS  (phy.cfg — change only what you need)
+------------------------------------------------------------------------------
+ phy.cfg lists EVERY PHY option (~100) set to its default, one 'name = value' per
+ line with a description comment. It is auto-generated on build from
+ `sdr_system --help`, so it never drifts.
+
+   ./sdr_system --config phy.cfg                 # use the file
+   ./sdr_system --config phy.cfg --scheme QPSK --rx-gain 22   # CLI overrides file
+
+ Precedence: anything on the COMMAND LINE wins over the file, so you can keep one
+ edited phy.cfg and still tweak per-run on the CLI. Make role-specific copies if
+ you like (e.g. sink.cfg / source.cfg).
+
+ Regenerate a fresh default template any time:
+   python3 tools/gen_config_template.py --binary ./build/sdr_system --out phy.cfg
+
+ The wrapper scripts can sit ON TOP of a config file: set CONFIG=phy.cfg in
+ fec_test.env, and run_sink.sh/run_source.sh will pass --config phy.cfg first, then
+ their FEC/scheme/gain flags override it. Use this to set advanced options (timing
+ loop bw, detector thresholds, OFDM fft/cp, ...) that the scripts don't expose.
+
+------------------------------------------------------------------------------
+ 1. THE TWO REUSABLE COMMANDS  (start the SINK first, then the SOURCE)
+------------------------------------------------------------------------------
+ # ---- N210 SINK (terminal 1) ----  set FEC SCHEME WAVE RXG SOFT then run:
+ FEC=ldpc SCHEME=DQPSK WAVE=sc RXG=25 SOFT=""      # <-- edit per row in section 2
+ ./sdr_system --role sink_arq \
+   --rx-args addr=192.168.20.2 --rx-subdev A:0 --rx-ant RX2 \
+   --rx-freq 915e6 --rx-rate 2e6 --tx-rate 2e6 --symbol_rate 1e6 --rx-gain $RXG \
+   --scheme $SCHEME --waveform $WAVE \
+   --fec true --fec-type $FEC --ldpc-k 256 $SOFT \
+   --ack-transport tcp --ack-port $ACKPORT \
+   --serve-forever --rx-idle-timeout 0 --stop-on-complete false --viz false --det-mult 3
+
+ # ---- B210 SOURCE (terminal 2) ----  set FEC SCHEME WAVE TXG PEAK (match sink's FEC/SCHEME/WAVE):
+ FEC=ldpc SCHEME=DQPSK WAVE=sc TXG=78 PEAK=""      # <-- edit per row in section 2
+ ./sdr_system --role source_arq \
+   --tx-args serial=30CD424 --tx-subdev A:A --tx-ant TX/RX \
+   --tx-freq 915e6 --tx-rate 2e6 --rx-rate 2e6 --symbol_rate 1e6 --tx-gain $TXG \
+   --scheme $SCHEME --waveform $WAVE $PEAK \
+   --fec true --fec-type $FEC --ldpc-k 256 \
+   --ack-transport tcp --ack-host $N210_HOST --ack-port $ACKPORT --max-attempts 0 --timeout 3000 --viz false
+
+------------------------------------------------------------------------------
+ 2. TEST MATRIX  (SOFT is sink-only; PEAK is source-only)
+------------------------------------------------------------------------------
+ GROUP A - single-carrier + DIFFERENTIAL (hard-decision code path; robust on free-running)
+   SOFT="" for all.
+   A1 LDPC  DQPSK   sink: FEC=ldpc  SCHEME=DQPSK  WAVE=sc RXG=25 SOFT=""   src: FEC=ldpc  SCHEME=DQPSK  WAVE=sc TXG=78 PEAK=""
+   A2 turbo DQPSK   sink: FEC=turbo SCHEME=DQPSK  WAVE=sc RXG=25 SOFT=""   src: FEC=turbo SCHEME=DQPSK  WAVE=sc TXG=78 PEAK=""
+   A3 LDPC  DBPSK   sink: FEC=ldpc  SCHEME=DBPSK  WAVE=sc RXG=25 SOFT=""   src: FEC=ldpc  SCHEME=DBPSK  WAVE=sc TXG=78 PEAK=""
+   A4 turbo DBPSK   sink: FEC=turbo SCHEME=DBPSK  WAVE=sc RXG=25 SOFT=""   src: FEC=turbo SCHEME=DBPSK  WAVE=sc TXG=78 PEAK=""
+   A5 LDPC  8-DPSK  sink: FEC=ldpc  SCHEME=8-DPSK WAVE=sc RXG=16 SOFT=""   src: FEC=ldpc  SCHEME=8-DPSK WAVE=sc TXG=86 PEAK=""
+   A6 turbo 8-DPSK  sink: FEC=turbo SCHEME=8-DPSK WAVE=sc RXG=16 SOFT=""   src: FEC=turbo SCHEME=8-DPSK WAVE=sc TXG=86 PEAK=""
+
+ GROUP B - OFDM + COHERENT + SOFT (LDPC/turbo strength; needs the rebuilt binary)
+   SOFT="--fec_soft" on SINK; PEAK="--ofdm-tx-peak 0.5" on SOURCE.
+   B1 LDPC  QPSK  sink: FEC=ldpc  SCHEME=QPSK WAVE=ofdm RXG=22 SOFT="--fec_soft"  src: FEC=ldpc  SCHEME=QPSK WAVE=ofdm TXG=80 PEAK="--ofdm-tx-peak 0.5"
+   B2 turbo QPSK  sink: FEC=turbo SCHEME=QPSK WAVE=ofdm RXG=22 SOFT="--fec_soft"  src: FEC=turbo SCHEME=QPSK WAVE=ofdm TXG=80 PEAK="--ofdm-tx-peak 0.5"
+   B3 LDPC  BPSK  sink: FEC=ldpc  SCHEME=BPSK WAVE=ofdm RXG=22 SOFT="--fec_soft"  src: FEC=ldpc  SCHEME=BPSK WAVE=ofdm TXG=80 PEAK="--ofdm-tx-peak 0.5"
+   B4 turbo BPSK  sink: FEC=turbo SCHEME=BPSK WAVE=ofdm RXG=22 SOFT="--fec_soft"  src: FEC=turbo SCHEME=BPSK WAVE=ofdm TXG=80 PEAK="--ofdm-tx-peak 0.5"
+
+ GROUP C - SC coherent + SOFT (OPTIONAL; only with a WARM/stable LO or shared 10 MHz ref)
+   On a cold free-running LO these usually lock-fail (~50% BER) - expected, not a code fault.
+   C1 LDPC  QPSK  sink: FEC=ldpc  SCHEME=QPSK WAVE=sc RXG=25 SOFT="--fec_soft"  src: FEC=ldpc  SCHEME=QPSK WAVE=sc TXG=78 PEAK=""
+   C2 turbo QPSK  sink: FEC=turbo SCHEME=QPSK WAVE=sc RXG=25 SOFT="--fec_soft"  src: FEC=turbo SCHEME=QPSK WAVE=sc TXG=78 PEAK=""
+
+------------------------------------------------------------------------------
+ 3. MEASURE / COMPARE THE CODES
+------------------------------------------------------------------------------
+ Add  --ber-expected  to the SINK command in any test -> prints a per-burst line:
+   [BER] pre-FEC=..%  post-FEC=..%  CRC=PASS/FAIL
+ so you can see each code correcting bits (compare turbo vs LDPC post-FEC on the
+ same channel).
+
+------------------------------------------------------------------------------
+ 3b. TUNING KNOBS  (use if the default LDPC/turbo won't lock on a marginal link)
+------------------------------------------------------------------------------
+ Pass these as EXTRA args to the scripts (after the 5 positional args), or add
+ them to the raw commands. They are:
+
+   --fec-iters N       max decoder iterations. Default 0 = LDPC 50 / turbo 6.
+                       Turbo benefits most: try 8, 10, 12. DECODER-ONLY -> put on
+                       the SINK only; need NOT match the source.
+   --fec-scale F       min-sum (LDPC) / extrinsic (turbo) normalization, 0.7-0.9.
+                       Default 0 = 0.75. DECODER-ONLY -> SINK only.
+   --ldpc-k K          block size (both LDPC & turbo). Bigger = stronger, slower.
+                       MUST MATCH on both ends (set K in fec_test.env).
+   --ldpc-col-weight N LDPC variable-node degree, default 3. Higher (4) = denser,
+                       sometimes stronger. CHANGES the code -> MUST MATCH BOTH ends.
+
+ Order of things to try when a link is marginal:
+   1) raise TX power / re-aim antenna / drop to 910 MHz (SNR first — FEC can't fix
+      a link that won't sync).
+   2) turbo --fec-iters 10   (sink)      -- cheapest decoder win
+   3) --ldpc-k 512           (both ends) -- more coding gain
+   4) LDPC --fec-scale 0.8   (sink)  or  --ldpc-col-weight 4 (both ends)
+
+ Examples:
+   ./run_sink.sh turbo QPSK ofdm 22 soft --fec-iters 10
+   ./run_sink.sh ldpc  QPSK ofdm 22 soft --fec-scale 0.8 --ldpc-col-weight 4
+   ./run_source.sh ldpc QPSK ofdm 80 peak            --ldpc-col-weight 4   # match col-weight!
+   (bigger block: set K=512 in fec_test.env -> applies to BOTH scripts automatically)
+
+------------------------------------------------------------------------------
+ 4. NOTES / GOTCHAS
+------------------------------------------------------------------------------
+ * BOTH ends must match --fec-type, --scheme, --waveform, --ldpc-k. A mismatch
+   changes the frame length -> every CRC fails.
+ * Startup must print [LdpcCode]/[TurboCode] and [MAIN] FEC: <fam> <soft|hard>-decision.
+   On the Group-B sink it MUST say "soft-decision" (confirms the OFDM LLR fix is live).
+ * More coding gain: --ldpc-k 512 on BOTH ends (applies to LDPC AND turbo block size);
+   bigger = stronger but slower.
+ * Do NOT combine --waveform ofdm with a differential (D*) scheme.
+ * N210 rx-gain range is 0-31.5 dB (not 78). B210 tx-gain up to ~89.
+ * Different subnets? open the sink host's firewall for $ACKPORT; if the port is
+   taken by another program (pgrep sdr_system empty but bind fails) pick another port.
+ * Stuck process: kill -9 $(pgrep -f sdr_system)   (Ctrl-C won't break a blocked radio).
+ * The figure evidence auto-plot only runs on a CLEAN exit (single Ctrl-C on the
+   warm sink) - kill -9 skips it. Plot manually: python3 ../tools/plot_viz.py phy_outputs/<SCHEME> --fs 2e6
+
+==============================================================================

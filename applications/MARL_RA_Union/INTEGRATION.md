@@ -240,7 +240,7 @@ gets the **best throughput of any policy** (0.347/slot) *without being told the 
 **Run.** Offline today: `marl_multi_train.py --mock --agents 4 --steps 800 --coll-penalty 0.5
 --compare-aloha "0.15,0.25,0.5"`. On hardware (2 agents + 1 AP, when the 3rd USRP is in):
 start `marl_phy.py ap --scheme QPSK ...`, then `marl_multi_train.py --tx-args serial=A
---tx-args serial=B --scheme QPSK --steps 300`. Commands in `../../python/README.md`.
+--tx-args serial=B --scheme QPSK --steps 300`. Commands in `../../README.md`.
 
 ### 8b. Decentralized (each TX on its own node) — the deployment-faithful version
 
@@ -255,6 +255,14 @@ only the medium. The decentralized stack:
   (`net.hpp: listen(srv,1)`), so ACK routing is done in Python — the C++ sink decodes,
   and a Python multi-client server ACKs the agent whose **id is payload byte 0**. A
   collision decodes nothing → no ACK → the agent times out (its only collision signal).
+  **Per-burst id wiring — DONE (sim-validated).** Added `role rx --marl-report` (C++,
+  default OFF so nothing else changes): prints `[BURST] id=<payload byte0> idx tot nbytes
+  hex` per CRC-OK burst. `_decode_stream` parses that line (`_parse_burst_id`) instead of
+  the old (broken) "read out-file per burst" — the out-file is written only at exit.
+  Runs as a WARM decoder (`stop_on_complete=False, rx_idle_timeout=0`). Radio-free tests:
+  `ap_multi.py --sim-test` (parser + fake-sink→route end-to-end) and `--self-test`
+  (routing) both PASS. Remaining for hardware: real RF decode + confirm the agent's
+  `bytes_length` matches the AP's (both default 125).
 
 **Design choices (validated with the user):** local-only observation (no AP beacon /
 global state) and one-host / 3-USRP test topology. A node **cannot observe collisions**,

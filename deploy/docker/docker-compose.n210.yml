@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Isolated networking for the N210 — expose ONLY the radio NIC (macvlan) + the
+#  default bridge, instead of `--network host` (which exposes EVERY host interface).
+#  Also fixes UHD's real-time thread scheduling (the pthread_setschedparam error).
+#
+#  1) Find the NIC wired to the N210 (the one holding a 192.168.20.x address):
+#         ip -o -4 addr show | grep 192.168.20        # e.g. "enp3s0 ... 192.168.20.1/24"
+#  2) Bring it up (pass the NIC name; override subnet/IP if different):
+#         N210_IFACE=enp3s0 docker compose -f docker/docker-compose.n210.yml up -d phy
+#         docker compose -f docker/docker-compose.n210.yml exec phy uhd_find_devices --args addr=192.168.20.2
+#         docker compose -f docker/docker-compose.n210.yml exec phy bash
+#
+#  net.core socket buffers are host-wide — set once on the HOST:
+#     sudo sysctl -w net.core.rmem_max=50000000 net.core.wmem_max=2500000
+# ─────────────────────────────────────────────────────────────────────────────
+networks:
+  n210:                              # ONLY the radio NIC is visible to the container
+    driver: macvlan
+    driver_opts:
+      parent: ${N210_IFACE:?set N210_IFACE to the N210 NIC, e.g. enp3s0}
+    ipam:
+      config:
+        - subnet: ${N210_SUBNET:-192.168.20.0/24}
+  # the `default` bridge (general connectivity + published ports) is auto-created
+
+services:
+  phy:
+    image: sdr-phy:22.04
+    networks:
+      default: {}                    # bridge: outbound + the published control ports
+      n210:
+        ipv4_address: ${PHY_N210_IP:-192.168.20.100}   # container's IP on the N210 subnet
+    ports:
+      - "5599:5599"                  # AP ACK server (ap_multi)  — published on the host's default NIC
+      - "5600:5600"                  # slot clock (slot_sync)
+    # ── UHD real-time thread scheduling (fixes pthread_setschedparam) ──
+    cap_add:
+      - SYS_NICE                     # allow SCHED_FIFO/RR (set thread priority)
+    ulimits:
+      rtprio: 99                     # raise the RT-priority limit (default 0 blocks UHD)
+      memlock: -1                    # unlimited locked memory (UHD DMA buffers)
+    environment:
+      # UHD_LOG_CONSOLE_LEVEL=error would SILENCE the priority warning instead of fixing it;
+      # with the cap+ulimits above the warning should not appear at all.
+      - UHD_LOG_CONSOLE_LEVEL=info
+    devices:
+      - /dev/bus/usb:/dev/bus/usb    # B210 over USB (harmless if none)
+    working_dir: /opt/sdr/Hardware_update
+    command: sleep infinity

@@ -1,0 +1,28 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  docker-compose for the sdr-phy container. LINUX host only (host networking +
+#  USRP passthrough do not work under Docker Desktop's macOS VM).
+#
+#  Focus: the PHY itself (sdr_system). Bring it up, then exec in to run tx / rx /
+#  tone / sim tests against the real radios.
+#
+#      docker compose -f docker/docker-compose.yml up -d phy
+#      docker compose -f docker/docker-compose.yml exec phy uhd_find_devices --args addr=192.168.20.2
+#      docker compose -f docker/docker-compose.yml exec phy python3 python/ap_multi.py --sim-test
+#      docker compose -f docker/docker-compose.yml exec phy bash
+#
+#  UHD socket buffers (net.core.* are not namespaced) must be set on the HOST:
+#      sudo sysctl -w net.core.rmem_max=50000000 net.core.wmem_max=2500000
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  phy:
+    image: sdr-phy:22.04
+    build:
+      context: ..                 # Hardware_update (the build context)
+      dockerfile: Dockerfile
+    network_mode: host            # N210 discovery + UDP
+    devices:
+      - /dev/bus/usb:/dev/bus/usb # B210 over USB (harmless if none present)
+    # If USB passthrough is fussy on your host, comment `devices:` and use:
+    # privileged: true
+    working_dir: /opt/sdr/Hardware_update
+    command: sleep infinity       # stay alive; exec in to run PHY commands

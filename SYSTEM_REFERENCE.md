@@ -4,7 +4,7 @@ End-to-end digital communication system for two USRP B210 radios (UHD), written 
 This document lists **every feature, algorithm (with the math and the common alternatives),
 and command-line option** exposed by `sdr_system`.
 
-- Binary: `build/sdr_system`
+- Binary: `phy/build/sdr_system`
 - Help: `./sdr_system --help`
 - Two operating styles: **one-way** (`--role tx` / `--role rx`, repeated sends, auto-terminating RX)
   and **ARQ** (`--role source_arq` / `--role sink_arq`, stop-and-wait with ACK).
@@ -77,9 +77,9 @@ $\mathrm{EVM} \lesssim d_{\min}/(2\,\mathrm{rms})$, which is why QPSK survived ~
 air but 16-QAM (needing $\lesssim 12\%$) did not. **Gray coding** the bit→point map (adjacent
 points differ by one bit) makes each symbol error cost only ~1 bit error.
 
-![Same noise cloud (EVM ≈ 28 %) on QPSK vs 16-QAM: it stays inside QPSK's decision cells but crosses 16-QAM's tighter boundaries (red), causing symbol errors.](figures/constellations.png)
+![Same noise cloud (EVM ≈ 28 %) on QPSK vs 16-QAM: it stays inside QPSK's decision cells but crosses 16-QAM's tighter boundaries (red), causing symbol errors.](results/figures/constellations.png)
 
-![Theoretical BER vs $E_b/N_0$: each added bit/symbol needs several more dB of SNR to hit the same error rate.](figures/ber_curves.png)
+![Theoretical BER vs $E_b/N_0$: each added bit/symbol needs several more dB of SNR to hit the same error rate.](results/figures/ber_curves.png)
 
 **Bits↔symbols detail.** Gray-like index mapping; `bits_to_index` zero-fills a partial final
 group so schemes whose bits/symbol don't divide the frame (32-QAM, 128-QAM) still align — a
@@ -109,7 +109,7 @@ $$ B = (1+\beta)\,\frac{R_{sym}}{2}\quad\text{(one-sided baseband; occupied widt
 Alternatives: `rc` (raised cosine, all shaping at TX), `lp` (plain low-pass); Gaussian shaping
 (GMSK) is the common constant-envelope alternative.
 
-![RRC pulse (left): zero crossings land exactly on the neighbouring symbol instants → no ISI. Spectrum (right): occupied bandwidth grows with roll-off $\beta$.](figures/rrc.png)
+![RRC pulse (left): zero crossings land exactly on the neighbouring symbol instants → no ISI. Spectrum (right): occupied bandwidth grows with roll-off $\beta$.](results/figures/rrc.png)
 
 ### 3.2 OFDM
 Frame layout per burst: `[ Schmidl-Cox sync symbol | channel-estimation symbol | data symbols… ]`,
@@ -135,7 +135,7 @@ preferred for dense QAM on frequency-selective channels. Cost: high peak-to-aver
 (PAPR) and sensitivity
 to carrier frequency offset (loss of subcarrier orthogonality → inter-carrier interference).
 
-![Subcarrier orthogonality (shown for $N=16$): each subcarrier's spectrum is a sinc that peaks at its own index and is exactly zero at every other subcarrier — so they overlap in frequency yet don't interfere. (See `tools/ofdm_spectrum.py` to view this on a real captured signal.)](figures/ofdm_orthogonality.png)
+![Subcarrier orthogonality (shown for $N=16$): each subcarrier's spectrum is a sinc that peaks at its own index and is exactly zero at every other subcarrier — so they overlap in frequency yet don't interfere. (See `phy/tools/ofdm_spectrum.py` to view this on a real captured signal.)](results/figures/ofdm_orthogonality.png)
 
 **Channel estimation & pilots.** One known **channel-estimation symbol** (known value on every
 active subcarrier) gives $H[k] = Y_\text{chest}[k]/\text{ref}[k]$. **Scattered pilots** (every 8th active
@@ -189,7 +189,7 @@ bursts apart on the RRC envelope; $\alpha=0.95$ gives one clean capture/burst.)
 - `--energy_packet_size` — how many samples to grab once a burst is detected (auto-sized per
   modulation).
 
-![Energy detector: smoothed power (blue) rises above the adaptive threshold (red, $=5\times$ the tracked noise floor) during each burst; green shading marks the captured regions.](figures/energy_detector.png)
+![Energy detector: smoothed power (blue) rises above the adaptive threshold (red, $=5\times$ the tracked noise floor) during each burst; green shading marks the captured regions.](results/figures/energy_detector.png)
 
 **Common alternatives:** matched-filter / correlation detection (detect on the *known preamble*
 rather than energy — more sensitive but needs the template), constant-false-alarm-rate (CFAR)
@@ -226,6 +226,12 @@ and sets $\gamma_\text{dB} = \operatorname{median}(P_\text{idle,dB}) + \text{mar
   no per-call re-init (Python owns the threshold; the feed streams raw `power_db`).
 - `should_transmit(p, …)` — **p-persistent access**: if the channel is idle, transmit with
   probability $p$; if busy, defer. The scaffold for CSMA/collision-avoidance on top of the PHY.
+
+**Frequency-range scan** (`freq_scan.py`) sweeps a band to find a *quiet carrier* before a run:
+it retunes the RX across `--start`/`--stop` in `--step` MHz, senses the received power at each
+step (via `--role sense`), and prints a per-frequency table + an ASCII spectrum, ranking the
+quietest candidates (with an optional power-vs-frequency plot). E.g.
+`python3 freq_scan.py --start 902 --stop 928 --step 1 --rx-args addr=192.168.20.2`.
 
 **Common alternatives:** full CSMA/CA with randomized exponential backoff, RTS/CTS handshaking,
 energy detection with hysteresis (separate busy/idle thresholds to avoid chattering), and — for
@@ -341,7 +347,7 @@ carrier-phase-independent** (the $\mathrm{Re}\{\cdot\}$ with the difference term
 constant rotation), so it works *before* CFO/phase are resolved — the classic reason Gardner is
 favoured for QAM *tracking* loops.
 
-![Gardner detector S-curve: the mean error crosses zero at the correct sampling instant, and its sign tells the loop which way to move — a clean, monotonic control characteristic around lock.](figures/gardner_scurve.png)
+![Gardner detector S-curve: the mean error crosses zero at the correct sampling instant, and its sign tells the loop which way to move — a clean, monotonic control characteristic around lock.](results/figures/gardner_scurve.png)
 
 **Loop.** The NCO advances $\omega = 2/\text{sps}$ per input sample (two strobes/symbol — using
 $1/\text{sps}$ gives only one strobe and the "midpoint" lands a full symbol away → the loop tracks
@@ -364,7 +370,7 @@ provided (`CFOEstimator`), all **data-aided** off the preamble, then `FrequencyS
 it by multiplying sample $n$ by $e^{-j2\pi(\Delta f/f_s)n}$ (a running phase accumulator, so
 blocks join seamlessly). The pipeline default is **(C) least-squares phase-slope**.
 
-![A residual CFO makes the phase ramp $\varphi[n]=2\pi(\Delta f/f_s)n$ — the constellation smears from clean clusters into arcs and finally a full ring (exactly the failure mode seen with uncorrected OFDM over the air).](figures/cfo_effect.png)
+![A residual CFO makes the phase ramp $\varphi[n]=2\pi(\Delta f/f_s)n$ — the constellation smears from clean clusters into arcs and finally a full ring (exactly the failure mode seen with uncorrected OFDM over the air).](results/figures/cfo_effect.png)
 
 **(A) Pilot-aided (phase-slope across preamble symbols).** For preamble symbols $p[k]$ received at
 $r[k\cdot\text{sps}]$, the phase advance per symbol is measured with the known data stripped off:
@@ -438,7 +444,7 @@ $$ \theta_n = \frac{B_n T}{\zeta + 1/(4\zeta)}, \qquad
 ($\beta = 0$ gives a first-order loop.) Smaller $B_n T$ = less jitter but slower pull-in;
 $\zeta = 0.707$ is the critically-damped standard.
 
-![Second-order PLL locking: starting from a static offset plus a CFO-induced phase ramp, the loop's integrator drives the residual phase error to zero.](figures/pll_convergence.png)
+![Second-order PLL locking: starting from a static offset plus a CFO-induced phase ramp, the loop's integrator drives the residual phase error to zero.](results/figures/pll_convergence.png)
 
 *Alternatives:* Costas loop (joint carrier recovery on the raw samples), block Viterbi-Viterbi
 phase estimation, pilot-symbol-aided interpolation.
@@ -465,7 +471,7 @@ and the burst is derotated by $e^{-j2\pi\epsilon n/N}$. Residual CFO / phase dri
 is then tracked per symbol by the scattered-pilot CPE of §3.2. An energy gate ($R \ge 0.30\,\max R$)
 stops the metric from locking onto the low-power noise pad before the burst.
 
-![Schmidl & Cox timing metric $M(d)$: a plateau appears where the two identical preamble halves align (its left edge marks the frame start); $\hat\epsilon=\angle P/\pi$ gives the fractional CFO.](figures/schmidl_cox.png)
+![Schmidl & Cox timing metric $M(d)$: a plateau appears where the two identical preamble halves align (its left edge marks the frame start); $\hat\epsilon=\angle P/\pi$ gives the fractional CFO.](results/figures/schmidl_cox.png)
 
 *Alternatives:* Minn and Park metrics (sharper, no plateau ambiguity), CP-based blind sync.
 
@@ -536,12 +542,90 @@ then traces the survivors back to output the bits. It corrects any error pattern
 $\lfloor (d_\text{free}-1)/2 \rfloor$ — $d_\text{free} = 10$ for this code — per window; validated
 ~100 % CRC-OK up to ~2 % raw BER. (Two original bugs — encoder emitting from the *next* state,
 traceback storing the bit instead of the predecessor state — were fixed.) **Soft-decision**
-Viterbi (Euclidean instead of Hamming metric, using the raw symbol distances) would add ~2 dB but
-isn't implemented.
+Viterbi (Euclidean/LLR branch metric instead of Hamming) is now implemented via `--fec_soft`
+— ~2 dB over the hard-decision decoder (see §7.4).
 
-**Common alternatives:** LDPC and Turbo codes (near-Shannon, used in Wi-Fi/5G), Reed-Solomon
-(burst errors), Polar codes (5G control), soft-decision Viterbi (~2 dB better than the
-hard-decision decoder here).
+The FEC is now **pluggable** — `--fec-type {conv, ldpc, turbo}` selects one of three rate-1/2
+codes. The convolutional code above is the default; the sections below cover the two added
+near-Shannon codes and the shared selector/tuning and soft-decision layer.
+
+### 7.1 Code-family selector and tuning
+
+`--fec-type` (needs `--fec true`) picks the code; all three are rate 1/2, so the rest of the
+pipeline (symbol sizing, ARQ, CRC) is unchanged, and both ends must select the same code. The
+convenience layer in `fec.hpp` dispatches `fec_encoded_len / fec_encode_block / fec_decode_block
+/ fec_soft_decode_block` to the chosen codec; `fec_set_type()` builds it once at startup and
+`fec_set_tuning()` applies the knobs. The block codes (LDPC, turbo) segment the packet into
+$k$-bit blocks (`--ldpc-k`, default 256; last block zero-padded) and encode each to $2k$ coded bits.
+
+Tuning knobs:
+
+- `--fec-iters N` — max decoder iterations (LDPC belief-propagation / turbo BCJR; `0` = default
+  50 / 6). Raise (e.g. turbo 8–12) if a marginal link won't converge. Decoder-only — need not match.
+- `--fec-scale F` — normalized min-sum (LDPC) / extrinsic (turbo) scale, 0.7–0.9 typical
+  (`0` = default 0.75). Decoder-only.
+- `--ldpc-k K` — block size (LDPC **and** turbo). Larger = stronger, more latency/padding.
+  **Must match both ends.**
+- `--ldpc-col-weight W` — LDPC variable-node degree (default 3); higher = denser code.
+  **Changes the parity-check matrix — must match both ends** (turbo ignores it).
+
+### 7.2 LDPC (`ldpc.hpp`)
+
+Rate-1/2 systematic **IRA / staircase** LDPC. The parity-check matrix $H = [\,H_u \mid H_p\,]$ is
+built deterministically from a fixed seed (identical on both ends): the information part $H_u$
+places `col_weight` ones per info column, balanced across the $m=k$ check rows; the parity part
+$H_p$ is lower-bidiagonal (an accumulator). That structure gives $O(n)$ **systematic encoding** —
+the parity is a prefix-XOR of the info syndrome, $p_r = \bigoplus_{i \le r} s_i$ with $s = H_u\,u$
+— and parity variable nodes of degree 2 (a genuinely good short code, unlike the degree-1 parity
+of an $H=[P\mid I]$ construction).
+
+**Decoding** is flooding **normalized min-sum** belief propagation on the Tanner graph. Each
+iteration: every variable node sums its channel LLR and the incoming check messages; every check
+node returns $\operatorname{sign} = \prod \operatorname{sgn}$ and $\operatorname{magnitude} =
+\alpha \cdot \min |L|$ over its *other* edges (attenuation $\alpha =$ `--fec-scale`, default 0.75).
+It **early-terminates** the moment the hard-decision syndrome $H\hat{x}=0$ clears, so decode cost
+falls as SNR rises. LLR convention matches `soft_demodulate_llr` (positive = bit 0).
+
+### 7.3 Turbo (`turbo.hpp`)
+
+Rate-1/2 **punctured parallel-concatenated convolutional code** (PCCC): two identical $(7,5)$
+recursive-systematic convolutional (RSC) encoders — one on the info bits, one on an interleaved
+copy (deterministic interleaver) — with the two parity streams punctured (alternate bits) to
+reach rate 1/2. The RSC has feedback $g_0 = 1+D+D^2$ ($7_8$) and feedforward $g_1 = 1+D^2$ ($5_8$),
+memory 2 → a **4-state** trellis.
+
+**Decoding** is the classic iterative turbo decoder: two soft-in/soft-out (SISO)
+**max-log-MAP (BCJR)** decoders exchange **extrinsic** LLRs through the interleaver for a few
+iterations, then take a hard decision on the combined LLR. Each SISO runs forward ($\alpha$) and
+backward ($\beta$) recursions over the trellis with branch metric
+$\gamma \propto \tfrac12\big(x_u(L_a+L_s) + x_p L_p\big)$, forms
+$L(u) = \max^{*}_{u=1}(\alpha+\gamma+\beta) - \max^{*}_{u=0}(\alpha+\gamma+\beta)$, and passes the
+scaled extrinsic $L_e = \text{scale}\cdot(L - L_a - L_s)$ to the other decoder (deinterleaved).
+Turbo has the **steepest waterfall** of the three codes (best coding gain per dB), and like LDPC
+it early-terminates as the link improves.
+
+### 7.4 Soft-decision decoding
+
+`--fec_soft` (RX-side) feeds per-bit **LLRs** from `soft_demodulate_llr()` (a max-log demapper on
+the equalized symbols; positive = bit 0) to the decoder instead of hard bits:
+
+- **Convolutional:** soft Viterbi (Euclidean/LLR branch metric) — ~2 dB over hard.
+- **LDPC / turbo:** soft is their *native* input; hard-decision (mapping bits to $\pm$LLR) throws
+  away most of their gain.
+
+The single-carrier RX emits LLRs from the phase-corrected symbols. **OFDM** now does too:
+`ofdm_demodulation_thread` computes them from the per-subcarrier-equalized symbols (with a
+decision-directed noise-variance estimate) and feeds `rx_llr_fifo`. Previously the OFDM path
+produced only hard bits, so `--fec_soft` on OFDM silently fell back to hard decision — a large loss
+for the iterative codes.
+
+**Comparison (hardware-free, QPSK).** At 2 dB $E_b/N_0$, decode success is turbo-soft $\approx$90 %
+$>$ LDPC-soft $\approx$75 % $>$ conv-soft $\approx$52 %. Decode *cost*: Viterbi is fixed (it walks
+the full 64-state trellis every packet), whereas LDPC (min-sum) and turbo (BCJR) early-terminate,
+so their cost drops as SNR rises. Ranking at short block sizes: turbo = best gain (moderate cost),
+LDPC = fastest with good gain, conv = weakest gain but predictable, bounded latency.
+
+**Common alternatives not implemented:** Reed-Solomon (burst errors), Polar codes (5G control).
 
 ---
 
@@ -618,7 +702,7 @@ gain over time. The energy detector's captured burst feeds the AGC before sync.
 TX/RX **time domain**, **spectrum** (FFT), and **constellation** with the ideal points overlaid
 and an **EVM %** readout. Rough EVM ceilings for reliable decode: QPSK tolerates ~30–35% (more
 with FEC), 16-QAM needs <~12%, 64-QAM <~6%. Render manually with
-`python3 tools/plot_viz.py <dir> --fs 1.6e6 --save out.png`.
+`python3 phy/tools/plot_viz.py <dir> --fs 1.6e6 --save out.png`.
 
 ### 10.1 Why a *messy* constellation can still decode perfectly
 
@@ -675,6 +759,12 @@ borderline but the stack still closes the gap; dense QAM/APSK is past it.
 
 ## 11. Complete command-line reference
 
+**Config file.** Every option below can be set in a file instead of on the command line:
+`--config phy.cfg` reads `name = value` lines (`#` comments; long option name without `--`), and
+anything on the command line **overrides** the file — so you keep one edited config and tweak
+per-run. `phy.cfg` is a fully-defaulted template auto-generated on build
+(`phy/tools/gen_config_template.py`) from `sdr_system --help`, so it never drifts from the code.
+
 ### Mode / roles
 | Option | Default | Controls |
 |---|---|---|
@@ -698,7 +788,13 @@ borderline but the stack still closes the gap; dense QAM/APSK is past it.
 | Option | Default | Controls |
 |---|---|---|
 | `--scheme` | `QPSK` | constellation (§2) |
-| `--fec` | `false` | rate-1/2 K=7 conv + Viterbi (must match both ends) |
+| `--fec` | `false` | enable FEC (must match both ends) |
+| `--fec-type` | `conv` | `conv` / `ldpc` / `turbo` (§7); must match both ends |
+| `--fec_soft` | off | RX soft-decision (LLR) decoding (§7.4); coherent schemes |
+| `--ldpc-k` | `256` | LDPC/turbo info-block size (bits); must match both ends |
+| `--fec-iters` | `0` | max decoder iterations (0 = default 50/6); decoder-only |
+| `--fec-scale` | `0` | min-sum/extrinsic scale (0 = 0.75); decoder-only |
+| `--ldpc-col-weight` | `3` | LDPC variable-node degree; must match both ends |
 | `--waveform` | `sc` | `sc` (single-carrier) or `ofdm` |
 | `--ofdm-fft` | `64` | OFDM subcarrier count (FFT size) |
 | `--ofdm-cp` | `16` | OFDM cyclic-prefix length |
@@ -793,7 +889,7 @@ borderline but the stack still closes the gap; dense QAM/APSK is past it.
 
 Copy-paste **sink / source ARQ** pairs with gains tuned per scheme from over-the-air testing
 (two B210s ~10 cm apart). All use stop-and-wait ARQ (TCP ACK on localhost) + FEC, and auto-save
-plots to `viz/<scheme>/figure.png`. The same set stands alone in the repo as `COMMANDS.md`, which
+plots to `phy_outputs/<scheme>/figure.png`. The same set stands alone in the repo as `COMMANDS.md`, which
 also carries adapted (untested) command templates for the **N210 / X310 / X410** — only the device
 args, subdev, antenna and gain range change; the DSP flags are identical, and a shared 10 MHz
 reference (`--ref external`) on those platforms lifts the §13 dense-QAM limitation.
@@ -938,7 +1034,7 @@ DSP-vs-shared-clock trade-off above.
 ## 14. LoRa / CSS (chirp spread spectrum) — decodable receiver
 
 A parallel waveform to `sc`/`ofdm`, added in `include/lora.hpp` with the radio path in
-`src/main.cpp` (`--waveform lora`). Unlike the constellation pipeline (m-sequence
+`phy/src/main.cpp` (`--waveform lora`). Unlike the constellation pipeline (m-sequence
 preamble + RRC + PLL), CSS has its own chirp-based sync and demod, so it runs at the
 sample level via `transmit_samples` / `PHYSICAL_LAYER::capture_raw` (like the tone path),
 bypassing the ACQ threads.

@@ -143,7 +143,7 @@ exposed by \texttt{sdr\_system}.
 \begin{itemize}
 \tightlist
 \item
-  Binary: \texttt{build/sdr\_system}
+  Binary: \texttt{phy/build/sdr\_system}
 \item
   Help: \texttt{./sdr\_system\ -\/-help}
 \item
@@ -253,9 +253,9 @@ why QPSK survived \textasciitilde37 \% EVM over the air but 16-QAM
 bit-\textgreater point map (adjacent points differ by one bit) makes
 each symbol error cost only \textasciitilde1 bit error.
 
-\includegraphics{figures/constellations.png}
+\includegraphics{results/figures/constellations.png}
 
-\includegraphics{figures/ber_curves.png}
+\includegraphics{results/figures/ber_curves.png}
 
 \textbf{Bits\textless-\textgreater symbols detail.} Gray-like index
 mapping; \texttt{bits\_to\_index} zero-fills a partial final group so
@@ -297,7 +297,7 @@ Alternatives: \texttt{rc} (raised cosine, all shaping at TX),
 \texttt{lp} (plain low-pass); Gaussian shaping (GMSK) is the common
 constant-envelope alternative.
 
-\includegraphics{figures/rrc.png}
+\includegraphics{results/figures/rrc.png}
 
 \hypertarget{32-ofdm}{%
 \subsubsection{3.2 OFDM}\label{32-ofdm}}
@@ -338,7 +338,7 @@ peak-to-average power ratio (PAPR) and sensitivity to carrier frequency
 offset (loss of subcarrier orthogonality -\textgreater{} inter-carrier
 interference).
 
-\includegraphics{figures/ofdm_orthogonality.png}
+\includegraphics{results/figures/ofdm_orthogonality.png}
 
 \textbf{Channel estimation \& pilots.} One known
 \textbf{channel-estimation symbol} (known value on every active
@@ -418,7 +418,7 @@ capture/burst.)
   burst is detected (auto-sized per modulation).
 \end{itemize}
 
-\includegraphics{figures/energy_detector.png}
+\includegraphics{results/figures/energy_detector.png}
 
 \textbf{Common alternatives:} matched-filter / correlation detection
 (detect on the \emph{known preamble} rather than energy --- more
@@ -481,6 +481,14 @@ script):
   busy, defer. The scaffold for CSMA/collision-avoidance on top of the
   PHY.
 \end{itemize}
+
+\textbf{Frequency-range scan} (\texttt{freq\_scan.py}) sweeps a band to
+find a \emph{quiet carrier} before a run: it retunes the RX across
+\texttt{-\/-start}/\texttt{-\/-stop} in \texttt{-\/-step} MHz, senses
+the received power at each step (via \texttt{-\/-role\ sense}), and
+prints a per-frequency table + an ASCII spectrum, ranking the quietest
+candidates (with an optional power-vs-frequency plot). E.g.
+\texttt{python3\ freq\_scan.py\ -\/-start\ 902\ -\/-stop\ 928\ -\/-step\ 1\ -\/-rx-args\ addr=192.168.20.2}.
 
 \textbf{Common alternatives:} full CSMA/CA with randomized exponential
 backoff, RTS/CTS handshaking, energy detection with hysteresis (separate
@@ -668,7 +676,7 @@ difference term cancels a constant rotation), so it works \emph{before}
 CFO/phase are resolved --- the classic reason Gardner is favoured for
 QAM \emph{tracking} loops.
 
-\includegraphics{figures/gardner_scurve.png}
+\includegraphics{results/figures/gardner_scurve.png}
 
 \textbf{Loop.} The NCO advances \(\omega = 2/\text{sps}\) per input
 sample (two strobes/symbol --- using \(1/\text{sps}\) gives only one
@@ -693,12 +701,13 @@ sample/sym but needs carrier first), early-late gate, zero-crossing TED.
 correction}\label{54-carrier-frequency-offset-cfo-estimation--correction}}
 
 A constant CFO spins the constellation at \(2\pi\,\Delta f/f_s\)
-rad/sample. Two estimators are provided (\texttt{CFOEstimator}), both
+rad/sample. Three estimators are provided (\texttt{CFOEstimator}), all
 \textbf{data-aided} off the preamble, then \texttt{FrequencyShifter}
 removes it by multiplying sample \(n\) by \(e^{-j2\pi(\Delta f/f_s)n}\)
-(a running phase accumulator, so blocks join seamlessly).
+(a running phase accumulator, so blocks join seamlessly). The pipeline
+default is \textbf{(C) least-squares phase-slope}.
 
-\includegraphics{figures/cfo_effect.png}
+\includegraphics{results/figures/cfo_effect.png}
 
 \textbf{(A) Pilot-aided (phase-slope across preamble symbols).} For
 preamble symbols \(p[k]\) received at \(r[k\cdot\text{sps}]\), the phase
@@ -720,7 +729,28 @@ first times the CFO phase accrued over \(L\) samples:
 
 Unambiguous range \(|\Delta f| < f_s/(2L)\) --- smaller \(L\)
 -\textgreater{} wider capture range but noisier. This is the same
-estimator OFDM uses (§5.6), where \(L = N/2\).
+estimator OFDM uses (§5.6), where \(L = N/2\). Note (B) needs a
+\textbf{repeated} preamble; the single-carrier default preamble is a
+single m-sequence, so (B) is not used there.
+
+\textbf{(C) Least-squares phase-slope (default).} Strip the modulation
+from every preamble symbol,
+\(\theta_k = \arg(r[k\,\text{sps}]\,p^{*}[k]) = \varphi_0 + 2\pi(\Delta f/f_s)\,\text{sps}\,k + \text{noise}\),
+unwrap, and fit a magnitude-weighted straight line; the slope \(b\)
+gives \(\widehat{\Delta f} = b\,f_s/(2\pi\,\text{sps})\). Because it
+uses \textbf{all} preamble symbols jointly (vs (A)'s lag-1 differencing)
+this is the data-aided ML / CRLB estimate --- same
+\(\pm f_s/(2\,\text{sps})\) range as (A) but
+\textbf{\textasciitilde{}\(L^2\) lower variance}. A hardware-free
+Monte-Carlo (length-31 m-seq) puts the CFO-estimate RMSE at
+\textasciitilde450 Hz vs \textasciitilde1050 Hz for (A) at 12 dB symbol
+SNR --- i.e. it roughly \textbf{halves} the \(\pm1200\) Hz jitter of §13
+--- and it wins at every SNR the link actually decodes at (both fail
+near 0 dB, where phase unwrap breaks down). A \textbf{cross-burst EMA
+prior} (\texttt{-\/-cfo\_prior\_alpha}, default \texttt{1.0} =
+per-burst) can further smooth the estimate for a \emph{warm resident
+LO}; keep it at \texttt{1.0} for a cold per-fire LO (two-host DQPSK),
+whose CFO changes every burst.
 
 \textbf{Why residual CFO still matters.} \(\arg(\cdot)\) limits the
 estimate; whatever is left is a slow phase ramp the \textbf{phase
@@ -782,7 +812,7 @@ and damping \(\zeta\) (\texttt{-\/-phase\_damping\ 0.707}):
 jitter but slower pull-in; \(\zeta = 0.707\) is the critically-damped
 standard.
 
-\includegraphics{figures/pll_convergence.png}
+\includegraphics{results/figures/pll_convergence.png}
 
 \emph{Alternatives:} Costas loop (joint carrier recovery on the raw
 samples), block Viterbi-Viterbi phase estimation, pilot-symbol-aided
@@ -817,7 +847,7 @@ scattered-pilot CPE of §3.2. An energy gate (\(R \ge 0.30\,\max R\))
 stops the metric from locking onto the low-power noise pad before the
 burst.
 
-\includegraphics{figures/schmidl_cox.png}
+\includegraphics{results/figures/schmidl_cox.png}
 
 \emph{Alternatives:} Minn and Park metrics (sharper, no plateau
 ambiguity), CP-based blind sync.
@@ -913,14 +943,144 @@ pattern up to roughly \(\lfloor (d_\text{free}-1)/2 \rfloor\) ---
 \textasciitilde100 \% CRC-OK up to \textasciitilde2 \% raw BER. (Two
 original bugs --- encoder emitting from the \emph{next} state, traceback
 storing the bit instead of the predecessor state --- were fixed.)
-\textbf{Soft-decision} Viterbi (Euclidean instead of Hamming metric,
-using the raw symbol distances) would add \textasciitilde2 dB but isn't
-implemented.
+\textbf{Soft-decision} Viterbi (Euclidean/LLR branch metric instead of
+Hamming) is now implemented via \texttt{-\/-fec\_soft} ---
+\textasciitilde2 dB over the hard-decision decoder (see §7.4).
 
-\textbf{Common alternatives:} LDPC and Turbo codes (near-Shannon, used
-in Wi-Fi/5G), Reed-Solomon (burst errors), Polar codes (5G control),
-soft-decision Viterbi (\textasciitilde2 dB better than the hard-decision
-decoder here).
+The FEC is now \textbf{pluggable} ---
+\texttt{-\/-fec-type\ \{conv,\ ldpc,\ turbo\}} selects one of three
+rate-1/2 codes. The convolutional code above is the default; the
+sections below cover the two added near-Shannon codes and the shared
+selector/tuning and soft-decision layer.
+
+\hypertarget{71-code-family-selector-and-tuning}{%
+\subsubsection{7.1 Code-family selector and
+tuning}\label{71-code-family-selector-and-tuning}}
+
+\texttt{-\/-fec-type} (needs \texttt{-\/-fec\ true}) picks the code; all
+three are rate 1/2, so the rest of the pipeline (symbol sizing, ARQ,
+CRC) is unchanged, and both ends must select the same code. The
+convenience layer in \texttt{fec.hpp} dispatches
+\texttt{fec\_encoded\_len\ /\ fec\_encode\_block\ /\ fec\_decode\_block\ /\ fec\_soft\_decode\_block}
+to the chosen codec; \texttt{fec\_set\_type()} builds it once at startup
+and \texttt{fec\_set\_tuning()} applies the knobs. The block codes
+(LDPC, turbo) segment the packet into \(k\)-bit blocks
+(\texttt{-\/-ldpc-k}, default 256; last block zero-padded) and encode
+each to \(2k\) coded bits.
+
+Tuning knobs:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{-\/-fec-iters\ N} --- max decoder iterations (LDPC
+  belief-propagation / turbo BCJR; \texttt{0} = default 50 / 6). Raise
+  (e.g. turbo 8--12) if a marginal link won't converge. Decoder-only ---
+  need not match.
+\item
+  \texttt{-\/-fec-scale\ F} --- normalized min-sum (LDPC) / extrinsic
+  (turbo) scale, 0.7--0.9 typical (\texttt{0} = default 0.75).
+  Decoder-only.
+\item
+  \texttt{-\/-ldpc-k\ K} --- block size (LDPC \textbf{and} turbo).
+  Larger = stronger, more latency/padding. \textbf{Must match both
+  ends.}
+\item
+  \texttt{-\/-ldpc-col-weight\ W} --- LDPC variable-node degree (default
+  3); higher = denser code. \textbf{Changes the parity-check matrix ---
+  must match both ends} (turbo ignores it).
+\end{itemize}
+
+\hypertarget{72-ldpc-ldpchpp}{%
+\subsubsection{\texorpdfstring{7.2 LDPC
+(\texttt{ldpc.hpp})}{7.2 LDPC (ldpc.hpp)}}\label{72-ldpc-ldpchpp}}
+
+Rate-1/2 systematic \textbf{IRA / staircase} LDPC. The parity-check
+matrix \(H = [\,H_u \mid H_p\,]\) is built deterministically from a
+fixed seed (identical on both ends): the information part \(H_u\) places
+\texttt{col\_weight} ones per info column, balanced across the \(m=k\)
+check rows; the parity part \(H_p\) is lower-bidiagonal (an
+accumulator). That structure gives \(O(n)\) \textbf{systematic encoding}
+--- the parity is a prefix-XOR of the info syndrome,
+\(p_r = \bigoplus_{i \le r} s_i\) with \(s = H_u\,u\) --- and parity
+variable nodes of degree 2 (a genuinely good short code, unlike the
+degree-1 parity of an \(H=[P\mid I]\) construction).
+
+\textbf{Decoding} is flooding \textbf{normalized min-sum} belief
+propagation on the Tanner graph. Each iteration: every variable node
+sums its channel LLR and the incoming check messages; every check node
+returns \(\operatorname{sign} = \prod \operatorname{sgn}\) and
+\(\operatorname{magnitude} =
+\alpha \cdot \min |L|\) over its \emph{other} edges (attenuation
+\(\alpha =\) \texttt{-\/-fec-scale}, default 0.75). It
+\textbf{early-terminates} the moment the hard-decision syndrome
+\(H\hat{x}=0\) clears, so decode cost falls as SNR rises. LLR convention
+matches \texttt{soft\_demodulate\_llr} (positive = bit 0).
+
+\hypertarget{73-turbo-turbohpp}{%
+\subsubsection{\texorpdfstring{7.3 Turbo
+(\texttt{turbo.hpp})}{7.3 Turbo (turbo.hpp)}}\label{73-turbo-turbohpp}}
+
+Rate-1/2 \textbf{punctured parallel-concatenated convolutional code}
+(PCCC): two identical \((7,5)\) recursive-systematic convolutional (RSC)
+encoders --- one on the info bits, one on an interleaved copy
+(deterministic interleaver) --- with the two parity streams punctured
+(alternate bits) to reach rate 1/2. The RSC has feedback
+\(g_0 = 1+D+D^2\) (\(7_8\)) and feedforward \(g_1 = 1+D^2\) (\(5_8\)),
+memory 2 -\textgreater{} a \textbf{4-state} trellis.
+
+\textbf{Decoding} is the classic iterative turbo decoder: two
+soft-in/soft-out (SISO) \textbf{max-log-MAP (BCJR)} decoders exchange
+\textbf{extrinsic} LLRs through the interleaver for a few iterations,
+then take a hard decision on the combined LLR. Each SISO runs forward
+(\(\alpha\)) and backward (\(\beta\)) recursions over the trellis with
+branch metric
+\(\gamma \propto \tfrac12\big(x_u(L_a+L_s) + x_p L_p\big)\), forms
+\(L(u) = \max^{*}_{u=1}(\alpha+\gamma+\beta) - \max^{*}_{u=0}(\alpha+\gamma+\beta)\),
+and passes the scaled extrinsic
+\(L_e = \text{scale}\cdot(L - L_a - L_s)\) to the other decoder
+(deinterleaved). Turbo has the \textbf{steepest waterfall} of the three
+codes (best coding gain per dB), and like LDPC it early-terminates as
+the link improves.
+
+\hypertarget{74-soft-decision-decoding}{%
+\subsubsection{7.4 Soft-decision
+decoding}\label{74-soft-decision-decoding}}
+
+\texttt{-\/-fec\_soft} (RX-side) feeds per-bit \textbf{LLRs} from
+\texttt{soft\_demodulate\_llr()} (a max-log demapper on the equalized
+symbols; positive = bit 0) to the decoder instead of hard bits:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Convolutional:} soft Viterbi (Euclidean/LLR branch metric) ---
+  \textasciitilde2 dB over hard.
+\item
+  \textbf{LDPC / turbo:} soft is their \emph{native} input;
+  hard-decision (mapping bits to \(\pm\)LLR) throws away most of their
+  gain.
+\end{itemize}
+
+The single-carrier RX emits LLRs from the phase-corrected symbols.
+\textbf{OFDM} now does too: \texttt{ofdm\_demodulation\_thread} computes
+them from the per-subcarrier-equalized symbols (with a decision-directed
+noise-variance estimate) and feeds \texttt{rx\_llr\_fifo}. Previously
+the OFDM path produced only hard bits, so \texttt{-\/-fec\_soft} on OFDM
+silently fell back to hard decision --- a large loss for the iterative
+codes.
+
+\textbf{Comparison (hardware-free, QPSK).} At 2 dB \(E_b/N_0\), decode
+success is turbo-soft \(\approx\)90 \% \(>\) LDPC-soft \(\approx\)75 \%
+\(>\) conv-soft \(\approx\)52 \%. Decode \emph{cost}: Viterbi is fixed
+(it walks the full 64-state trellis every packet), whereas LDPC
+(min-sum) and turbo (BCJR) early-terminate, so their cost drops as SNR
+rises. Ranking at short block sizes: turbo = best gain (moderate cost),
+LDPC = fastest with good gain, conv = weakest gain but predictable,
+bounded latency.
+
+\textbf{Common alternatives not implemented:} Reed-Solomon (burst
+errors), Polar codes (5G control).
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
@@ -998,7 +1158,7 @@ pass or fail), printing two rates:
 \item
   \textbf{post-FEC payload BER} --- residual errors after Viterbi
   decoding (decoded payload vs the known payload). This is what the CRC
-  actually sees; non-zero here ⇒ CRC fails.
+  actually sees; non-zero here =\textgreater{} CRC fails.
 \end{itemize}
 
 \[ \text{BER} = \frac{\#\{\text{bits that flipped}\}}{\#\text{bits}}. \]
@@ -1011,10 +1171,10 @@ pre-FEC}: once the raw BER exceeds the rate-½ K=7 code's decoding
 threshold (\textasciitilde10--11\%), the Viterbi decoder chooses a wrong
 trellis path and \textbf{amplifies} errors instead of correcting them
 (\emph{catastrophic FEC failure}) --- measured on a broken link as
-\texttt{pre-FEC\ 24\%}, \texttt{post-FEC\ 42\%} (≈ random ⇒ genuine
-garbage). The processing gain of the preamble correlation means a burst
-can \textbf{detect strongly yet decode to garbage} (detection ≠
-decodability).
+\texttt{pre-FEC\ 24\%}, \texttt{post-FEC\ 42\%} (≈ random
+=\textgreater{} genuine garbage). The processing gain of the preamble
+correlation means a burst can \textbf{detect strongly yet decode to
+garbage} (detection ≠ decodability).
 
 Python: \texttt{marl\_phy.ber\_probe(n,\ scheme=...)} (or
 \texttt{python3\ marl\_phy.py\ ber}) runs a warm AP with the known
@@ -1048,7 +1208,7 @@ TX/RX \textbf{time domain}, \textbf{spectrum} (FFT), and
 \textasciitilde30--35\% (more with FEC), 16-QAM needs
 \textless\textasciitilde12\%, 64-QAM \textless\textasciitilde6\%. Render
 manually with
-\texttt{python3\ tools/plot\_viz.py\ \textless{}dir\textgreater{}\ -\/-fs\ 1.6e6\ -\/-save\ out.png}.
+\texttt{python3\ phy/tools/plot\_viz.py\ \textless{}dir\textgreater{}\ -\/-fs\ 1.6e6\ -\/-save\ out.png}.
 
 \hypertarget{101-why-a-messy-constellation-can-still-decode-perfectly}{%
 \subsubsection{\texorpdfstring{10.1 Why a \emph{messy} constellation can
@@ -1129,6 +1289,15 @@ dense QAM/APSK is past it.
 \subsection{11. Complete command-line
 reference}\label{11-complete-command-line-reference}}
 
+\textbf{Config file.} Every option below can be set in a file instead of
+on the command line: \texttt{-\/-config\ phy.cfg} reads
+\texttt{name\ =\ value} lines (\texttt{\#} comments; long option name
+without \texttt{-\/-}), and anything on the command line
+\textbf{overrides} the file --- so you keep one edited config and tweak
+per-run. \texttt{phy.cfg} is a fully-defaulted template auto-generated
+on build (\texttt{phy/tools/gen\_config\_template.py}) from
+\texttt{sdr\_system\ -\/-help}, so it never drifts from the code.
+
 \hypertarget{mode--roles}{%
 \subsubsection{Mode / roles}\label{mode--roles}}
 
@@ -1179,8 +1348,19 @@ Option & Default & Controls \\
 \midrule
 \endhead
 \texttt{-\/-scheme} & \texttt{QPSK} & constellation (§2) \\
-\texttt{-\/-fec} & \texttt{false} & rate-1/2 K=7 conv + Viterbi (must
-match both ends) \\
+\texttt{-\/-fec} & \texttt{false} & enable FEC (must match both ends) \\
+\texttt{-\/-fec-type} & \texttt{conv} & \texttt{conv} / \texttt{ldpc} /
+\texttt{turbo} (§7); must match both ends \\
+\texttt{-\/-fec\_soft} & off & RX soft-decision (LLR) decoding (§7.4);
+coherent schemes \\
+\texttt{-\/-ldpc-k} & \texttt{256} & LDPC/turbo info-block size (bits);
+must match both ends \\
+\texttt{-\/-fec-iters} & \texttt{0} & max decoder iterations (0 =
+default 50/6); decoder-only \\
+\texttt{-\/-fec-scale} & \texttt{0} & min-sum/extrinsic scale (0 =
+0.75); decoder-only \\
+\texttt{-\/-ldpc-col-weight} & \texttt{3} & LDPC variable-node degree;
+must match both ends \\
 \texttt{-\/-waveform} & \texttt{sc} & \texttt{sc} (single-carrier) or
 \texttt{ofdm} \\
 \texttt{-\/-ofdm-fft} & \texttt{64} & OFDM subcarrier count (FFT
@@ -1368,11 +1548,11 @@ antennas)}\label{12-command-reference--per-scheme-915-mhz-vert900-antennas}}
 Copy-paste \textbf{sink / source ARQ} pairs with gains tuned per scheme
 from over-the-air testing (two B210s \textasciitilde10 cm apart). All
 use stop-and-wait ARQ (TCP ACK on localhost) + FEC, and auto-save plots
-to \texttt{viz/\textless{}scheme\textgreater{}/figure.png}. The same set
-stands alone in the repo as \texttt{COMMANDS.md}, which also carries
-adapted (untested) command templates for the \textbf{N210 / X310 / X410}
---- only the device args, subdev, antenna and gain range change; the DSP
-flags are identical, and a shared 10 MHz reference
+to \texttt{phy\_outputs/\textless{}scheme\textgreater{}/figure.png}. The
+same set stands alone in the repo as \texttt{COMMANDS.md}, which also
+carries adapted (untested) command templates for the \textbf{N210 / X310
+/ X410} --- only the device args, subdev, antenna and gain range change;
+the DSP flags are identical, and a shared 10 MHz reference
 (\texttt{-\/-ref\ external}) on those platforms lifts the §13 dense-QAM
 limitation.
 
@@ -1539,12 +1719,18 @@ at the origin}.
 
 The two B210s run on \textbf{independent TCXOs} (no shared clock), so
 there is a real carrier frequency offset whose estimate jitters ±1200
-Hz. On the cable, the \textbf{TX carrier / LO leakage couples straight
-into the RX} (a \textasciitilde40 dB spike near DC) and \textbf{beats at
-that CFO} --- a slowly drifting near-DC tone. It (a) rotates the
-constellation, which QPSK's wide decision regions survive but 16-QAM's
-don't (and the decision-directed phase PLL can't lock 16 points), and
-(b) dominates the AGC, collapsing the OFDM constellation.
+Hz. (The default CFO estimator is now the least-squares phase-slope of
+§5.4-C, which \textasciitilde halves that jitter to ≈±450 Hz at 12 dB
+SNR --- this \emph{widens the margin} for QPSK/8-PSK and the DQPSK range
+test, but does \textbf{not} lift the wall below: the residual beat still
+rotates a 16-point constellation faster than the DD PLL can track, so a
+shared reference clock remains required for dense QAM.) On the cable,
+the \textbf{TX carrier / LO leakage couples straight into the RX} (a
+\textasciitilde40 dB spike near DC) and \textbf{beats at that CFO} --- a
+slowly drifting near-DC tone. It (a) rotates the constellation, which
+QPSK's wide decision regions survive but 16-QAM's don't (and the
+decision-directed phase PLL can't lock 16 points), and (b) dominates the
+AGC, collapsing the OFDM constellation.
 
 \hypertarget{what-we-tried-and-why-each-failed}{%
 \subsubsection{What we tried (and why each
@@ -1595,5 +1781,122 @@ track residual CFO the WiFi way) or \textbf{pilot-aided single-carrier}
 pilot tracking (which we have) \emph{and} factory-calibrated TX LO
 leakage (which the B210, uncalibrated on a direct cable, lacks). Closing
 that gap is exactly the DSP-vs-shared-clock trade-off above.
+
+\hypertarget{14-lora--css-chirp-spread-spectrum--decodable-receiver}{%
+\subsection{14. LoRa / CSS (chirp spread spectrum) --- decodable
+receiver}\label{14-lora--css-chirp-spread-spectrum--decodable-receiver}}
+
+A parallel waveform to \texttt{sc}/\texttt{ofdm}, added in
+\texttt{include/lora.hpp} with the radio path in
+\texttt{phy/src/main.cpp} (\texttt{-\/-waveform\ lora}). Unlike the
+constellation pipeline (m-sequence preamble + RRC + PLL), CSS has its
+own chirp-based sync and demod, so it runs at the sample level via
+\texttt{transmit\_samples} / \texttt{PHYSICAL\_LAYER::capture\_raw}
+(like the tone path), bypassing the ACQ threads.
+
+\hypertarget{modulation}{%
+\subsubsection{Modulation}\label{modulation}}
+
+Spreading factor SF -\textgreater{} N = 2\^{}SF chips per symbol, SF
+bits/symbol. The base up-chirp is
+\texttt{u(n)\ =\ exp(j·2π(n\^{}2/2N\ −\ n/2))}. Symbol
+\texttt{s\ \ in\ \ {[}0,N)} is the base up-chirp cyclically shifted by
+\texttt{s}: \texttt{x\_s(n)\ =\ u((n+s)\ mod\ N)}.
+
+\hypertarget{demodulation-the-decodable-receiver}{%
+\subsubsection{Demodulation (the decodable
+receiver)}\label{demodulation-the-decodable-receiver}}
+
+Dechirp (multiply by the conjugate base chirp = down-chirp) then FFT ---
+the peak bin is the symbol. The FFT coherently integrates all N chips,
+giving the LoRa \textbf{processing gain}: validated to decode at
+\textbf{−10 dB SNR} (below the noise floor). Steps:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Preamble detection} --- slide and find \texttt{n\_preamble}
+  up-chirps that dechirp to the \emph{same} bin with a \textbf{sharp}
+  peak (peak/avg gated, so noise/constant junk can't false-lock).
+\item
+  \textbf{Fine timing} --- brute-force the sample shift τ in {[}0,N)
+  that makes the SFD down-chirps decode cleanly; this pins the frame
+  boundary and separates timing from CFO.
+\item
+  \textbf{CFO} --- the aligned preamble up-chirp peak gives the integer
+  carrier-frequency offset (bins); de-rotated before data demod.
+\item
+  \textbf{Sync-word check} --- verify the 2 sync symbols (below); reject
+  foreign frames.
+\item
+  \textbf{Data} --- dechirp+FFT argmax per symbol -\textgreater{}
+  symbols -\textgreater{} bits -\textgreater{} CRC/FEC framing.
+\end{enumerate}
+
+\hypertarget{frame--sync-word}{%
+\subsubsection{Frame + sync word}\label{frame--sync-word}}
+
+\begin{verbatim}
+[ preamble: 8 base up-chirps ][ sync word: 2 up-chirp symbols ][ SFD: 2 down-chirps ][ data symbols ]
+\end{verbatim}
+
+The \textbf{sync word} is a 1-byte network id sent as 2 symbols (each
+nibble × 8, LoRa-style): \texttt{-\/-lora-sync-word} \textbf{default
+0x12 (=18) private}, \texttt{0x34\ (=52)} public. The receiver rejects
+frames whose sync symbols don't match --- network isolation. (Before
+this, the scheme had \emph{no} sync word; the preamble was plain
+up-chirps straight into the SFD.)
+
+\hypertarget{includelorahpp-api}{%
+\subsubsection{\texorpdfstring{\texttt{include/lora.hpp}
+API}{include/lora.hpp API}}\label{includelorahpp-api}}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{base\_chirp(SF,\ down)} --- base up/down chirp of N samples.
+\item
+  \texttt{mod\_symbol(s,\ SF,\ up,\ out)} /
+  \texttt{demod\_symbol{[}\_q{]}(r,\ SF,\ ref{[},\ q{]})} --- one
+  symbol; \texttt{q} is the peak/avg (sharpness) used to reject false
+  locks.
+\item
+  \texttt{bits\_to\_symbols} / \texttt{symbols\_to\_bits} --- SF-bit
+  packing.
+\item
+  \texttt{sync\_symbols(sync\_word,\ SF,\ s1,\ s2)} --- network id
+  -\textgreater{} 2 symbols.
+\item
+  \texttt{modulate(bits,\ SF,\ n\_preamble=8,\ sync\_word=0x12)}
+  -\textgreater{} complex samples (full frame).
+\item
+  \texttt{sync(r,\ SF,\ n\_preamble,\ cfo\_bins\&,\ sync\_word=0x12)}
+  -\textgreater{} data-start sample index (−1 if no valid frame); fills
+  the integer CFO.
+\item
+  \texttt{demodulate(rx,\ SF,\ nbits,\ n\_preamble=8,\ sync\_word=0x12)}
+  -\textgreater{} bits.
+\end{itemize}
+
+\hypertarget{options}{%
+\subsubsection{Options}\label{options}}
+
+\texttt{-\/-waveform\ lora}, \texttt{-\/-lora-sf} (7--12),
+\texttt{-\/-lora-sync-word} (int; must match TX/RX). The raw jamming
+sweep is separate: \texttt{-\/-message-type\ chirp} with
+\texttt{-\/-chirp-bw/-\/-chirp-sf/-\/-chirp-down}.
+
+\hypertarget{validation--status}{%
+\subsubsection{Validation \& status}\label{validation--status}}
+
+\texttt{tools/lora\_loopback\_test.cpp}
+(\texttt{c++\ -std=c++17\ -O2\ -Iinclude\ tools/lora\_loopback\_test.cpp\ -o\ /tmp/lora\_test\ \&\&\ /tmp/lora\_test})
+--- ALL PASS: clean, +137-sample timing offset, AWGN to −10 dB, integer
+CFO, and sync-word rejection. The over-the-air
+\texttt{-\/-waveform\ lora} link compiles and the Python API is wired,
+but is \textbf{pending hardware validation} (needs the radios). One-way
+only for now --- folding LoRa into
+\texttt{sink\_arq}/\texttt{source\_arq} is the follow-up.
 
 \end{document}

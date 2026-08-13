@@ -1,0 +1,17 @@
+# CLIP semantic communication — dependencies.
+#
+# The MOCK path (default demos, the pyphy AWGN sweep, the radio port) needs only:
+numpy
+opencv-python            # cv2, for the mock image downsample
+#
+# REAL CLIP weights (drop the --mock flag) additionally need:
+#   torch                # already present in the lab env
+#   open_clip_torch      # pip install open_clip_torch   (preferred backend)
+#   pillow               # PIL, image I/O for the preprocess
+#   ftfy regex           # open_clip tokenizer deps
+#
+# The RADIO backend needs UHD + the built sdr_system binary + ../../phy/python/sdr.py.
+# The pyphy backend needs the built extension:  PYTHONPATH=../../phy/bindings  (arch -x86_64 on macOS).
+#
+# OPTIONAL, only for the image-regeneration follow-up task (phase-2, heavy):
+#   diffusers transformers accelerate     # stable-diffusion RX decoder guided by f_h

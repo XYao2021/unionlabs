@@ -3,7 +3,7 @@
 Copy-paste TX/RX command pairs with **gains tuned per scheme** from over-the-air
 testing @915 MHz (two B210s, VERT900 antennas ~10 cm apart). All use
 **stop-and-wait ARQ** (TCP ACK on localhost) + **FEC**, and auto-save plots to
-`viz/<scheme>/figure.png`.
+`phy_outputs/<scheme>/figure.png`.
 
 **Higher-order QAM (16-QAM and up) is intentionally omitted** — those need a
 cleaner link (SMA cable + attenuator); the ~10 cm OTA link floors at ~28–31 %

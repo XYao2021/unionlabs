@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  sdr-phy-vnc + ISOLATED N210 networking.
+#  Serves the PHY desktop over noVNC AND exposes ONLY the N210 radio NIC (macvlan)
+#  + the default bridge — NOT `--network host` (which would expose every interface).
+#
+#  1) Find the NIC wired to the N210 (holds a 192.168.20.x address):
+#         ip -o -4 addr show | grep 192.168.20        # e.g. "enp3s0 ... 192.168.20.1/24"
+#  2) Bring it up (pass the NIC name; override subnet/IP if different):
+#         N210_IFACE=enp3s0 docker compose -f docker/docker-compose.n210-vnc.yml up -d viz
+#  3) Open the desktop:   http://<host>:6080/vnc.html   (no password)
+#     Reach the N210:     docker compose -f docker/docker-compose.n210-vnc.yml exec viz \
+#                             uhd_find_devices --args addr=192.168.20.2
+#
+#  Host-wide UHD socket buffers (set once on the HOST):
+#     sudo sysctl -w net.core.rmem_max=50000000 net.core.wmem_max=2500000
+# ─────────────────────────────────────────────────────────────────────────────
+networks:
+  n210:                              # ONLY the radio NIC is visible to the container
+    driver: macvlan
+    driver_opts:
+      parent: ${N210_IFACE:?set N210_IFACE to the N210 NIC, e.g. enp3s0}
+    ipam:
+      config:
+        - subnet: ${N210_SUBNET:-192.168.20.0/24}
+  # the `default` bridge carries outbound + the published noVNC port
+
+services:
+  viz:
+    image: sdr-phy-vnc:22.04
+    networks:
+      default: {}                    # bridge: outbound + published noVNC port
+      n210:
+        ipv4_address: ${PHY_N210_IP:-192.168.20.100}   # container IP on the N210 subnet
+    ports:
+      - "6080:6080"                  # noVNC web desktop (published on the host's default NIC)
+    # ── UHD real-time thread scheduling (fixes pthread_setschedparam) ──
+    cap_add:
+      - SYS_NICE
+    ulimits:
+      rtprio: 99
+      memlock: -1
+    environment:
+      - UHD_LOG_CONSOLE_LEVEL=info
+      - VNC_RESOLUTION=${VNC_RESOLUTION:-1440x900}
+    devices:
+      - /dev/bus/usb:/dev/bus/usb    # B210 over USB (harmless if none present)
+    working_dir: /opt/sdr/Hardware_update
+    # image ENTRYPOINT (start-vnc.sh) brings up Xvfb->fluxbox->x11vnc->noVNC, then:
+    command: ["sleep", "infinity"]

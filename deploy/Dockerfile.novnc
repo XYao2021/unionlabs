@@ -1,0 +1,71 @@
+# syntax=docker/dockerfile:1
+# ─────────────────────────────────────────────────────────────────────────────
+#  sdr-phy-vnc — the sdr-phy image + a lightweight GUI desktop served over noVNC,
+#  so you can view the PHY's figures (constellation / spectrum PNGs) and run
+#  matplotlib in a BROWSER — handy when the container runs on a headless lab host.
+#
+#  Layers on the PHY image, so build that FIRST:
+#      docker build -t sdr-phy:22.04 .                       # (or docker/build.sh)
+#      docker build -f Dockerfile.novnc -t sdr-phy-vnc:22.04 .
+#  Cross-build from the Mac (arm64 -> amd64):
+#      docker buildx build --platform linux/amd64 -f Dockerfile.novnc -t sdr-phy-vnc:22.04 --load .
+#
+#  Run (Linux host), then open  http://<host>:6080/vnc.html  in a browser:
+#      docker run -d --name sdrviz -p 6080:6080 sdr-phy-vnc:22.04          # figures only
+#      docker run -d --name sdrviz --network host sdr-phy-vnc:22.04        # + USRP (port 6080 on host)
+#      docker exec -it sdrviz bash                                          # run PHY + plots inside
+# ─────────────────────────────────────────────────────────────────────────────
+FROM sdr-phy:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── GUI stack: virtual X, VNC server, noVNC web bridge, a tiny WM, viewers ──
+#   xvfb        : headless X display (:0)
+#   x11vnc      : VNC server exporting that display
+#   novnc+websockify : serve VNC to the browser over HTTP/websocket (port 6080)
+#   fluxbox     : minimal window manager
+#   feh         : fast image viewer for the figure.png outputs
+#   xterm       : a terminal inside the desktop
+#   python3-tk  : Tk bindings so matplotlib can also draw interactively (TkAgg)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      xvfb x11vnc fluxbox novnc websockify \
+      feh xterm python3-tk \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── matplotlib via PIP (not apt) to match the pip numpy 2.1.3 in the base image;
+#    apt python3-matplotlib would pull apt numpy 1.x and ABI-clash with numpy 2.x. ──
+RUN pip3 install --no-cache-dir matplotlib
+
+# ── VNC / noVNC launcher (embedded so no COPY is needed) ──
+RUN cat > /usr/local/bin/start-vnc.sh <<'EOF' && chmod +x /usr/local/bin/start-vnc.sh
+#!/usr/bin/env bash
+# Bring up Xvfb -> fluxbox -> x11vnc -> noVNC(websockify), then run CMD in the desktop.
+# Hardened against the startup race that caused noVNC "cannot connect to server":
+# we WAIT for Xvfb to be ready before x11vnc, SUPERVISE x11vnc (restart if it
+# dies), and WAIT for 5900 to listen before starting the web bridge.
+set -e
+export DISPLAY=:0
+RES="${VNC_RESOLUTION:-1440x900}"
+echo "[noVNC] starting virtual display ${RES} on ${DISPLAY}"
+Xvfb :0 -screen 0 "${RES}x24" -nolisten tcp &
+# 1. wait for the X display socket (Xvfb ready) — fixes the x11vnc-before-Xvfb race
+for i in $(seq 1 80); do [ -S /tmp/.X11-unix/X0 ] && break; sleep 0.25; done
+fluxbox >/dev/null 2>&1 &
+# 2. supervise x11vnc so noVNC always has a live backend on 5900
+( while true; do
+    x11vnc -display :0 -forever -shared -nopw -rfbport 5900 -noxdamage >>/tmp/x11vnc.log 2>&1 || true
+    echo "[noVNC] x11vnc exited, restarting in 1s" >&2; sleep 1
+  done ) &
+# 3. wait until 5900 actually listens before starting the web bridge
+for i in $(seq 1 60); do (ss -ltn 2>/dev/null | grep -q ':5900 ') && break; sleep 0.25; done
+websockify -D --web=/usr/share/novnc 6080 localhost:5900
+echo "[noVNC] ready — open  http://<host>:6080/vnc.html   (no password)"
+exec "$@"
+EOF
+
+EXPOSE 6080 5900
+ENV DISPLAY=:0
+ENV VNC_RESOLUTION=1440x900
+
+ENTRYPOINT ["/usr/local/bin/start-vnc.sh"]
+CMD ["sleep", "infinity"]
