@@ -44,6 +44,6 @@ services:
       - VNC_RESOLUTION=${VNC_RESOLUTION:-1440x900}
     devices:
       - /dev/bus/usb:/dev/bus/usb    # B210 over USB (harmless if none present)
-    working_dir: /opt/sdr/Hardware_update
+    working_dir: /opt/sdr/unionlabs
     # image ENTRYPOINT (start-vnc.sh) brings up Xvfb->fluxbox->x11vnc->noVNC, then:
     command: ["sleep", "infinity"]

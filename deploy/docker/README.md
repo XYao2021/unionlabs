@@ -24,7 +24,7 @@ docker/build.sh --export        # also writes sdr-phy_*.tgz to transfer
 ```
 Prefer a **native** build if you're already on a Linux host (much faster):
 ```bash
-docker build -t sdr-phy:22.04 .     # run from the Hardware_update/ dir
+docker build -t sdr-phy:22.04 .     # run from the unionlabs/ dir
 ```
 
 ## 2. Ship to a lab host (if built on the Mac)

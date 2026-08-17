@@ -14,7 +14,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-cd "$(dirname "$0")/.."                       # -> Hardware_update (build context)
+cd "$(dirname "$0")/.."                       # -> unionlabs (build context)
 IMAGE="${IMAGE:-sdr-phy:22.04}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 

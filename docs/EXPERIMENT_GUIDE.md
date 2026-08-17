@@ -22,7 +22,7 @@ Conventions in this guide: `$AP_IP` / `$SERVER_IP` / `$RX_IP` = the receiver/AP 
 
 ### 0.1 Install dependencies
 ```bash
-cd Hardware_update
+cd unionlabs
 ./deploy/initialization.sh            # C++ PHY deps (UHD, Boost, FFTW3f, VOLK) + Python (numpy, matplotlib)
 ./deploy/initialization.sh --build    # also configure + compile build/sdr_system
 ```
@@ -31,7 +31,7 @@ cd Hardware_update
 The binary is **architecture-specific** — a Mac (arm64/x86_64) binary will not run on the Linux
 lab host (`Exec format error`). Build on the machine that will run it:
 ```bash
-cd Hardware_update/phy
+cd unionlabs/phy
 conda deactivate 2>/dev/null || true      # Anaconda's cmake bakes a dead path and breaks `make`
 rm -rf build && mkdir build && cd build
 cmake ..            # if `cmake` is Anaconda's, use /usr/bin/cmake .. explicitly
@@ -42,7 +42,7 @@ Rebuilding also regenerates `drivers/usrp/python/sdr.py` and `PARAMETERS.md` (CM
 
 ### 0.3 Build the block API `pyphy` (needed for the CLIP `pyphy` channel; optional otherwise)
 ```bash
-cd Hardware_update/phy
+cd unionlabs/phy
 bindings/build.sh                 # DSP blocks only (builds anywhere)
 WITH_UHD=1 bindings/build.sh      # + the Radio source/sink (on the lab host, needs UHD)
 # On macOS run pyphy code as:  PYTHONPATH=drivers/usrp/bindings arch -x86_64 python3 ...

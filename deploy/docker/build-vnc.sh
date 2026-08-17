@@ -16,7 +16,7 @@
 #     gunzip -c sdr-phy-vnc_amd64.tgz | docker load
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
-cd "$(dirname "$0")/.."                        # -> Hardware_update (build context)
+cd "$(dirname "$0")/.."                        # -> unionlabs (build context)
 
 PLATFORM="${PLATFORM:-linux/amd64}"
 BASE="${BASE:-sdr-phy:22.04}"

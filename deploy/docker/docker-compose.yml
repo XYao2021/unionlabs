@@ -17,12 +17,12 @@ services:
   phy:
     image: sdr-phy:22.04
     build:
-      context: ..                 # Hardware_update (the build context)
+      context: ..                 # unionlabs (the build context)
       dockerfile: Dockerfile
     network_mode: host            # N210 discovery + UDP
     devices:
       - /dev/bus/usb:/dev/bus/usb # B210 over USB (harmless if none present)
     # If USB passthrough is fussy on your host, comment `devices:` and use:
     # privileged: true
-    working_dir: /opt/sdr/Hardware_update
+    working_dir: /opt/sdr/unionlabs
     command: sleep infinity       # stay alive; exec in to run PHY commands

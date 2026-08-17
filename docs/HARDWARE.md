@@ -19,7 +19,7 @@ reassembles. Subdev defaults to `A:A` (**RF A**) on both.
 ## Build
 
 ```bash
-cd Hardware_update
+cd unionlabs
 mkdir build && cd build
 cmake ..            # add -DBOOST_ROOT=/your/boost/prefix if needed
 make -j             # -> ./sdr_system

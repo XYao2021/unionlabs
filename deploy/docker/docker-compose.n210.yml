@@ -45,5 +45,5 @@ services:
       - UHD_LOG_CONSOLE_LEVEL=info
     devices:
       - /dev/bus/usb:/dev/bus/usb    # B210 over USB (harmless if none)
-    working_dir: /opt/sdr/Hardware_update
+    working_dir: /opt/sdr/unionlabs
     command: sleep infinity

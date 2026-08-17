@@ -11,7 +11,7 @@ Create a folder under `experiments/` whose **name is what you'll pass to `run.sh
 `app.py` inside it:
 
 ```
-Hardware_update/
+unionlabs/
 └── experiments/
     └── my_algo/            ←  the folder name = the algorithm name
         └── app.py          ←  REQUIRED. the framework looks for exactly this file

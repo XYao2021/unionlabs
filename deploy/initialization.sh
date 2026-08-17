@@ -4,8 +4,8 @@
 #
 #  Designed to run BOTH on a dev host and inside a container image build (it is
 #  root-aware, non-interactive, and idempotent). Point a Dockerfile at it, e.g.:
-#      COPY . /opt/sdr/Hardware_update
-#      RUN /opt/sdr/Hardware_update/deploy/initialization.sh --build
+#      COPY . /opt/sdr/unionlabs
+#      RUN /opt/sdr/unionlabs/deploy/initialization.sh --build
 #
 #  ── Required libraries (installed here) ─────────────────────────────────────
 #  SYSTEM / C++  (the USRP driver, drivers/usrp — builds sdr_system + pyphy):

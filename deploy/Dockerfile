@@ -37,7 +37,7 @@ RUN uhd_images_downloader
 RUN pip3 install --no-cache-dir numpy==2.1.3
 
 # ── Build sdr_system ──
-WORKDIR /opt/sdr/Hardware_update
+WORKDIR /opt/sdr/unionlabs
 COPY . .
 # .dockerignore drops the host (macOS) build/; rebuild clean for linux/amd64.
 RUN rm -rf drivers/usrp/build \
@@ -47,8 +47,8 @@ RUN rm -rf drivers/usrp/build \
 
 # The Python wrapper (python/sdr.py) finds the binary via this env var; also put
 # sdr_system + the UHD tools on PATH.
-ENV SDR_SYSTEM_BIN=/opt/sdr/Hardware_update/drivers/usrp/build/sdr_system
-ENV PATH=/opt/sdr/Hardware_update/drivers/usrp/build:${PATH}
+ENV SDR_SYSTEM_BIN=/opt/sdr/unionlabs/drivers/usrp/build/sdr_system
+ENV PATH=/opt/sdr/unionlabs/drivers/usrp/build:${PATH}
 
 # Documentation only (EXPOSE does NOT restrict interfaces — that is a `docker run`
 # network choice). TCP control ports used by the AP/agents:
@@ -57,5 +57,5 @@ ENV PATH=/opt/sdr/Hardware_update/drivers/usrp/build:${PATH}
 # for exposing ONLY that interface via macvlan instead of --network host).
 EXPOSE 5599/tcp 5600/tcp
 
-WORKDIR /opt/sdr/Hardware_update
+WORKDIR /opt/sdr/unionlabs
 CMD ["bash"]

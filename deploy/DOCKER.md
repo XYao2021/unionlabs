@@ -34,7 +34,7 @@ single entry point for building on your Mac and running on the lab's Linux hosts
   image from here every open**; the N210 keeps its image on-device (so it's a no-op for N210
   but required for USB B210s).
 - **Python:** `numpy==2.1.3` only (for the sensing / `sdr.py` helpers). **No torch.**
-- **Built binary:** `sdr_system` at `/opt/sdr/Hardware_update/build/sdr_system`, also on `PATH`
+- **Built binary:** `sdr_system` at `/opt/sdr/unionlabs/build/sdr_system`, also on `PATH`
   and pointed to by `SDR_SYSTEM_BIN` (the Python wrapper reads that env var).
 
 ### Why containerize
@@ -56,7 +56,7 @@ It removes the exact problems we hit bare-metal:
 ## 3. Build (on the Mac)
 
 ```bash
-cd Hardware_update
+cd unionlabs
 docker/build.sh                 # -> image sdr-phy:22.04 (linux/amd64)
 docker/build.sh --export        # also writes sdr-phy_*.tgz to transfer
 ```
@@ -68,7 +68,7 @@ IMAGE=sdr-phy:dev PLATFORM=linux/amd64 docker/build.sh
 
 If you're already **on a Linux host**, a native build is much faster:
 ```bash
-docker build -t sdr-phy:22.04 .     # run from the Hardware_update/ dir
+docker build -t sdr-phy:22.04 .     # run from the unionlabs/ dir
 ```
 
 > The cross-build compiles `sdr_system` under emulation and downloads the UHD images, so the
