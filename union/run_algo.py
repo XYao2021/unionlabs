@@ -138,6 +138,30 @@ def check_band(freq_mhz, kind):
             f"stay inside {lo:g}-{hi:g} MHz.")
 
 
+def uses_real_radio(a, kind, role):
+    """Is this run actually driving hardware? Simulation-only knobs mean nothing if so."""
+    if kind == "usrp" and a.usrp_backend == "radio":
+        return "the USRP radio backend"
+    if kind == "lora" and a.lora_backend in ("serial", "spi"):
+        return f"the LoRa {a.lora_backend} backend"
+    # the point-to-point roles with no --channel default to the USRP link (see build_link)
+    if kind == "ideal" and role.lower() in ("tx", "rx", "relay"):
+        return "the USRP link"
+    return None
+
+
+def warn_simulation_only_flags(a, ap, kind, role):
+    """--snr-db sets the noise a SIMULATED channel adds. A real link's SNR is an outcome
+    of gain, distance and interference — nothing here can dial it in, so saying so beats
+    letting the flag look effective."""
+    hw = uses_real_radio(a, kind, role)
+    if hw and a.snr_db != ap.get_default("snr_db"):
+        knob = ("--tx-gain / --rx-gain" if "USRP" in hw else "--lora-power / --lora-sf")
+        print(f"[run_algo] NOTE: --snr-db is a simulation knob and does nothing on {hw}. "
+              f"A real link's SNR is measured, not set — drive it with {knob}, and read the "
+              f"SNR the receiver reports.")
+
+
 def warn_foreign_flags(a, ap, kind):
     """Say so when a knob was given for a PHY that is not the one selected."""
     for phy, flags in PHY_ONLY_FLAGS.items():
@@ -372,7 +396,13 @@ def main():
     ap.add_argument("--fec", default="turbo", choices=["", "conv", "ldpc", "turbo"],
                     help="USRP forward error correction. LoRa has its coding rate "
                          "(--lora-cr) and its CRC in the chip instead.")
-    ap.add_argument("--snr-db", type=float, default=8.0)
+    ap.add_argument("--snr-db", type=float, default=8.0,
+                    help="SIMULATION ONLY: the link SNR the simulated channels model — "
+                         "--usrp-backend pyphy adds AWGN at this Es/N0, and --lora-backend "
+                         "sim tests it against the spreading factor's demodulator floor. On "
+                         "REAL hardware SNR is MEASURED, not set: drive the link with "
+                         "--tx-gain/--rx-gain (USRP) or --lora-power/--lora-sf (LoRa) and read "
+                         "the SNR the receiver reports back.")
     # radio knobs
     ap.add_argument("--radio", default="",
                     help="THIS node's USRP: serial=30CD424 (B210) or addr=192.168.40.2 "
@@ -402,6 +432,7 @@ def main():
 
     kind_sel = CHANNEL_ALIASES.get(a.channel, a.channel)
     warn_foreign_flags(a, ap, kind_sel)
+    warn_simulation_only_flags(a, ap, kind_sel, a.role or "loopback")
     if kind_sel != "ideal" or a.node is not None or a.role in ("tx", "rx", "relay"):
         check_band(a.freq, kind_sel if kind_sel != "ideal" else "usrp")
 

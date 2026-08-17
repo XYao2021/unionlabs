@@ -25,9 +25,10 @@
 ./run.sh --algo fl --channel lora --lora-sf 12 --lora-bw 500000 --lora-verbose
 
 # ── deploy: one process per node, real radios ────────────────────────────────
-# USRP, two hosts — start the RX first:
-./run.sh --algo fl --role server --radio addr=192.168.20.2
-./run.sh --algo fl --role client --radio serial=30CD424 \
+# USRP, two hosts — start the RX first. On hardware you set GAINS; the SNR you get is
+# whatever the link gives you, and the receiver reports it.
+./run.sh --algo fl --role server --radio addr=192.168.20.2 --rx-gain 30
+./run.sh --algo fl --role client --radio serial=30CD424 --tx-gain 70 \
          --ack-host <SERVER_IP> --net-host <SERVER_IP> --steps 20
 
 # LoRa, two hosts — same roles, one flag different:

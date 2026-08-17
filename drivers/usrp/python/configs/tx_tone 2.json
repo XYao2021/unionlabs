@@ -1,0 +1,7 @@
+{
+  "_comment": "Continuous 200 kHz cosine test tone (signal generator). Monitor it on the other radio with: run.py configs/rx_tone_monitor.json  (the raw monitor works with continuous or burst).",
+  "role": "tx",
+  "tx_args": "serial=30CD424", "tx_subdev": "A:A", "tx_ant": "TX/RX",
+  "tx_freq": 915e6, "tx_rate": 1.6e6, "tx_gain": 55,
+  "message_type": "cosine", "tone_freq": 200e3, "tone_amp": 0.5, "tx_mode": "continuous"
+}

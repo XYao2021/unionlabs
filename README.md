@@ -113,6 +113,8 @@ waveform, while a LoRa chip embeds its modulation and CRC:
 
 ```
 shared    --freq (MHz)  --max-attempts  --arq
+simulated --snr-db      (the noise a SIMULATED channel adds; on real radios SNR is
+                         measured, not set — use the gains below)
 usrp      --modulation --fec --samp-rate --symbol-rate --tx-gain --rx-gain
           --ack-transport tcp|rf  --ack-timeout  --radio serial=…|addr=…
 lora      --lora-sf 7..12  --lora-cr 5..8  --lora-bw 125000|250000|500000

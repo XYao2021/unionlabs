@@ -148,7 +148,14 @@ computer per node:
 | `--node <k>` | — | run ONE node of a decentralized network (implies `--role peer`) |
 | `--relays <n>` | `1` | relay nodes in the middle of a `chain` |
 | `--topology <t>` | `ring` | `gossip` graph: `ring`, `full`, or an edge list `0-1,1-2,2-0` |
-| `--snr-db <dB>` | `8` | link signal-to-noise ratio (both PHYs) |
+| `--snr-db <dB>` | `8` | **simulation only** — the SNR the simulated channels model. On real radios SNR is *measured*, not set (see below) |
+
+> **Simulated SNR vs a real link.** `--snr-db` is how noisy you *ask the simulator to be*:
+> `--usrp-backend pyphy` adds AWGN at that Es/N0, and `--lora-backend sim` tests it against the
+> spreading factor's demodulator floor. On real hardware you cannot set SNR at all — it is the
+> outcome of gain, distance, antennas and interference. There you drive the link with
+> `--tx-gain`/`--rx-gain` (USRP) or `--lora-power`/`--lora-sf` (LoRa), and the receiver *reports*
+> the SNR it measured. Passing `--snr-db` to a real-radio run prints a NOTE saying it did nothing.
 
 **Shared radio options** (any PHY)
 

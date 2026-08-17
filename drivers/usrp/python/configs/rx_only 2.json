@@ -1,0 +1,7 @@
+{
+  "_comment": "Receive only (one radio), 8-PSK.",
+  "role": "rx",
+  "rx_args": "serial=30CD3F7", "rx_subdev": "A:A", "rx_ant": "RX2",
+  "rx_freq": 915e6, "rx_rate": 1.6e6, "rx_gain": 16,
+  "scheme": "8-PSK", "fec": true, "det_mult": 3
+}

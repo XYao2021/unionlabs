@@ -1,0 +1,15 @@
+{
+  "_comment": "QPSK OFDM ARQ pair (64-FFT, CP 16). Validated gains from COMMANDS.md (RX 22 / TX 85, ofdm-tx-peak 0.5 for high PAPR). Start RX first:  run.py configs/qpsk_ofdm.json --only rx   |   --only tx",
+  "common": {
+    "rx_freq": 915e6, "tx_freq": 915e6,
+    "rx_rate": 1.6e6, "tx_rate": 1.6e6,
+    "rx_subdev": "A:A", "tx_subdev": "A:A",
+    "rx_ant": "RX2", "tx_ant": "TX/RX",
+    "scheme": "QPSK", "fec": true,
+    "waveform": "ofdm", "ofdm_fft": 64, "ofdm_cp": 16,
+    "ack_transport": "tcp", "ack_port": 5599, "det_mult": 3
+  },
+  "rx": { "role": "sink_arq",   "rx_args": "serial=30CD3F7", "tx_args": "serial=30CD3F7", "rx_gain": 22 },
+  "tx": { "role": "source_arq", "tx_args": "serial=30CD424", "rx_args": "serial=30CD424", "tx_gain": 85, "ofdm_tx_peak": 0.5, "ack_host": "127.0.0.1", "timeout": 3000 },
+  "pair": { "rx_head_start": 4, "rx_grace": 30 }
+}
