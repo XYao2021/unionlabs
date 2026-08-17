@@ -1,0 +1,46 @@
+# Python dependencies for the UnionLabs SDR platform.
+#
+#     pip install -r requirements.txt
+#     ./run.sh selftest          # confirm it worked
+#
+# This covers everything that runs WITHOUT a radio — the ideal PHY, the LoRa PHY's sim
+# backend, and every experiment. That is the whole platform for a newcomer.
+#
+# It does NOT install the C++ side (the USRP modem, UHD, the pyphy extension). For that:
+#     deploy/initialization.sh --build
+#
+# PYTHON: 3.8 or newer. Note the prebuilt pyphy extension in drivers/usrp/bindings is
+# compiled for ONE version+platform, so `--channel usrp` needs a build for your Python
+# (drivers/usrp/bindings/build.sh). Nothing else here cares which version you use.
+
+# ── core: every experiment and all the DSP ──────────────────────────────────
+numpy>=1.20
+
+# ── figures and experiment plots (Agg backend, headless-safe) ───────────────
+matplotlib>=3.4
+
+# ── machine learning experiments ────────────────────────────────────────────
+#   torch      : marl / marl_multi (A2C actor-critic), clip_semcom
+#   networkx   : the MARL consensus graph
+# Skip these two if you only want fl, dl, echo and the PHYs — they are the heavy ones.
+torch>=1.12
+networkx>=2.6
+
+# ── clip_semcom's mock image path ───────────────────────────────────────────
+opencv-python-headless>=4.5
+
+# ── the LoRa driver's serial backend (Arduino/Teensy over USB) ──────────────
+# Not needed for --lora-backend sim, which is the default.
+pyserial>=3.5
+
+# ── building the pyphy extension yourself ───────────────────────────────────
+pybind11>=2.9
+
+# ── slide generation in docs/ ───────────────────────────────────────────────
+python-pptx>=0.6
+
+# ── real CLIP weights (optional; clip_semcom runs on a mock without them) ───
+# open_clip_torch
+# pillow
+# ftfy
+# regex

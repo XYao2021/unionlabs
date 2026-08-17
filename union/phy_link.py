@@ -185,7 +185,29 @@ class PyphyChannel:
     name = "pyphy"
 
     def __init__(self, scheme="QPSK", fec="turbo", k=256, snr_db=8.0, soft=True, seed=0):
-        import pyphy
+        try:
+            import pyphy
+        except ImportError:
+            # The commonest first-run failure, and the raw ImportError explains nothing.
+            # pyphy is a compiled extension built for ONE Python version and platform, so
+            # a prebuilt .so in the repo will not match most machines.
+            import glob
+            built = [os.path.basename(p) for p in
+                     glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            "..", "drivers", "usrp", "bindings", "*.so"))]
+            raise SystemExit(
+                "--channel usrp needs the 'pyphy' extension, which is not importable.\n"
+                f"  Your Python:   {sys.version.split()[0]} on {sys.platform}\n"
+                f"  Built here:    {', '.join(built) if built else '(none)'}\n"
+                "\n"
+                "pyphy is COMPILED, so it only loads in the Python version and platform it\n"
+                "was built for. Build it for yours:\n"
+                "    drivers/usrp/bindings/build.sh\n"
+                "\n"
+                "Or skip it entirely — these need no build and no hardware:\n"
+                "    ./run.sh --algo <name>                  # --channel ideal, lossless\n"
+                "    ./run.sh --algo <name> --channel lora   # the LoRa PHY\n"
+                "Check what does work on this machine with:  ./run.sh selftest")
         self.p = pyphy
         self.scheme, self.fec, self.k = scheme, (fec or None), k
         self.snr_db, self.soft = snr_db, soft

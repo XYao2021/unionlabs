@@ -42,12 +42,25 @@ develop the entire experiment on a laptop and then change one flag to move to ra
 
 ## Quick start
 
+Python 3.8+ and one install step. No radio, no C++ build:
+
+```bash
+pip install -r requirements.txt
+./run.sh selftest              # confirm it works: every experiment × every radio-free PHY
+```
+
+Then:
+
 ```bash
 ./run.sh                       # defaults: algo=echo, role=loopback, channel=ideal
 ./run.sh --algo marl           # any algorithm from experiments/
+./run.sh list                  # what exists, and the roles each accepts
 ./run.sh --help                # every option, grouped
 ./radio.sh rx                  # raw receive on a USRP  (B210 default; --device n210|x310)
 ```
+
+`selftest` is the first thing to run on a fresh clone and the fastest way to tell whether a
+change broke something. It exits non-zero on failure, so CI can use it directly.
 
 ## Layout (detail in [`docs/STRUCTURE.md`](docs/STRUCTURE.md))
 

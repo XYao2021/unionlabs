@@ -44,6 +44,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RUN="$HERE/union/run_algo.py"
 
+if [ "${1:-}" = "selftest" ]; then
+  # "does my installation work?" — every experiment over every PHY that needs no radio.
+  shift
+  exec python3 "$HERE/union/selftest.py" "$@"
+fi
 if [ "${1:-}" = "list" ]; then
   echo "algorithms in $HERE/experiments/ :"
   for d in "$HERE"/experiments/*/; do

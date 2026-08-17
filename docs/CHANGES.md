@@ -1,5 +1,56 @@
 # Changes
 
+## 2026-08-17 — two PHYs, portable roles, one folder to open
+
+**A second physical layer.** `drivers/lora` implements the SX1276 behind the same uniform
+API as the USRP, ported from the LoRa testbed work: the multipath testbed's `lora_phy.ino`,
+the serial line protocol from `bridge.py:ArduinoLink`, the SPI API from `pi_bridge.py:Radio`.
+One radio interface, three attachments — `sim` (no hardware, real Semtech airtime and an
+SNR/spreading-factor loss model), `serial`, `spi`. LoRa's 255-byte MTU is the substance:
+`framing.py` fragments every message with src/dst addressing and stop-and-wait ARQ, and
+reports the cost. A 25 kB model over two rounds is **165 s of airtime at SF7, 3727 s at SF12**.
+
+**Roles became the middleware's, not a driver's.** `tx` / `rx` / `relay` / `peer` now dispatch
+on `--channel`, so every role runs on every PHY. `relay` receives upstream and re-transmits
+downstream; `peer` is one node of a decentralized network running as its own process
+(`--node K`), deriving a shared exchange schedule from the topology so no coordinator is
+needed. An algorithm may name its own roles with `ROLES = {"client": "tx", ...}`.
+
+**A decentralized-learning experiment.** `experiments/dl` — peers train locally, exchange
+with graph neighbours only, and average. Topology is the experimenter's choice: ring
+(default), fully connected, or an explicit edge list. With label-skew shards (`DL_NONIID=1`)
+the graph visibly matters — over 15 rounds a line reaches 0.411 mean accuracy, a ring 0.442,
+fully connected 0.506. `experiments/fl` now trains on **real MNIST**; it had been hardcoded
+to a synthetic set.
+
+**The uniform API drew its line explicitly.** The contract promises only: carry these bytes,
+say whether they arrived, say what it cost. The USRP's waveform, FEC and ACK path are ours to
+choose; a LoRa chip embeds its modulation and CRC. Knobs that had been hardcoded are now
+exposed — `--freq`, `--samp-rate`, `--symbol-rate`, `--tx-gain`/`--rx-gain`,
+`--ack-transport tcp|rf`, `--ack-timeout`, `--max-attempts`, `--arq`. `--fec` was a trap: it
+never reached the radio, and `sdr.py` splits `fec` from `fec-type`.
+
+**Reorganized so there is one place to look.** `algorithms/` + `applications/` →
+`experiments/`, each folder self-contained; `_shared/` holds only what two experiments both
+use. `drivers/usrp_uhd` → `usrp`, `drivers/lora_arduino` → `lora` (that driver also runs on a
+Pi over SPI, so the old name was wrong). All documentation → `docs/`. The root is four files
+and six folders.
+
+**Beginner path.** `./run.sh selftest` runs every experiment over every radio-free PHY and
+prints a pass/fail table; `requirements.txt` installs the Python side in one command. The
+`pyphy` import failure — the commonest first-run problem, since the extension is compiled for
+one Python version and platform — now explains itself instead of raising a bare
+`ModuleNotFoundError`.
+
+*Verified:* all 8 experiments, the PHY × role matrix, loss and ARQ across the SNR range,
+three separate processes running a decentralized ring, the LoRa role selftest.
+*Not verified:* anything needing hardware — the LoRa `serial`/`spi` backends and the USRP
+radio roles.
+
+---
+
+## Earlier — PHY engine: modulations, and sync ordering
+
 Two things were requested: (1) wire in the extra modulations that were already
 half-present in the code, and (2) require the carrier **frequency** and **phase**
 offset correction to run **after** time synchronisation. Both are done. A third

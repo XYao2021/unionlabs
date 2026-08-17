@@ -14,6 +14,18 @@ algorithm, and how to drive the radio directly. No prior knowledge of the codeba
 
 ## 1. Quick start
 
+**Install first** — Python 3.8 or newer, one command, no radio and no C++ build:
+
+```bash
+pip install -r requirements.txt
+./run.sh selftest            # confirm the install works (every experiment x every radio-free PHY)
+```
+
+If `selftest` prints `all N checks passed`, everything below will work. If only the `usrp`
+checks fail, the compiled `pyphy` extension does not match your Python — build it with
+`drivers/usrp/bindings/build.sh`, or just use `--channel ideal` / `--channel lora`, which
+need nothing.
+
 ```bash
 ./run.sh                     # run an algorithm over the PHY (defaults: echo, no radio)
 ./run.sh list                # list the algorithms available
