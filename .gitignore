@@ -1,5 +1,5 @@
-# CMake build tree (regenerate with: cd drivers/usrp_uhd && cmake -S . -B build && cmake --build build)
-drivers/usrp_uhd/build/
+# CMake build tree (regenerate with: cd drivers/usrp && cmake -S . -B build && cmake --build build)
+drivers/usrp/build/
 **/build/
 
 # Compiled binaries / objects
@@ -8,14 +8,14 @@ drivers/usrp_uhd/build/
 *.a
 *.so
 *.dylib
-drivers/usrp_uhd/sim/tx_app
-drivers/usrp_uhd/sim/rx_app
-drivers/usrp_uhd/tests/frontend_repro
-drivers/usrp_uhd/tests/pipeline2_verify
-drivers/usrp_uhd/tests/integration_test
-drivers/usrp_uhd/tests/mod_loopback_test
-drivers/usrp_uhd/tests/rx_chain_sweep
-drivers/usrp_uhd/tests/sync_reorder_demo
+drivers/usrp/sim/tx_app
+drivers/usrp/sim/rx_app
+drivers/usrp/tests/frontend_repro
+drivers/usrp/tests/pipeline2_verify
+drivers/usrp/tests/integration_test
+drivers/usrp/tests/mod_loopback_test
+drivers/usrp/tests/rx_chain_sweep
+drivers/usrp/tests/sync_reorder_demo
 
 # Runtime output dirs written by the transceiver (created at the binary's CWD)
 transmit/
@@ -25,14 +25,17 @@ debugging/
 **/received/
 **/debugging/
 
-# Generated visualizations (figure output written by --viz and the Python tools)
+# Generated visualizations (figure output written by --viz and the Python tools).
+# The C++ default --viz-dir is 'phy_outputs' relative to the process CWD; the tree
+# kept in the repo lives under results/.
 phy_outputs/
 **/phy_outputs/
+results/phy_outputs/
 
 # Training-run artifacts (torch models, plots, reward logs) — regenerable
-applications/MARL_RA_Union/real_run.pt
-applications/MARL_RA_Union/real_run.png
-applications/MARL_RA_Union/real_run_rewards.txt
+experiments/marl_multi/real_run.pt
+experiments/marl_multi/real_run.png
+experiments/marl_multi/real_run_rewards.txt
 results/**/*.pt
 results/**/*.pt.tmp
 
@@ -43,3 +46,14 @@ __pycache__/
 # Misc
 .DS_Store
 *.txt.bak
+
+# Pandoc LaTeX intermediates — regenerated with the PDFs by
+# drivers/usrp/tools/build_*_pdf.sh. The .md is the source; .pandoc-header.tex is NOT one.
+docs/*.tex
+!docs/.pandoc-header.tex
+
+# Testbed SSH credentials — the real file NEVER enters the repo.
+# Only credentials.sh.example (the template) is committed.
+drivers/lora/deploy/credentials.sh
+**/credentials.sh
+**/device_credentials.sh

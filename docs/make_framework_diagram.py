@@ -17,16 +17,16 @@ PANEL, ACCENT, ACCENT_D, ACCENT_S, APP_S, WHITE = "#f5f7f9", "#0f766e", "#0b5850
 
 # (name, path, detail, tag, role)
 BANDS = [
-    ("Your algorithm", "algorithms/marl/app.py",
+    ("Your algorithm", "experiments/marl/app.py",
      "class MARL:   transmit()   ·   receive(msg)   ·   on_result(ack)          +   make(role)",
      "no framework import", "app"),
-    ("Uniform framework", "drivers/usrp_uhd/python/   ·   phy_link.py + run_algo.py",
+    ("Uniform framework", "drivers/usrp/python/   ·   phy_link.py + run_algo.py",
      "adapt()  ·  Codec: array<->bytes  ·  channels: ideal | pyphy | radio  ·  run_loopback / RadioRoundTrip",
      "the seam", "seam"),
     ("PHY engine", "phy/",
      "pyphy:   modulate · FEC · AWGN                    sdr_system:   source_arq (TX)  /  sink_arq (RX)",
      "c++ · dsp", "phy"),
-    ("Radio", "drivers/usrp_uhd/build/sdr_system  ->  USRP",
+    ("Radio", "drivers/usrp/build/sdr_system  ->  USRP",
      "B210 (agent, TX)      over the air · 915 MHz · DQPSK      N210 (AP, RX)",
      "rf", "radio"),
 ]

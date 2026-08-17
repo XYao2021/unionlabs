@@ -14,7 +14,7 @@
 # Any other --flag is passed straight through to sdr_system.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-BIN="$HERE/drivers/usrp_uhd/build/sdr_system"; [ -x "$BIN" ] || BIN="$HERE/build/sdr_system"
+BIN="$HERE/drivers/usrp/build/sdr_system"; [ -x "$BIN" ] || BIN="$HERE/build/sdr_system"
 
 ROLE="${1:-}"; shift 2>/dev/null || true
 case "$ROLE" in tx|rx) ;; *) echo "usage: ./radio.sh <tx|rx> [--device b210|n210|x310] [opts]"; exit 2 ;; esac

@@ -5,15 +5,44 @@ driver.py — the PhyDriver interface: the ONE seam every (PHY × testbed) backe
 This is the boundary between the two UnionLabs layers:
 
     ┌─ ABSTRACTION / MIDDLEWARE (this folder, `union/`) ─ one, shared across all testbeds+PHYs ─┐
-    │   algorithms/ + applications/  ->  phy_link (SdrApp/PayloadSpec/Codec) + run_algo         │
+    │   experiments/ + experiments/  ->  phy_link (SdrApp/PayloadSpec/Codec) + run_algo         │
     │   call ↓ this interface only — never a specific PHY or testbed                             │
     ├─ PhyDriver ─────────────────────────────────────────────────────────────────────────────┤
     │   transfer() · broadcast() · superpose()                                                  │
     └─ DRIVER LAYER (`drivers/<name>/`) ─ many, one per (PHY × testbed) ─────────────────────────┘
-        drivers/usrp_uhd  ·  drivers/sim  ·  drivers/lora_arduino  ·  drivers/usrp_powder …
+        drivers/usrp  ·  drivers/sim  ·  drivers/lora  ·  drivers/usrp_powder …
 
-Adding a new PHY or testbed = implementing this class. Nothing in `algorithms/` or
-`applications/` changes — that is the portability UnionLabs provides over POWDER/AERPAW.
+Adding a new PHY or testbed = implementing this class. Nothing in `experiments/` or
+`experiments/` changes — that is the portability UnionLabs provides over POWDER/AERPAW.
+
+WHAT IS UNIFORM AND WHAT IS NOT — the line this interface draws
+---------------------------------------------------------------
+Different physical layers genuinely have different logic, and a uniform API that
+pretends otherwise would be a lie that leaks. The USRP PHY is built out of parts we
+choose: modulation scheme, FEC, the ARQ and where its acknowledgements travel. A LoRa
+module is a chip: CRC and the modulation are embedded, and the knobs it offers are its
+own (spreading factor, bandwidth, coding rate, TX power). Neither set belongs in the
+other's vocabulary.
+
+So the contract is deliberately narrow. UNIFORM, and all an algorithm may rely on:
+
+    * carry these BYTES to the peer, whatever they are and however many;
+    * tell me whether they arrived   -> info["crc_ok"];
+    * tell me what it cost           -> info, whose extra keys are the PHY's own
+                                        (ber and snr_db for the modem; frags, retx and
+                                        airtime_ms for LoRa).
+
+PHY-SPECIFIC, and never promoted into the shared layer:
+
+    usrp   --scheme --fec --tx-args --rx-args --ack-host --ack-port
+           (we assemble the waveform, the coding and the acknowledgement path)
+    lora   --lora-sf --lora-cr --lora-bw --lora-power --lora-port
+           (the chip owns the modulation and the CRC; the driver adds only the
+            fragmentation and ARQ that a 255-byte MTU forces on it)
+
+An algorithm that needs a spreading factor is a LoRa algorithm, not a portable one.
+Selecting the PHY (--channel) and how it is attached (--<phy>-backend) is the
+experimenter's business; everything above the driver only ever sees bytes and crc_ok.
 
 Three verbs cover the three experiment archetypes:
 
@@ -25,9 +54,9 @@ Reference implementations already exist in `phy_link.py` (this is a formalisatio
 that is already there, not new machinery):
 
     IdealChannel / PyphyChannel  .transfer()   -> drivers/sim        (radio-free)
-    RadioRoundTrip               .transfer()   -> drivers/usrp_uhd   (real USRP link)
+    RadioRoundTrip               .transfer()   -> drivers/usrp   (real USRP link)
     run_slotted(...)             broadcast()   -> the slotted-medium driver
-    stc_core.aircomp_codeword    superpose()   -> drivers/usrp_uhd   (capture2, on hardware)
+    stc_core.aircomp_codeword    superpose()   -> drivers/usrp   (capture2, on hardware)
 """
 
 
@@ -61,11 +90,12 @@ class PhyDriver:
 
 
 def available():
-    """The drivers shipped today (see drivers/<name>/). `sim` and `usrp_uhd` are built;
+    """The drivers shipped today (see drivers/<name>/). `sim`, `usrp` and `lora` are built;
     others are placeholders that only need to implement PhyDriver."""
     return {
         "sim":          "radio-free: IdealChannel (lossless) / PyphyChannel (real modem + AWGN)",
-        "usrp_uhd":     "USRP over UHD: sdr_system (C++) + pyphy blocks + RadioRoundTrip",
-        "lora_arduino": "(planned) Arduino LoRa TX/RX — a different PHY, same contract",
+        "usrp":         "USRP over UHD: sdr_system (C++) + pyphy blocks + RadioRoundTrip",
+        "lora":         "SX1276 LoRa: sim / Arduino-serial / Pi-SPI, 255 B MTU + ARQ "
+                        "(--channel lora). No superpose() — a packet radio cannot do aircomp",
         "usrp_powder":  "(planned) same USRP PHY on the POWDER testbed — a different driver",
     }

@@ -2,7 +2,7 @@
 """
 phy_link.py — the uniform algorithm <-> PHY abstraction layer.
 
-A user drops an algorithm into  algorithms/<name>/app.py  as a subclass of SdrApp.
+A user drops an algorithm into  experiments/<name>/app.py  as a subclass of SdrApp.
 The framework grabs the algorithm's OUTPUT at the transmitter, sends it over the
 PHY, and hands the RECEIVED message back to the algorithm's INPUT — a synchronous
 request/response round-trip. The algorithm never touches the radio.
@@ -141,6 +141,35 @@ class Codec:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  ARQ schemes — the retransmission policy, named explicitly
+# ══════════════════════════════════════════════════════════════════════════════
+# Exactly one scheme exists today: stop-and-wait, which is what the C++ PHY implements
+# (drivers/usrp/include/ACQ_stop_and_wait.hpp) and what the LoRa driver's framing.py
+# does. It is still a NAMED CHOICE rather than an assumption, for two reasons: a run
+# records which policy it used, and adding go-back-N or selective-repeat later is an
+# entry here plus its implementation, not an edit to every call site.
+#
+# To add one:
+#   1. add its name below;
+#   2. implement it in the C++ PHY (a sibling of ACQ_stop_and_wait.hpp) and/or in
+#      drivers/lora/python/framing.py;
+#   3. a PHY that does not implement it should say so rather than silently
+#      falling back — see _check_arq().
+ARQ_SCHEMES = ("stop-and-wait",)
+
+
+def check_arq(scheme, phy, supported=ARQ_SCHEMES):
+    """Fail loudly when a PHY is asked for an ARQ policy it does not implement."""
+    s = (scheme or "stop-and-wait").lower()
+    if s not in supported:
+        raise ValueError(
+            f"the {phy} PHY does not implement ARQ scheme {scheme!r}; it supports "
+            f"{', '.join(supported)}. Implement it first (see ARQ_SCHEMES in "
+            f"union/phy_link.py) rather than falling back silently.")
+    return s
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Radio-free channels (bytes -> bytes) for loopback testing
 # ══════════════════════════════════════════════════════════════════════════════
 class IdealChannel:
@@ -188,12 +217,26 @@ class PyphyChannel:
         return np.packbits(rbits).tobytes()[:len(buf)], dict(ber=ber, crc_ok=(ber == 0), snr_db=self.snr_db)
 
 
-def make_channel(backend="ideal", **kw):
-    if backend == "ideal":
+def make_channel(kind="ideal", **kw):
+    """Pick the PHY the runners carry bytes over. Every backend implements the same
+    one-line contract, transfer(buf) -> (bytes_at_the_peer, info), which is why the
+    algorithms never learn which radio they are running on.
+
+        ideal  lossless, in-process                       drivers/sim
+        pyphy  the repo's real C++ modem + AWGN           drivers/usrp
+        lora   the LoRa PHY (SX1276): 255-byte MTU,       drivers/lora
+               fragmentation + ARQ, real Semtech airtime
+    """
+    if kind == "ideal":
         return IdealChannel()
-    if backend == "pyphy":
+    if kind == "pyphy":
         return PyphyChannel(**kw)
-    raise ValueError(f"radio-free backend must be ideal|pyphy (got {backend!r})")
+    if kind == "lora":
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        "..", "drivers", "lora", "python"))
+        import lora_driver
+        return lora_driver.LoRaChannel(**kw)
+    raise ValueError(f"channel must be ideal|pyphy|lora (got {kind!r})")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -248,6 +291,165 @@ def run_loopback(tx, rx, channel, steps=10, verbose=True):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Multi-hop extension: a RELAY is a node that receives AND transmits
+# ══════════════════════════════════════════════════════════════════════════════
+def run_chain(nodes, channel, steps=10, verbose=True):
+    """Radio-free MULTI-HOP round-trip over  nodes = [initiator, relay, ..., responder].
+
+    Every hop is carried by the PHY, so an R-relay chain costs 2*(R+1) transmissions
+    per round-trip. A relay is consumed-then-produced on the way OUT and again on the
+    way BACK, which is exactly what "receives and transmits" means here: a pass-through
+    relay just re-emits whatever it last received, while a relay that returns something
+    else from produce() is processing in the middle of the link (re-encoding, partial
+    aggregation, compression).
+
+        initiator.produce -> [hop] -> relay -> [hop] -> responder.consume
+                                                        responder.produce
+        initiator.consume <- [hop] <- relay <- [hop] <-
+    """
+    ini, relays, res = nodes[0], list(nodes[1:-1]), nodes[-1]
+    st = dict(steps=0, delivered=0, hops=0, ber=[], relays=len(relays))
+
+    def hop(payload, src, dst):
+        """Carry one payload over the PHY from src to dst -> (msg or None, crc_ok)."""
+        out, info = channel.transfer(Codec.pack(src.spec.check(payload)))
+        st["ber"].append(info["ber"])
+        st["hops"] += 1
+        return _safe_unpack(out, dst.spec), info["crc_ok"]
+
+    def leg(payload, src, hops_to):
+        """Walk payload through a list of nodes, each consuming then producing."""
+        ok = True
+        for dst in hops_to:
+            msg, crc = hop(payload, src, dst)
+            ok = ok and crc
+            if msg is None:
+                return None, src, False
+            dst.consume(msg)
+            payload, src = dst.produce(), dst
+            if payload is None:
+                break
+        return payload, src, ok
+
+    for t in range(steps):
+        x = ini.produce()
+        if x is None:
+            break
+        st["steps"] += 1
+        # ── forward leg: initiator -> relays -> responder ──
+        payload, src, ok = leg(x, ini, relays + [res])
+        if payload is None:                      # nothing coming back (one-way app, or lost)
+            st["delivered"] += int(ok)
+            ini.on_result(ok)
+            continue
+        # ── return leg: responder -> relays -> initiator ──
+        payload, src, ok2 = leg(payload, src, relays[::-1])
+        ok = ok and ok2
+        if payload is not None and ok:
+            reply, crc = hop(payload, src, ini)
+            ok = ok and crc and reply is not None
+            if reply is not None:
+                ini.consume(reply)
+        else:
+            ok = False
+        ini.on_result(ok)
+        st["delivered"] += int(ok)
+        if verbose:
+            print(f"  step {t}: {2 * (len(relays) + 1)} hops delivered={ok}")
+    return st
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Peer-to-peer extension: N nodes gossip over a graph — NO access point, NO server
+# ══════════════════════════════════════════════════════════════════════════════
+def gossip_edges(n, topology="ring"):
+    """Undirected edges of the peer graph — THE EXPERIMENTER'S CHOICE. One edge == one
+    symmetric exchange (each end sends its own payload to the other), so an edge costs
+    2 PHY transfers.
+
+    Three settings. The two standard graphs are fixed and need no description, and any
+    other graph is given as an explicit edge list:
+
+        ring (default)  0-1-2-...-0     each peer talks to 2 neighbours, n edges
+        full            every pair      fastest consensus, most traffic, n(n-1)/2 edges
+        custom          "0-1,1-2,2-0"   an explicit edge list — any graph at all, e.g.
+                                        a line  0-1,1-2,2-3  or a star  0-1,0-2,0-3
+    """
+    t = str(topology or "ring").strip().lower()
+    if n < 2:
+        return []
+    if t == "full":
+        return [(i, j) for i in range(n) for j in range(i + 1, n)]
+    if t == "ring":
+        return [(0, 1)] if n == 2 else [(i, (i + 1) % n) for i in range(n)]
+    # an explicit edge list: "0-1,1-2,2-0"  (also accepts ':' or whitespace as separators)
+    if any(c.isdigit() for c in t):
+        edges, seen = [], set()
+        for part in t.replace(";", ",").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            bits = part.replace(":", "-").split("-")
+            if len(bits) != 2:
+                raise ValueError(f"bad edge {part!r} in --topology (want e.g. 0-1,1-2)")
+            try:
+                i, j = int(bits[0]), int(bits[1])
+            except ValueError:
+                raise ValueError(f"bad edge {part!r} in --topology (want e.g. 0-1,1-2)")
+            if not (0 <= i < n and 0 <= j < n):
+                raise ValueError(f"edge {part!r} refers to a node outside 0..{n-1}")
+            if i == j:
+                raise ValueError(f"edge {part!r} is a self-loop")
+            key = (min(i, j), max(i, j))
+            if key not in seen:                       # ignore a repeated edge
+                seen.add(key); edges.append(key)
+        if not edges:
+            raise ValueError("--topology edge list is empty")
+        return edges
+    raise ValueError(f"unknown topology {topology!r} — use ring, full, or an explicit "
+                     f"edge list like 0-1,1-2,2-0")
+
+
+def run_gossip(nodes, channel, rounds=10, topology="ring", verbose=True):
+    """DECENTRALISED round: N peers, no server and no access point. Every round each
+    node produces once (its current payload) and that payload is carried over the PHY
+    to each of its graph neighbours; what a node receives is mixed in by the algorithm
+    itself on its next produce().
+
+    This is the transfer archetype applied edge-by-edge over a graph — no new PHY verb
+    is needed, so the same algorithm runs over the radio by pairing up the nodes.
+
+    Neighbours only: a node never sees the whole network, which is the entire point of
+    the decentralised setting (consensus has to emerge from local exchanges)."""
+    n = len(nodes)
+    edges = gossip_edges(n, topology)
+    st = dict(rounds=0, exchanges=0, delivered=0, lost=0, hops=0, ber=[],
+              topology=topology, nodes=n, edges=len(edges))
+    for t in range(rounds):
+        payloads = [nd.produce() for nd in nodes]        # each peer mixes, trains, emits
+        if any(p is None for p in payloads):
+            break
+        st["rounds"] += 1
+        for (i, j) in edges:
+            for a, b in ((i, j), (j, i)):                # symmetric: both directions
+                # ╔══════════════════ PORT TO THE PHY ══════════════════╗
+                out, info = channel.transfer(Codec.pack(nodes[a].spec.check(payloads[a])))
+                # ╚═════════════════════════════════════════════════════╝
+                st["ber"].append(info["ber"]); st["hops"] += 1
+                msg = _safe_unpack(out, nodes[b].spec)
+                ok = bool(info["crc_ok"]) and msg is not None
+                st["delivered"] += int(ok); st["lost"] += int(not ok)
+                if msg is not None:
+                    nodes[b].consume(msg)
+                nodes[a].on_result(ok)
+            st["exchanges"] += 1
+        if verbose:
+            print(f"  round {t+1}/{rounds}: {len(edges)} exchanges "
+                  f"({2*len(edges)} PHY hops), lost={st['lost']}")
+    return st
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Multi-node extension: N agents contend for ONE access point (slotted multi-access)
 # ══════════════════════════════════════════════════════════════════════════════
 def run_slotted(agents, channel, slots, verbose=True, record_every=0):
@@ -298,37 +500,279 @@ def run_slotted(agents, channel, slots, verbose=True, record_every=0):
     return st
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  One decentralised node as its OWN PROCESS (its own terminal, or its own computer)
+# ══════════════════════════════════════════════════════════════════════════════
+class PeerLink:
+    """A node of a decentralised network that is BOTH TX AND RX — at different steps.
+
+    NO COORDINATOR. Every node derives the same edge list from (n_nodes, topology), so
+    all of them walk the same schedule and the two ends of each edge already agree on
+    who transmits first: the node named first in the edge sends, the other receives,
+    then they swap. Nodes not on the current edge sit that exchange out. One pass over
+    the edge list = one round; the node produces once per round and sends that same
+    payload to each of its neighbours.
+
+        node 0 ──── node 1          ./run.sh --algo dl --node 0 --agents 3   (terminal 1)
+           \\        /               ./run.sh --algo dl --node 1 --agents 3   (terminal 2)
+            node 2                   ./run.sh --algo dl --node 2 --agents 3   (terminal 3)
+
+    link="tcp"       peers talk over TCP/IP — same machine (different terminals) or
+                     different computers on a LAN. Node k listens on base_port + k.
+    link="wireless"  each exchange is carried by the USRP radio (source_arq / sink_arq),
+                     the same ARQ byte-pipe the two-host round-trip uses.
+    link="lora"      each exchange is carried by the LoRa radio (drivers/lora),
+                     addressed node-to-node — LoRa is a broadcast medium, so every peer
+                     hears every exchange and the frame header says who it is for.
+    """
+
+    def __init__(self, node_id, n_nodes, topology="ring", peers=None, base_port=5800,
+                 link="tcp", connect_timeout=120.0, tx_args="", rx_args="", scheme="DQPSK",
+                 waveform="sc", tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A",
+                 ack_port=5599, chunk=125,
+                 lora_backend="sim", lora_port=None, lora_sf=9, lora_cr=5,
+                 lora_bw=125000, lora_power=14, lora_snr_db=0.0, lora_medium=None,
+                 lora_timeout=120.0):
+        import socket, struct as _st
+        self.socket, self._st = socket, _st
+        self.id, self.n = int(node_id), int(n_nodes)
+        if not (0 <= self.id < self.n):
+            raise ValueError(f"--node {self.id} is outside 0..{self.n - 1} "
+                             f"(use --agents to say how many nodes there are)")
+        self.edges = gossip_edges(self.n, topology)
+        self.neighbours = sorted({(b if a == self.id else a)
+                                  for (a, b) in self.edges if self.id in (a, b)})
+        self.hosts = list(peers) if peers else ["127.0.0.1"] * self.n
+        if peers is None and link == "wireless":
+            # the ARQ acknowledgement path is TCP even when the data goes over the air,
+            # so every node still has to know where its neighbours actually live
+            print("[peer] WARNING: --peer-link wireless without --peers — ARQ acks will be "
+                  "sent to 127.0.0.1. Give --peers <host per node> for a real multi-host run.")
+        if len(self.hosts) < self.n:
+            raise ValueError(f"--peers lists {len(self.hosts)} hosts but there are {self.n} nodes")
+        self.base_port, self.link = int(base_port), link
+        self.connect_timeout = float(connect_timeout)
+        self.lora_timeout = float(lora_timeout)
+        self._inbox = {}                       # frames that arrived out of schedule order
+        self._srv = None
+        if link == "tcp":
+            self._srv = socket.socket()
+            self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._srv.bind(("0.0.0.0", self.base_port + self.id))
+            self._srv.listen(max(8, self.n))
+        elif link == "lora":
+            # the LoRa PHY, addressed node-to-node over the shared medium
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            "..", "drivers", "lora", "python"))
+            import framing as _framing
+            from lora_radio import make_radio as _make_radio
+            self._framing = _framing
+            kw = dict(sf=lora_sf, cr=lora_cr, bw_hz=lora_bw, power_dbm=lora_power)
+            if lora_backend == "sim":
+                kw.update(medium=lora_medium, snr_db=lora_snr_db)
+            elif lora_port:
+                kw["port"] = lora_port
+            self.radio = _make_radio(lora_backend, **kw)
+            self._msg_id = 0
+            if lora_backend == "sim" and lora_medium is None:
+                # The simulated medium lives inside ONE process, so peers started in
+                # separate terminals each get their own private air and never hear each
+                # other. Real radios share real air; the sim needs one process.
+                print("[peer] WARNING: --peer-link lora with the sim backend — the "
+                      "simulated medium is per-process, so separate peer processes "
+                      "CANNOT hear each other. Use --lora-backend serial|spi for real "
+                      "radios, or run the whole network in one process with "
+                      "--role gossip --channel lora.")
+        else:
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            "..", "drivers", "usrp", "python"))
+            import sdr, tempfile
+            self.sdr, self.tmp = sdr, tempfile.gettempdir()
+            self.tx_args, self.rx_args = tx_args, rx_args
+            self.tx_gain, self.rx_gain, self.ack_port = tx_gain, rx_gain, ack_port
+            self.cfg = dict(scheme=scheme, waveform=waveform, fec=True, rx_freq=915e6,
+                            tx_freq=915e6, tx_rate=2e6, rx_rate=2e6, symbol_rate=1e6,
+                            rx_ant="RX2", tx_ant="TX/RX", rx_subdev=rx_subdev,
+                            tx_subdev=tx_subdev, det_mult=3, ack_transport="tcp",
+                            ack_port=ack_port, bytes_length=chunk, viz=False)
+        where = (f" | listening on :{self.base_port + self.id}" if link == "tcp"
+                 else f" | radio tx[{tx_args or 'default'}] rx[{rx_args or 'default'}]")
+        print(f"[peer] node {self.id}/{self.n} | neighbours {self.neighbours} | "
+              f"{len(self.edges)} edges in the round | link={link}{where}")
+
+    # ── TCP transport ────────────────────────────────────────────────────────
+    def _recvn(self, sock, n):
+        b = b""
+        while len(b) < n:
+            c = sock.recv(n - len(b))
+            if not c:
+                raise ConnectionError("peer closed")
+            b += c
+        return b
+
+    def _send_tcp(self, pid, buf):
+        host, port = self.hosts[pid], self.base_port + pid
+        import time
+        deadline = time.time() + self.connect_timeout
+        while True:                                  # the peer's terminal may start later
+            try:
+                s = self.socket.create_connection((host, port), timeout=5.0)
+                break
+            except OSError:
+                if time.time() > deadline:
+                    raise ConnectionError(f"node {pid} at {host}:{port} never came up")
+                time.sleep(0.25)
+        try:
+            s.sendall(self._st.pack(">IH", len(buf), self.id) + buf)
+        finally:
+            s.close()
+
+    def _recv_tcp(self, pid):
+        """Read the next frame FROM pid. A neighbour that runs ahead of the schedule is
+        buffered by sender id rather than being mistaken for the one we are waiting on."""
+        if self._inbox.get(pid):
+            return self._inbox[pid].pop(0)
+        while True:
+            conn, _ = self._srv.accept()
+            try:
+                n, src = self._st.unpack(">IH", self._recvn(conn, 6))
+                buf = self._recvn(conn, n)
+            finally:
+                conn.close()
+            if src == pid:
+                return buf
+            self._inbox.setdefault(src, []).append(buf)
+
+    # ── wireless transport (the ARQ byte-pipe, one exchange at a time) ───────
+    def _send_wl(self, pid, buf):
+        path = os.path.join(self.tmp, f"peer{self.id}_tx.bin")
+        open(path, "wb").write(buf)
+        self.sdr.source_arq(tx_args=self.tx_args, rx_args=self.tx_args, tx_gain=self.tx_gain,
+                            ack_host=self.hosts[pid], max_attempts=50,
+                            payload_file=path, **self.cfg).run()
+
+    def _recv_wl(self, pid):
+        path = os.path.join(self.tmp, f"peer{self.id}_rx.bin")
+        if os.path.exists(path):
+            os.remove(path)
+        self.sdr.sink_arq(rx_args=self.rx_args, tx_args=self.rx_args, rx_gain=self.rx_gain,
+                          out_file=path, **self.cfg).run()
+        return open(path, "rb").read()
+
+    # ── LoRa transport: the driver's fragmentation + ARQ, addressed node-to-node ──
+    def _send_lora(self, pid, buf):
+        self._msg_id = (self._msg_id + 1) & 0xFF
+        self._framing.send_message(self.radio, buf, msg_id=self._msg_id,
+                                   src=self.id, dst=pid)
+
+    def _recv_lora(self, pid):
+        data, _ = self._framing.recv_message(self.radio, timeout=self.lora_timeout,
+                                             me=self.id)
+        if data is None:
+            raise ConnectionError(f"no LoRa message from node {pid} within "
+                                  f"{self.lora_timeout:.0f}s")
+        return data
+
+    def _send(self, pid, buf):
+        {"tcp": self._send_tcp, "lora": self._send_lora}.get(
+            self.link, self._send_wl)(pid, buf)
+
+    def _recv(self, pid):
+        return {"tcp": self._recv_tcp, "lora": self._recv_lora}.get(
+            self.link, self._recv_wl)(pid)
+
+    # ── one round: produce once, then walk the shared schedule ───────────────
+    def step(self, app):
+        payload = app.produce()                  # mix in last round's arrivals, train, emit
+        if payload is None:
+            return False
+        buf = Codec.pack(app.spec.check(payload))
+        for (a, b) in self.edges:
+            if self.id not in (a, b):
+                continue                          # not my edge — sit this exchange out
+            peer = b if a == self.id else a
+            if self.id == a:                      # the node named first speaks first
+                self._send(peer, buf)
+                got = self._recv(peer)
+            else:
+                got = self._recv(peer)
+                self._send(peer, buf)
+            msg = _safe_unpack(got, app.spec)
+            if msg is not None:
+                app.consume(msg)
+            app.on_result(msg is not None)
+        return True
+
+    def close(self):
+        if self._srv is not None:
+            self._srv.close()
+
+
 # ── two-host radio round-trip: request over the USRP link, reply over TCP ──────
 #   (mirrors fl.py's proven --uplink wireless --downlink tcp; needs UHD + two hosts)
 class RadioRoundTrip:
     """Initiator: send request over source_arq (wireless), receive reply over TCP.
     Responder: receive request over sink_arq (wireless), send reply over TCP.
+    Relay:     BOTH — receive over the air from upstream, re-transmit over the air to
+               downstream, then carry the reply back upstream over TCP.
     Wireless is the B210->N210 uplink; the reply goes over TCP so the RX-only N210
-    never has to transmit — the exact split fl.py uses."""
+    never has to transmit — the exact split fl.py uses.
+
+    A relay node therefore uses rx_args for the radio it listens on and tx_args for the
+    radio it forwards with (two radios, or one that does both), serves net_host:net_port
+    to the node upstream of it, and reads its own reply from down_host:down_port."""
 
     def __init__(self, role, tx_args="", rx_args="", ack_host="127.0.0.1", ack_port=5599,
                  net_host="127.0.0.1", net_port=5700, scheme="DQPSK", waveform="sc",
-                 tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A", chunk=125):
-        # sdr.py lives in the USRP driver (union/ -> repo -> drivers/usrp_uhd/python)
+                 tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A", chunk=125,
+                 down_host=None, down_port=None, freq_hz=915e6, samp_rate=2e6,
+                 symbol_rate=1e6, fec="conv", ack_transport="tcp", ack_timeout_ms=3000,
+                 max_attempts=50, arq="stop-and-wait"):
+        # sdr.py lives in the USRP driver (union/ -> repo -> drivers/usrp/python)
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                        "..", "drivers", "usrp_uhd", "python"))
+                                        "..", "drivers", "usrp", "python"))
         import sdr, socket, struct as _st
         self.sdr, self.socket, self._st = sdr, socket, _st
         self.role = role
         self.net_host, self.net_port = net_host, net_port
-        self.cfg = dict(scheme=scheme, waveform=waveform, fec=True, rx_freq=915e6, tx_freq=915e6,
-                        tx_rate=2e6, rx_rate=2e6, symbol_rate=1e6, rx_ant="RX2", tx_ant="TX/RX",
+        # The USRP PHY is assembled from parts WE choose — carrier, sample/symbol rate,
+        # modulation, FEC, gains — so every one of them is a parameter here rather than
+        # a constant. (They used to be hardcoded, which silently ignored the CLI.)
+        #
+        # sdr.py splits FEC in two: `fec` turns coding on/off and `fec-type` picks the
+        # family. So "" means off, and conv|ldpc|turbo means on with that code. ldpc and
+        # turbo are soft-native, so they get soft decision as sdr.py recommends.
+        fec_type = (fec or "").strip() or None
+        self.cfg = dict(scheme=scheme, waveform=waveform, fec=bool(fec_type),
+                        rx_freq=float(freq_hz), tx_freq=float(freq_hz),
+                        tx_rate=float(samp_rate), rx_rate=float(samp_rate),
+                        symbol_rate=float(symbol_rate), rx_ant="RX2", tx_ant="TX/RX",
                         rx_subdev=rx_subdev, tx_subdev=tx_subdev, det_mult=3,
-                        ack_transport="tcp", ack_port=ack_port, bytes_length=chunk, viz=False)
+                        ack_transport=ack_transport, ack_port=ack_port,
+                        timeout=int(ack_timeout_ms), bytes_length=chunk, viz=False)
+        # The C++ PHY implements stop-and-wait (ACQ_stop_and_wait.hpp) and nothing else
+        # yet, so anything else is refused rather than quietly downgraded. What IS
+        # pluggable today is where the acknowledgement travels: tcp (a socket, no reverse
+        # RF) or rf (a second RF path, RF B, needs full duplex).
+        self.arq = check_arq(arq, "usrp")
+        self.max_attempts = int(max_attempts)
+        if fec_type:
+            self.cfg["fec_type"] = fec_type
+            if fec_type in ("ldpc", "turbo"):
+                self.cfg["fec_soft"] = True
         self.tx_args, self.rx_args = tx_args, rx_args
         self.ack_host, self.tx_gain, self.rx_gain = ack_host, tx_gain, rx_gain
+        # the next hop downstream (relay only): where this node reads its reply from
+        self.down_host = down_host or net_host
+        self.down_port = int(down_port) if down_port else net_port + 1
         import tempfile
         self.tmp = tempfile.gettempdir()
 
     def _wl_send(self, buf):                    # wireless uplink (source_arq)
         path = os.path.join(self.tmp, "phylink_tx.bin"); open(path, "wb").write(buf)
         self.sdr.source_arq(tx_args=self.tx_args, rx_args=self.tx_args, tx_gain=self.tx_gain,
-                            ack_host=self.ack_host, max_attempts=50, payload_file=path, **self.cfg).run()
+                            ack_host=self.ack_host, max_attempts=self.max_attempts,
+                            payload_file=path, **self.cfg).run()
 
     def _wl_recv(self):                         # wireless uplink (sink_arq)
         path = os.path.join(self.tmp, "phylink_rx.bin")
@@ -350,36 +794,68 @@ class RadioRoundTrip:
             if not c: raise ConnectionError("peer closed")
         return b
 
+    def _tcp_connect(self, host, port):
+        """The downstream node binds its port only AFTER it decodes our burst, so retry."""
+        import time
+        for _ in range(50):
+            try:
+                return self.socket.create_connection((host, port), timeout=2.0)
+            except OSError:
+                time.sleep(0.2)
+        raise ConnectionError(f"reply server {host}:{port} never came up")
+
+    def _tcp_serve_once(self, buf):
+        """Hand one framed payload to whoever connects upstream, then close."""
+        srv = self.socket.socket()
+        srv.setsockopt(self.socket.SOL_SOCKET, self.socket.SO_REUSEADDR, 1)
+        srv.bind((self.net_host, self.net_port)); srv.listen(1)
+        conn, _ = srv.accept()
+        try:
+            self._tcp_frame(conn, buf)
+        finally:
+            conn.close(); srv.close()
+
+    def _pack(self, app, y):
+        return Codec.pack(app.spec.check(y if y is not None else np.zeros(1, np.float32)))
+
     # request/response per step. `app` supplies produce/consume; role decides order.
     def step(self, app):
         if self.role == "tx":                    # client: send req, TCP-recv reply
             x = app.produce()
             if x is None: return False
             self._wl_send(Codec.pack(app.spec.check(x)))
-            import time
-            s = None                                    # rx binds :net_port only AFTER
-            for _ in range(50):                         # it decodes our request -> retry the connect
-                try:
-                    s = self.socket.create_connection((self.net_host, self.net_port), timeout=2.0)
-                    break
-                except OSError:
-                    time.sleep(0.2)
-            if s is None:
-                raise ConnectionError(f"reply server {self.net_host}:{self.net_port} never came up")
+            s = self._tcp_connect(self.net_host, self.net_port)
             try:
-                app.consume(_safe_unpack(self._tcp_read(s), app.spec)); app.on_result(True)
+                reply = _safe_unpack(self._tcp_read(s), app.spec)
+                if reply is not None:
+                    app.consume(reply)
+                app.on_result(reply is not None)
             finally:
                 s.close()
             return True
-        else:                                           # server: wl-recv req, TCP-send reply
-            msg = _safe_unpack(self._wl_recv(), app.spec)
-            if msg is not None: app.consume(msg)
-            y = app.produce()
-            srv = self.socket.socket(); srv.setsockopt(self.socket.SOL_SOCKET, self.socket.SO_REUSEADDR, 1)
-            srv.bind((self.net_host, self.net_port)); srv.listen(1)
-            conn, _ = srv.accept()
+
+        if self.role == "relay":
+            # ── RECEIVE from upstream over the air, then TRANSMIT downstream over the
+            #    air; carry the downstream reply back upstream over TCP. consume/produce
+            #    are called once per direction, so a pass-through relay re-emits what it
+            #    got and a processing relay can transform each leg. ──
+            msg = _safe_unpack(self._wl_recv(), app.spec)          # <- upstream, wireless
+            if msg is not None:
+                app.consume(msg)
+            self._wl_send(self._pack(app, app.produce()))          # -> downstream, wireless
+            s = self._tcp_connect(self.down_host, self.down_port)  # <- downstream reply, TCP
             try:
-                self._tcp_frame(conn, Codec.pack(app.spec.check(y if y is not None else np.zeros(1, np.float32))))
+                back = _safe_unpack(self._tcp_read(s), app.spec)
             finally:
-                conn.close(); srv.close()
+                s.close()
+            if back is not None:
+                app.consume(back)
+            self._tcp_serve_once(self._pack(app, app.produce()))   # -> upstream reply, TCP
+            app.on_result(back is not None)
             return True
+
+        # server: wl-recv req, TCP-send reply
+        msg = _safe_unpack(self._wl_recv(), app.spec)
+        if msg is not None: app.consume(msg)
+        self._tcp_serve_once(self._pack(app, app.produce()))
+        return True

@@ -20,7 +20,7 @@ if [ -z "${SDR:-}" ]; then
   if   [ -x ./sdr_system ];          then SDR=./sdr_system
   elif [ -x ./build/sdr_system ];    then SDR=./build/sdr_system
   elif [ -x "$DIR/build/sdr_system" ]; then SDR="$DIR/build/sdr_system"
-  elif [ -x "$DIR/../drivers/usrp_uhd/build/sdr_system" ]; then SDR="$DIR/../drivers/usrp_uhd/build/sdr_system"
+  elif [ -x "$DIR/../drivers/usrp/build/sdr_system" ]; then SDR="$DIR/../drivers/usrp/build/sdr_system"
   else echo "sdr_system not found — set SDR=/path/to/sdr_system in fec_test.env"; exit 1; fi
 fi
 

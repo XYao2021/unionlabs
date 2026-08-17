@@ -1,70 +1,135 @@
-# USRP SDR Platform
+# UnionLabs SDR Platform
 
-A software-defined-radio **PHY** (USRP / UHD, C++ `sdr_system`) with a **uniform API** for
-running algorithms over the air, a thin Python wrapper for driving the radio directly, and a
-set of worked **applications**. You bring an algorithm; the PHY moves its data over the radio.
+Write an algorithm once; run it over **any** physical layer. Your algorithm says only *what to
+transmit* and *what to receive* — the platform carries it over a USRP software-defined radio, a
+LoRa module, or no radio at all, without a single line of your code changing.
+
+```bash
+./run.sh --algo fl                                  # federated learning, no radio needed
+./run.sh --algo fl --channel lora --lora-sf 9       # the SAME algorithm, over LoRa
+./run.sh --algo fl --channel usrp --snr-db 8        # the SAME algorithm, over the USRP modem
+./run.sh list                                       # what algorithms exist, and their roles
+```
+
+New here? Start with **[`docs/BEGINNER_GUIDE.md`](docs/BEGINNER_GUIDE.md)**.
+
+## The three questions every run answers
+
+Every experiment is a choice of three independent things. Mixing them up is the most common
+source of confusion, so the flags keep them apart:
+
+| Question | Flag | Choices |
+|---|---|---|
+| **What** am I running? | `--algo` | any folder in `experiments/` (`./run.sh list`) |
+| **Which PHY** carries it? | `--channel` | `ideal` · `usrp` · `lora` |
+| **Which part** am I? | `--role` | `loopback` `chain` `gossip` `multi` · `tx` `rx` `relay` `peer` |
+
+The first four roles build the **whole network in one process** — that is how you develop. The
+last four make this process **one node** of it — that is how you deploy.
+
+A fourth flag says **how** the chosen PHY is attached — `--usrp-backend pyphy|radio`,
+`--lora-backend sim|serial|spi`. Every PHY's default backend needs **no hardware**, so you can
+develop the entire experiment on a laptop and then change one flag to move to radios.
+
+```bash
+# one process, whole network, no hardware — how you develop
+./run.sh --algo dl --role gossip --agents 6 --topology ring --channel lora
+
+# one terminal (or one computer) per node — how you deploy
+./run.sh --algo dl --node 0 --agents 3 --radio serial=30CD424
+./run.sh --algo dl --node 1 --agents 3 --radio serial=30CD3F7
+```
 
 ## Quick start
 
 ```bash
-./run.sh                       # run an algorithm over the PHY (defaults: echo, no radio)
-./run.sh --algo marl           # pick any algorithm from algorithms/   (./run.sh list)
+./run.sh                       # defaults: algo=echo, role=loopback, channel=ideal
+./run.sh --algo marl           # any algorithm from experiments/
+./run.sh --help                # every option, grouped
 ./radio.sh rx                  # raw receive on a USRP  (B210 default; --device n210|x310)
-./radio.sh tx                  # raw transmit
 ```
 
-- **Add your own algorithm:** [`HOW_TO_ADD_ALGORITHM.md`](HOW_TO_ADD_ALGORITHM.md) — where to put it,
-  how to write `app.py`, how to link your existing code, how to run it by name.
-- **Learn the PHY:** [`drivers/usrp_uhd/GUIDE.md`](drivers/usrp_uhd/GUIDE.md) — beginner's guide to every way to run it.
-- **Every option:** [`PARAMETERS.md`](PARAMETERS.md) — auto-generated, always current.
-- **Full layout:** [`STRUCTURE.md`](STRUCTURE.md) · **file index:** [`MANIFEST.md`](MANIFEST.md).
+## Layout (detail in [`docs/STRUCTURE.md`](docs/STRUCTURE.md))
 
-## Layout (see `STRUCTURE.md` for detail)
+Four files and five folders at the top level — everything you write lives in **one** of them:
+
+```
+README.md                 what this is (you are here)
+HOW_TO_ADD_ALGORITHM.md   the tutorial: write your own experiment
+run.sh                    run an experiment over a PHY
+radio.sh                  raw TX/RX on a USRP
+
+experiments/   ← THE folder you work in. One subfolder per experiment, each with app.py
+union/           the UnionLabs bridge: one contract for every PHY and testbed
+drivers/         the PHYs: usrp/ (C++ modem + pyphy), lora/ (SX1276), sim/
+docs/            every guide, reference and PDF
+deploy/          Docker + install
+results/         generated output (gitignored)
+```
 
 | Path | What |
 |---|---|
-| `run.sh` / `radio.sh` | run an **algorithm** over the PHY / raw **TX·RX** on a USRP |
-| `algorithms/` | **your** algorithms (one folder each) |
-| `union/` | the **abstraction / middleware** — one contract for all testbeds + PHYs (`phy_link.py`, `run_algo.py`, `driver.py`) |
-| `drivers/` | the **driver layer** — one per PHY × testbed: `usrp_uhd/` (C++ engine + `pyphy`), `sim/`, `lora_arduino/` (planned) |
-| `applications/` | worked apps: MARL random access, federated learning, CLIP semantic comm, STC-AirComp (AJOU), jammer |
-| `docs/` `results/` `deploy/` | diagrams & slides / run outputs / Docker + install |
+| `experiments/` | **your** work, one folder each |
+| `union/` | the **middleware** — `phy_link.py`, `run_algo.py`, `driver.py` |
+| `drivers/` | the **driver layer**, one per PHY — `usrp/`, `lora/`, `sim/` |
+| `docs/` | guides, references, PDFs, diagrams, slides |
 
-## Three ways to use the PHY
+Shipped experiments: `echo` `plain_echo` `fl` `dl` `marl` `marl_multi` `clip_semcom`
+`stc_aircomp` `jammer` — plus `_template/` to copy, and `_shared/` for libraries that more
+than one experiment uses.
 
-1. **Uniform algorithm API** — the easiest path. Your algorithm only says *what to transmit /
-   what to receive*; `./run.sh --algo <name>` runs it. See `HOW_TO_ADD_ALGORITHM.md` and `drivers/usrp_uhd/GUIDE.md §2`.
-2. **Direct radio** — drive the modem by role via `sdr.py` or `./radio.sh` (see below + `drivers/usrp_uhd/GUIDE.md §3`).
-3. **`pyphy` blocks** — compose the DSP yourself (modulate/FEC/sync/OFDM as numpy functions).
-   See `drivers/usrp_uhd/GUIDE.md §4`.
+**Two layers.** `union/` is the abstraction, shared by everything. `drivers/<name>/` is one
+driver per (PHY × testbed). Experiments import from `union/` only, which is why the same
+experiment runs on any driver — the portability POWDER and AERPAW do not expose.
 
----
+## The physical layers
 
-## Driving the radio directly
+| `--channel` | Driver | Backends |
+|---|---|---|
+| `ideal` | `drivers/sim` | — |
+| `usrp` | `drivers/usrp` | `pyphy` (default, no radio) · `radio` |
+| `lora` | `drivers/lora` | `sim` (default) · `serial` · `spi` |
 
-For raw TX/RX and the **`sdr.py` Python API** — roles, options, JSON configs, channel sensing —
-see **[`drivers/usrp_uhd/GUIDE.md §3`](drivers/usrp_uhd/GUIDE.md)**. The one-line shortcut is `./radio.sh tx` / `./radio.sh rx`
-(B210 default; `--device n210|x310`).
+- **`ideal`** — lossless and in-process. Check your logic here first.
+- **`usrp`** — the real C++ modem: OFDM or single-carrier, LDPC/turbo/Viterbi FEC, sync, CFO.
+- **`lora`** — SX1276. The 255-byte MTU means the driver fragments and retransmits, and it
+  reports the real airtime that cost.
 
-**Where to find commands & options (each doc has one job):**
+Each PHY keeps its own knobs, because the PHYs genuinely differ — we assemble the USRP
+waveform, while a LoRa chip embeds its modulation and CRC:
 
-| Doc | Contains |
+```
+shared    --freq (MHz)  --max-attempts  --arq
+usrp      --modulation --fec --samp-rate --symbol-rate --tx-gain --rx-gain
+          --ack-transport tcp|rf  --ack-timeout  --radio serial=…|addr=…
+lora      --lora-sf 7..12  --lora-cr 5..8  --lora-bw 125000|250000|500000
+          --lora-power  --lora-port /dev/ttyUSB0
+```
+
+Passing one PHY's knob while another is selected prints a NOTE rather than being silently
+ignored.
+
+## Documentation
+
+| Doc | Its one job |
 |---|---|
-| [`PARAMETERS.md`](PARAMETERS.md) | every controllable option (auto-generated) |
-| `COMMANDS.md` | ready-to-run TX/RX command pairs, **per scheme** (tuned gains) |
-| `USRP_CARRIER_MODULATION.txt` | commands **per device** (B210 / N210 / X310) across carriers |
-| `COMMANDS_FEC_TESTS.txt` | LDPC / turbo FEC test commands |
-| [`MANIFEST.md`](MANIFEST.md) | the **CLI ↔ Python (`sdr.py`)** command mapping (+ file index) |
-| `SYSTEM_REFERENCE.pdf` | the deep engine reference (the math + every algorithm) |
-| `HARDWARE.md` | hardware setup & radio inventory |
-
-## Applications
-
-Worked examples that build on the PHY live in `applications/` (MARL random access, federated
-learning, CLIP semantic communication, a jammer). Each has its own `README.md` / `INTEGRATION.md`,
-and step-by-step run commands are in [`applications/EXPERIMENT_GUIDE.pdf`](applications/EXPERIMENT_GUIDE.pdf).
-The same apps are also available as uploadable algorithms under `algorithms/`.
+| [`docs/BEGINNER_GUIDE.md`](docs/BEGINNER_GUIDE.md) | **start here** — install, first run, every `run.sh` option explained |
+| [`HOW_TO_ADD_ALGORITHM.md`](HOW_TO_ADD_ALGORITHM.md) | write your own `app.py`: the contract, roles, linking existing code |
+| [`docs/STRUCTURE.md`](docs/STRUCTURE.md) | the repo map and how the two layers stack |
+| [`drivers/usrp/GUIDE.md`](drivers/usrp/GUIDE.md) | the USRP PHY: every way to drive it directly |
+| [`drivers/lora/README.md`](drivers/lora/README.md) | the LoRa PHY: firmware, wiring, the three attachments |
+| [`docs/PARAMETERS.md`](docs/PARAMETERS.md) | every **C++ modem** option (auto-generated, always current) |
+| [`docs/COMMANDS.md`](docs/COMMANDS.md) | ready-to-run commands: algorithm-level, then raw TX/RX per modulation scheme |
+| `docs/USRP_CARRIER_MODULATION.txt` | raw commands per device (B210 / N210 / X310) |
+| `docs/SYSTEM_REFERENCE.pdf` | the deep engine reference — the math and every algorithm |
+| `docs/HARDWARE.md` | hardware setup and radio inventory |
+| [`docs/MANIFEST.md`](docs/MANIFEST.md) | file index and the CLI ↔ `sdr.py` mapping |
 
 ## Install
 
-`deploy/initialization.sh` installs the toolchain (`--build` also compiles `drivers/usrp_uhd/build/sdr_system`).
+```bash
+deploy/initialization.sh --build     # toolchain + compile drivers/usrp/build/sdr_system
+```
+
+`--minimal` skips torch/networkx/opencv (PHY only); `--docs` adds the PDF toolchain. See
+`deploy/DOCKER.md` to run it all in a container instead.
