@@ -4,10 +4,10 @@
 //
 //  When --viz is on, key points in the TX and RX pipelines dump one
 //  block of complex samples to text files ("real imag" per line):
-//    phy_outputs/tx_symbols.txt   modulated symbols (TX constellation)
-//    phy_outputs/tx_wave.txt      transmitted baseband waveform (time domain)
-//    phy_outputs/rx_wave.txt      received burst after AGC (time domain)
-//    phy_outputs/rx_symbols.txt   equalized symbols before demod (RX constellation)
+//    results/phy_outputs/tx_symbols.txt   modulated symbols (TX constellation)
+//    results/phy_outputs/tx_wave.txt      transmitted baseband waveform (time domain)
+//    results/phy_outputs/rx_wave.txt      received burst after AGC (time domain)
+//    results/phy_outputs/rx_symbols.txt   equalized symbols before demod (RX constellation)
 //  tools/plot_viz.py reads these and plots time / spectrum (FFT of the
 //  waveform) / constellation for both sides. Each file is written once
 //  per run (the first block), so the overhead is negligible.
@@ -22,7 +22,7 @@
 namespace viz {
 
 inline bool        enabled = false;
-inline std::string dir     = "phy_outputs";
+inline std::string dir     = "results/phy_outputs";
 
 inline std::mutex& mtx() { static std::mutex m; return m; }
 inline std::set<std::string>& done() { static std::set<std::string> s; return s; }

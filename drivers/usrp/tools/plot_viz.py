@@ -2,7 +2,7 @@
 """
 plot_viz.py — visualize the signals dumped by `sdr_system --viz`.
 
-Reads phy_outputs/{tx_symbols,tx_wave,rx_symbols,rx_wave}.txt (each "real imag" per line)
+Reads results/phy_outputs/{tx_symbols,tx_wave,rx_symbols,rx_wave}.txt (each "real imag" per line)
 and draws a 2x3 grid:  rows = TX / RX,  cols = time domain / spectrum / constellation.
 The spectrum is the FFT of the waveform (shows the RRC pulse shape or the OFDM
 subcarrier band). The constellation shows the modulation points — clean clusters
@@ -64,7 +64,7 @@ def spectrum_db(x, fs):
 
 def main():
     args = [a for a in sys.argv[1:]]
-    viz_dir = "phy_outputs"
+    viz_dir = "results/phy_outputs"      # must match sdr_system's --viz-dir default
     fs = 1.6e6
     save = None
     i = 0

@@ -22,7 +22,7 @@ channel-estimation symbol (index 1) carries known BPSK on EVERY active
 subcarrier, so it gives the cleanest, flat comb — that's the default.
 
 Usage:
-    python3 tools/ofdm_spectrum.py phy_outputs/QPSK [--fft 64] [--cp 16] \
+    python3 tools/ofdm_spectrum.py results/phy_outputs/QPSK [--fft 64] [--cp 16] \
             [--sym 1] [--pad 32] [--save out.png]
 Requires: numpy, matplotlib.
 """

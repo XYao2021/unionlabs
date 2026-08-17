@@ -147,7 +147,7 @@ The **Default** column is the value used when you omit the option: flags default
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--viz` | value | `1` | capture TX/RX signals and auto-save the plot to <viz-dir>/<scheme>/figure.png (default true; --viz false disables) |
-| `--viz-dir` | value | `viz` | base directory for --viz output (a per-modulation subfolder is made) |
+| `--viz-dir` | value | `results/phy_outputs` | base directory for --viz output, relative to the working directory (a per-modulation subfolder is made). Defaults under results/ so a run does not scatter output across the repo root. |
 
 ## RF, clock & misc
 

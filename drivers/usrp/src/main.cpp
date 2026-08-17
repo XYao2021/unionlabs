@@ -63,7 +63,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     double      sense_threshold_db = -30.0;// role sense: busy if avg power_db exceeds this
     int         sense_count       = 1;     // role sense: number of windows to report
     bool        viz_on          = true;    // dump signals + save plots (default on)
-    std::string viz_dir         = "phy_outputs";
+    std::string viz_dir         = "results/phy_outputs";
     std::string preamble_type;
     size_t      bytes_length    = 125;
 
@@ -115,8 +115,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("viz", po::value<bool>(&viz_on)->default_value(true),
                      "capture TX/RX signals and auto-save the plot to "
                      "<viz-dir>/<scheme>/figure.png (default true; --viz false disables)")
-        ("viz-dir", po::value<std::string>(&viz_dir)->default_value("phy_outputs"),
-                     "base directory for --viz output (a per-modulation subfolder is made)")
+        ("viz-dir", po::value<std::string>(&viz_dir)->default_value("results/phy_outputs"),
+                     "base directory for --viz output, relative to the working directory "
+                     "(a per-modulation subfolder is made). Defaults under results/ so a "
+                     "run does not scatter output across the repo root.")
         ("timeout",  po::value<int>(&timeout_ms)->default_value(3000),
                      "ACK timeout in ms (source)")
         ("timer_interval", po::value<int>(&timer_interval)->default_value(20),
@@ -471,7 +473,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // metadata (so the plotter can compute EVM and title the figure).
     if (viz_on) {
         viz::enabled = true;
-        viz::dir     = viz_dir + "/" + config.scheme;      // e.g. phy_outputs/16-QAM
+        viz::dir     = viz_dir + "/" + config.scheme;      // e.g. results/phy_outputs/16-QAM
         std::error_code ec; std::filesystem::create_directories(viz::dir, ec);
         try {
             Modulator vmod(string_to_mod_type(config.scheme));

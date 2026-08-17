@@ -25,12 +25,12 @@ debugging/
 **/received/
 **/debugging/
 
-# Generated visualizations (figure output written by --viz and the Python tools).
-# The C++ default --viz-dir is 'phy_outputs' relative to the process CWD; the tree
-# kept in the repo lives under results/.
+# Generated visualizations (--viz output and the plots made from it). The C++
+# default --viz-dir is now results/phy_outputs, relative to the process CWD; the
+# bare phy_outputs/ rules stay so output from an older binary is still ignored.
+results/phy_outputs/
 phy_outputs/
 **/phy_outputs/
-results/phy_outputs/
 
 # Training-run artifacts (torch models, plots, reward logs) — regenerable
 experiments/marl_multi/real_run.pt
