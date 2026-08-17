@@ -19,6 +19,7 @@ reason, so the output never implies more coverage than it has.
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
@@ -119,10 +120,31 @@ def main():
             print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}  {why(out)}")
             failures.append((label, why(out)))
 
+    # Do the CLI flags still reach what they configure? Two have already shipped broken
+    # in exactly that way (--fec never reached the radio; --snr-db did nothing on
+    # hardware), and neither is visible from a run that otherwise "works".
+    print(f"  {DIM}flag paths{OFF}")
+    print(f"    {'CLI flags reach their target':<26} ", end="", flush=True)
+    t0 = time.time()
+    fp = subprocess.run([sys.executable, os.path.join(HERE, "test_flags.py")],
+                        cwd=REPO, capture_output=True, text=True,
+                        env=dict(os.environ,
+                                 PYTHONPATH=os.path.join(REPO, "drivers", "usrp", "bindings")))
+    dt = time.time() - t0
+    if fp.returncode == 0:
+        m = re.search(r"(\d+) flag paths checked", fp.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+    else:
+        print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+        for line in fp.stdout.splitlines():
+            if "FAIL" in line:
+                print(f"      {line.strip()}")
+        failures.append(("flag paths", "a CLI flag no longer reaches what it configures"))
+
     print(f"\n  {DIM}skipped (needs hardware):{OFF} LoRa serial/spi backends · USRP radio "
           f"backend · the two-host tx/rx/relay/peer roles")
 
-    n = len(checks)
+    n = len(checks) + 1        # + the flag-path check
     if failures:
         print(f"\n  {RED}{len(failures)} of {n} checks FAILED{OFF}")
         for label, msg in failures:

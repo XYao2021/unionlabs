@@ -295,7 +295,9 @@ def load_app_factory(name):
              f"(need make(role), a class/SdrApp with transmit()/receive(), or module functions)")
 
 
-def main():
+def build_parser():
+    """The CLI, as its own function so it can be inspected and tested without
+    running an experiment. main() is a thin wrapper over it."""
     ap = argparse.ArgumentParser(description="run an uploaded algorithm over the PHY")
     ap.add_argument("--algo", required=True, help="folder name under experiments/")
     ap.add_argument("--role", default=None,
@@ -419,6 +421,11 @@ def main():
                     help="relay only: host of the next hop downstream")
     ap.add_argument("--down-port", type=int, default=None,
                     help="relay only: that node's --net-port (default: --net-port + 1)")
+    return ap
+
+
+def main():
+    ap = build_parser()
     a = ap.parse_args()
 
     if a.role is None:                      # --node 3 alone means "I am one peer of the network"
