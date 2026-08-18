@@ -79,6 +79,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       feh xterm python3-tk iproute2 \
  && rm -rf /var/lib/apt/lists/*
 
+# ── 3a. ship noVNC 1.7.0, not Ubuntu's 1.0.0 from 2018 ──
+#    1.0.0 computed its WebSocket URL from the hostname alone and persisted host/port
+#    in localStorage — two entire classes of "Failed to connect to server" (wrong path
+#    behind a prefix; stale localhost from an earlier visit) that we previously carried
+#    patches for. 1.7.0 defaults host to EMPTY and resolves `new URL(path,
+#    location.href)` relative to the page itself, so both are fixed upstream and the
+#    patches are retired. Its error messages also name what actually failed.
+ADD https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.tar.gz /tmp/novnc.tar.gz
+RUN rm -rf /usr/share/novnc && mkdir -p /usr/share/novnc \
+ && tar -xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1 \
+ && rm /tmp/novnc.tar.gz \
+ && grep -q "initSetting('host', '')" /usr/share/novnc/app/ui.js  # 1.7-family sanity check
+
 # fcwu-style platforms open "/", and the Ubuntu novnc package has no index there.
 RUN printf '%s\n' \
       '<!DOCTYPE html><html><head><meta charset="utf-8">' \
@@ -97,18 +110,7 @@ RUN { git -C /opt/unionlabs log -1 --format='commit %H%nauthored %cI'; \
       echo "built   $(date -u +%Y-%m-%dT%H:%M:%SZ)"; } > /usr/share/novnc/unionlabs-version.txt \
  && cat /usr/share/novnc/unionlabs-version.txt
 
-# ── 3a. ship noVNC 1.7.0, not Ubuntu's 1.0.0 from 2018 ──
-#    1.0.0 computed its WebSocket URL from the hostname alone and persisted host/port
-#    in localStorage — two entire classes of "Failed to connect to server" (wrong path
-#    behind a prefix; stale localhost from an earlier visit) that we previously carried
-#    patches for. 1.7.0 defaults host to EMPTY and resolves `new URL(path,
-#    location.href)` relative to the page itself, so both are fixed upstream and the
-#    patches are retired. Its error messages also name what actually failed.
-ADD https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.tar.gz /tmp/novnc.tar.gz
-RUN rm -rf /usr/share/novnc && mkdir -p /usr/share/novnc \
- && tar -xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1 \
- && rm /tmp/novnc.tar.gz \
- && grep -q "initSetting('host', '')" /usr/share/novnc/app/ui.js  # 1.7-family sanity check
+
 
 RUN cat > /usr/local/bin/start-unionlabs.sh <<'EOF' && chmod +x /usr/local/bin/start-unionlabs.sh
 #!/usr/bin/env bash
