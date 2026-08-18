@@ -71,8 +71,8 @@ that can only fail in the browser.
 - **A `FATAL` line** — the fault is inside the container. `Xvfb never created
   /tmp/.X11-unix/X0` means it cannot write `/tmp`: a read-only rootfs, a volume mounted
   over `/tmp`, or a platform that started the container as a different user.
-- **No `FATAL`, everything listening** — the fault is the hop in between. Confirm the
-  bridge is healthy on the host, where `101` is the answer you want:
+- **No `FATAL` and the container is still up** — the backend came up, so the fault is the
+  hop in between. Test the upgrade on the host, where `101` is the answer you want:
 
   ```bash
   curl -si -o /dev/null -w '%{http_code}\n' \
@@ -83,7 +83,10 @@ that can only fail in the browser.
 
   `101` locally but a failure through a portal means that front end is not forwarding the
   WebSocket upgrade (an AWS ALB does; CloudFront needs the right policy; an API Gateway
-  HTTP API cannot). Under a path prefix, tell noVNC where the socket really is:
+  HTTP API cannot). Note what `101` does **not** prove: websockify completes the handshake
+  before it dials 5900, so it answers `101` even when the desktop behind it is dead — which
+  is exactly why the guards above exist. `docker logs`, not this curl, is what tells you the
+  backend is alive. Under a path prefix, tell noVNC where the socket really is:
   `…/vnc.html?path=<prefix>/websockify&autoconnect=1`. To take the proxy out of the
   picture entirely, tunnel instead: `ssh -N -L 6080:localhost:6080 <user>@<host>`.
 
