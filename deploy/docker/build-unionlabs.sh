@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # build-unionlabs.sh — build the all-in-one image (downloads the code itself).
 #
-#   ./build-unionlabs.sh                       # full stack, current main
+#   ./build-unionlabs.sh                       # full stack (CPU torch), current main
 #   ./build-unionlabs.sh --minimal             # skip torch/networkx/opencv
 #   ./build-unionlabs.sh --with-phy            # also compile sdr_system + pyphy
 #   ./build-unionlabs.sh --ref my-branch       # a different branch/tag/commit
@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."                       # deploy/
 IMAGE="${IMAGE:-unionlabs}"
 REF=main
-INIT="--no-images"
+INIT="--no-images --cpu-torch"
 PLATFORM=()
 
 while [ $# -gt 0 ]; do

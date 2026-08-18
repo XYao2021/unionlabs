@@ -37,7 +37,9 @@ ARG UNIONLABS_REF=main
 ARG UNIONLABS_REFS_URL=https://api.github.com/repos/XYao2021/unionlabs/git/refs/heads/main
 # What initialization.sh should do. Default installs the full Python stack but does
 # NOT compile the C++ modem — add --build for that (slow, and only useful with a USRP).
-ARG INIT_ARGS="--no-images"
+# --cpu-torch matters: the default torch wheel drags in ~3.5 GB of CUDA runtime
+# (nvidia/* and triton) that a container with no GPU can never use.
+ARG INIT_ARGS="--no-images --cpu-torch"
 
 # ── just enough to fetch the repo; initialization.sh installs everything else ──
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -59,7 +61,13 @@ WORKDIR /opt/unionlabs
 
 # ── 2. RUN the project's own installer ──
 #    It is root-aware and non-interactive, so it works unchanged in a container.
-RUN chmod +x deploy/initialization.sh && ./deploy/initialization.sh ${INIT_ARGS}
+#    PIP_NO_CACHE_DIR: pip's wheel cache is ~2.8 GB here and is dead weight in an
+#    image — nothing will ever reinstall from it. Dropping the cache and the apt
+#    lists in the same layer is what keeps them out of the history.
+ENV PIP_NO_CACHE_DIR=1
+RUN chmod +x deploy/initialization.sh \
+ && ./deploy/initialization.sh ${INIT_ARGS} \
+ && rm -rf /root/.cache /tmp/* /var/lib/apt/lists/*
 
 # ── 3. the noVNC desktop ──
 #    xvfb        headless X display (:0)          x11vnc   VNC server for it
