@@ -27,11 +27,22 @@ sys.path.insert(0, HERE)
 import run_algo as R                                    # noqa: E402
 import phy_link as pl                                   # noqa: E402
 
-GREEN, RED, DIM, OFF = "\033[32m", "\033[31m", "\033[2m", "\033[0m"
+GREEN, RED, YEL, DIM, OFF = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 if not sys.stdout.isatty():
-    GREEN = RED = DIM = OFF = ""
+    GREEN = RED = YEL = DIM = OFF = ""
 
 results = []
+skipped = []
+
+# The USRP in-process modem is a COMPILED extension built for one Python version and
+# platform, so it is absent on most machines and in a --minimal container. Its flags
+# cannot be checked without it — that is a gap in coverage, not a failure, and saying
+# so beats reporting a broken build.
+try:
+    import pyphy  # noqa: F401
+    HAVE_PYPHY = True
+except ImportError:
+    HAVE_PYPHY = False
 
 
 def parse(argv):
@@ -46,8 +57,15 @@ def parse(argv):
     return a
 
 
-def check(flag, argv, get, want):
+def skip(flag, why):
+    skipped.append((flag, why))
+    print(f"  {flag:22s} {YEL}skip{OFF}  {DIM}{why}{OFF}")
+
+
+def check(flag, argv, get, want, needs_pyphy=False):
     """Feed `argv` through the CLI, build the object, pull `get` out of it."""
+    if needs_pyphy and not HAVE_PYPHY:
+        return skip(flag, "pyphy not built for this Python — see drivers/usrp/bindings/build.sh")
     try:
         got = get(parse(argv))
         ok = got == want
@@ -98,9 +116,9 @@ check("--lora-backend", ["--channel","lora","--lora-backend","sim"],  lambda a: 
 
 # ── the USRP in-process modem ───────────────────────────────────────────────
 print("\n  USRP modem  (--channel usrp, the pyphy backend)")
-check("--scheme (pyphy)", ["--channel","usrp","--scheme","BPSK"],     lambda a: C(a).scheme,   "BPSK")
-check("--fec (pyphy)",    ["--channel","usrp","--fec","conv"],        lambda a: C(a).fec,      "conv")
-check("--sim-snr-db (pyphy)",["--channel","usrp","--sim-snr-db","3"], lambda a: C(a).snr_db,   3.0)
+check("--scheme (pyphy)", ["--channel","usrp","--scheme","BPSK"],     lambda a: C(a).scheme,   "BPSK", needs_pyphy=True)
+check("--fec (pyphy)",    ["--channel","usrp","--fec","conv"],        lambda a: C(a).fec,      "conv", needs_pyphy=True)
+check("--sim-snr-db (pyphy)",["--channel","usrp","--sim-snr-db","3"], lambda a: C(a).snr_db,   3.0,    needs_pyphy=True)
 
 # ── decentralised peers ─────────────────────────────────────────────────────
 print("\n  peer link  (--node K)")
@@ -127,7 +145,8 @@ check("--relays",        ["--relays","3"], lambda a: a.relays, 3)
 check("--steps",         ["--steps","9"],  lambda a: a.steps, 9)
 
 bad = [r for r in results if not r[1]]
-print(f"\n  {len(results)} flag paths checked — "
+tail = f" ({len(skipped)} skipped: dependency not installed)" if skipped else ""
+print(f"\n  {len(results)} flag paths checked{tail} — "
       + (f"{GREEN}all reach their target{OFF}" if not bad else f"{RED}{len(bad)} BROKEN{OFF}"))
 for f, _, got, want in bad:
     print(f"    {f}: got {got!r}, want {want!r}")

@@ -62,6 +62,25 @@ def run(args, timeout=600):
         return False, time.time() - t0, f"timed out after {timeout}s"
 
 
+# An experiment that needs torch, cv2 or the compiled pyphy extension cannot run if
+# they are not installed. That is a missing OPTIONAL dependency, not a broken install
+# — reporting it as FAILED sends a newcomer hunting a bug that does not exist.
+MISSING_DEP = [
+    ("No module named 'torch'",  "torch not installed (pip install torch)"),
+    ("No module named 'cv2'",    "opencv not installed (pip install opencv-python-headless)"),
+    ("No module named 'networkx'", "networkx not installed"),
+    ("pyphy",                    "pyphy not built for this Python (drivers/usrp/bindings/build.sh)"),
+]
+
+
+def missing_dependency(output):
+    """-> a human reason if this failed only because something is not installed."""
+    for needle, reason in MISSING_DEP:
+        if needle in output:
+            return reason
+    return None
+
+
 def why(output):
     """The one line from a failure that actually explains it."""
     for line in reversed(output.strip().splitlines()):
@@ -107,7 +126,7 @@ def main():
                             "--steps", "2", "--topology", t]))
 
     print(f"\n  UnionLabs selftest — {len(checks)} checks, no hardware required\n")
-    failures, group = [], None
+    failures, skipped_deps, group = [], [], None
     for g, label, args in checks:
         if g != group:
             group = g
@@ -117,8 +136,13 @@ def main():
         if ok:
             print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s{OFF}")
         else:
-            print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}  {why(out)}")
-            failures.append((label, why(out)))
+            dep = missing_dependency(out)
+            if dep:
+                print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+                skipped_deps.append((label, dep))
+            else:
+                print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}  {why(out)}")
+                failures.append((label, why(out)))
 
     # Do the CLI flags still reach what they configure? Two have already shipped broken
     # in exactly that way (--fec never reached the radio; --snr-db did nothing on
@@ -145,6 +169,11 @@ def main():
           f"backend · the two-host tx/rx/relay/peer roles")
 
     n = len(checks) + 1        # + the flag-path check
+    if skipped_deps:
+        print(f"\n  {YEL}{len(skipped_deps)} skipped{OFF} — an optional dependency is not installed:")
+        for label, dep in skipped_deps:
+            print(f"    {label}: {dep}")
+        print(f"    {DIM}pip install -r requirements.txt installs all of them{OFF}")
     if failures:
         print(f"\n  {RED}{len(failures)} of {n} checks FAILED{OFF}")
         for label, msg in failures:
@@ -153,7 +182,9 @@ def main():
         print(f"  missing for your Python — see drivers/usrp/bindings/build.sh, or just use")
         print(f"  --channel ideal / --channel lora, which need nothing.\n")
         return 1
-    print(f"\n  {GREEN}all {n} checks passed{OFF} — your installation works.\n")
+    passed = n - len(skipped_deps)
+    print(f"\n  {GREEN}all {passed} runnable checks passed{OFF} — your installation works"
+          + (f" ({len(skipped_deps)} skipped for missing optional deps).\n" if skipped_deps else ".\n"))
     return 0
 
 
