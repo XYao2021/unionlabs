@@ -86,9 +86,24 @@ that can only fail in the browser.
   HTTP API cannot). Note what `101` does **not** prove: websockify completes the handshake
   before it dials 5900, so it answers `101` even when the desktop behind it is dead — which
   is exactly why the guards above exist. `docker logs`, not this curl, is what tells you the
-  backend is alive. Under a path prefix, tell noVNC where the socket really is:
-  `…/vnc.html?path=<prefix>/websockify&autoconnect=1`. To take the proxy out of the
-  picture entirely, tunnel instead: `ssh -N -L 6080:localhost:6080 <user>@<host>`.
+  backend is alive. To take the proxy out of the picture entirely, tunnel instead:
+  `ssh -N -L 6080:localhost:6080 <user>@<host>`.
+
+### Serving it under a path prefix
+
+noVNC 1.0.0 (what Ubuntu 22.04 ships) builds its socket URL as
+`(wss|ws)://<hostname>:<port>/<path>` with `path` defaulting to the bare string
+`websockify` — **the page's own directory is discarded**. Behind a portal that proxies
+this container under a prefix, the page loads from `/lab/6080/vnc.html` and then asks for
+`/websockify` at the root, which the portal does not route. The result is a 404 the user
+never sees and a browser that says only "Failed to connect to server", while the
+container is entirely healthy. Newer noVNC does the same thing, so upgrading is not the
+fix.
+
+The image therefore patches that default to derive from the page's own location, so
+`/lab/6080/vnc.html` asks for `/lab/6080/websockify` and a prefixed portal works with no
+query string. Served at the root it is unchanged. An explicit
+`?path=<prefix>/websockify` still overrides it, since noVNC reads the query string first.
 
 Long-lived sessions get a `--heartbeat=30` ping, because load balancers drop silent
 WebSockets — an AWS ALB idles out at 60 s — which otherwise looks like the desktop
