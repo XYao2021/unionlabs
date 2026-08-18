@@ -10,7 +10,9 @@
 #     5900  raw VNC          (a platform that supplies its own noVNC client)
 #     6080  noVNC over HTTP  (a platform that just proxies a port to your browser)
 #
-#  No password: Xvnc runs with -SecurityTypes None.
+#  No password, two ways. Some viewers cannot negotiate security type None at all and
+#  insist on VNC authentication, so the server offers BOTH: None, and VncAuth with an
+#  EMPTY passphrase (press Enter at the prompt). VNC_SECURITY overrides the list.
 #
 #      docker build -t novnc-minimal -f deploy/Dockerfile.novnc-minimal deploy
 #      docker run -d -p 6080:6080 -p 5900:5900 novnc-minimal
@@ -26,9 +28,17 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && apt-get install -y --no-install-recommends \
       tigervnc-standalone-server tigervnc-common \
       novnc websockify \
-      fluxbox xterm x11-utils \
+      fluxbox xterm x11-utils x11vnc \
       ca-certificates iproute2 procps \
  && rm -rf /var/lib/apt/lists/*
+
+# TigerVNC ships no vncpasswd here, but x11vnc writes the same 8-byte format and is
+# the only reason it is installed. An EMPTY password is a real, valid VncAuth secret:
+# the challenge is DES'd with 8 zero bytes, so any client can authenticate by sending
+# nothing at all.
+RUN mkdir -p /root/.vnc \
+ && x11vnc -storepasswd "" /root/.vnc/passwd \
+ && chmod 600 /root/.vnc/passwd
 
 RUN cat > /usr/local/bin/start-minimal.sh <<'EOF' && chmod +x /usr/local/bin/start-minimal.sh
 #!/usr/bin/env bash
@@ -46,8 +56,11 @@ await() { local n="$1"; shift; for _ in $(seq 1 "$n"); do "$@" >/dev/null 2>&1 &
 listening() { ss -ltn 2>/dev/null | grep -q ":$1 " || (exec 3<>/dev/tcp/127.0.0.1/"$1") 2>/dev/null; }
 
 echo "[minimal] Xvnc ${GEOM} on ${DISPLAY}, VNC ${VNCPORT}, noVNC ${PORT}"
+SEC="${VNC_SECURITY:-None,VncAuth}"
+echo "[minimal] security types: ${SEC}  (VncAuth passphrase is EMPTY — just press Enter)"
 Xvnc "${DISPLAY}" -geometry "${GEOM}" -depth 24 \
-     -SecurityTypes None -localhost no -AlwaysShared \
+     -SecurityTypes "${SEC}" -PasswordFile /root/.vnc/passwd \
+     -localhost no -AlwaysShared \
      -rfbport "${VNCPORT}" -desktop minimal 2>&1 | sed -u 's/^/[Xvnc] /' | tee -a /tmp/xvnc.log &
 await 80 listening "${VNCPORT}" || die "Xvnc never listened on ${VNCPORT}" /tmp/xvnc.log
 
@@ -61,13 +74,19 @@ await 60 listening "${PORT}" || die "websockify never listened on ${PORT}" /tmp/
 echo "[minimal] ready"
 sed 's/^/[minimal] build: /' /usr/share/novnc/minimal-version.txt 2>/dev/null || true
 echo "[minimal] noVNC:  http://<host>:${PORT}/vnc.html?autoconnect=1   (no password)"
-echo "[minimal] rawVNC: <host>:${VNCPORT}                              (no password)"
+echo "[minimal] rawVNC: <host>:${VNCPORT}   (no password, or EMPTY password if asked)"
 echo "[minimal] every request is logged below; nothing here means nothing arrived."
 
 # Stay PID 1 with a handler, so a signal can actually reach us and `docker stop`
-# does not wait for the kill timeout.
+# does not wait for the kill timeout. If the platform supplied a command, run it —
+# silently ignoring CMD would make this image behave unlike every other one.
 trap 'exit 0' TERM INT
-while true; do sleep 3600 & wait $!; done
+if [ "$#" -gt 0 ]; then
+  "$@" &
+  wait $! || true
+else
+  while true; do sleep 3600 & wait $!; done
+fi
 EOF
 
 RUN { echo "novnc-minimal"; echo "built $(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
@@ -76,5 +95,6 @@ RUN { echo "novnc-minimal"; echo "built $(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
  && cat /usr/share/novnc/minimal-version.txt
 
 EXPOSE 6080 5900
-ENV VNC_GEOMETRY=1280x800 NOVNC_PORT=6080 VNC_PORT=5900 DISPLAY=:0
+ENV VNC_GEOMETRY=1280x800 NOVNC_PORT=6080 VNC_PORT=5900 DISPLAY=:0 \
+    VNC_SECURITY=None,VncAuth
 ENTRYPOINT ["/usr/local/bin/start-minimal.sh"]
