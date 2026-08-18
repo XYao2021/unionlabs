@@ -2,7 +2,8 @@
 # build-unionlabs.sh — build the all-in-one image (downloads the code itself).
 #
 #   ./build-unionlabs.sh                       # linux/amd64 (the lab hosts), current main
-#   ./build-unionlabs.sh --export              # ...and write a shippable .tar.gz
+#   ./build-unionlabs.sh --export              # ...and write a shippable .tar
+#   ./build-unionlabs.sh --export --gzip       # ...gzipped instead (smaller, needs gunzip)
 #   ./build-unionlabs.sh --minimal             # skip torch/networkx/opencv
 #   ./build-unionlabs.sh --with-phy            # also compile sdr_system + pyphy
 #   ./build-unionlabs.sh --ref my-branch       # a different branch/tag/commit
@@ -20,6 +21,8 @@ REF=main
 INIT="--no-images --cpu-torch"
 PLATFORM=(--platform linux/amd64)      # the lab hosts; --native overrides
 EXPORT=0
+GZIP=0                                 # plain .tar by default: `docker load` reads it
+                                       # directly, and not every host has gunzip
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -29,6 +32,7 @@ while [ $# -gt 0 ]; do
     --amd64)    PLATFORM=(--platform linux/amd64); shift ;;
     --native)   PLATFORM=(); shift ;;
     --export)   EXPORT=1; shift ;;
+    --gzip)     GZIP=1; shift ;;
     -h|--help)  sed -n '2,11p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -56,9 +60,21 @@ echo ">> built $IMAGE — start it with docker/run-unionlabs.sh"
 if [ "$EXPORT" = 1 ]; then
   OUT_DIR="$(cd .. && pwd)/results/images"        # regenerable output, already gitignored
   mkdir -p "$OUT_DIR"
-  OUT="$OUT_DIR/${IMAGE//[:\/]/_}-amd64.tar.gz"
-  echo ">> exporting to $OUT  (this takes a few minutes)"
-  docker save "$IMAGE" | gzip > "$OUT"
+  # An IMAGE without a tag means the whole repository to `docker save`, which would
+  # sweep in other-architecture tags (a 1.2 GB tarball carrying an unusable arm64 image).
+  case "$IMAGE" in *:*) TAG="$IMAGE" ;; *) TAG="${IMAGE}:latest" ;; esac
+  BASE="$OUT_DIR/${IMAGE//[:\/]/_}-amd64.tar"
+  if [ "$GZIP" = 1 ]; then
+    OUT="${BASE}.gz"
+    echo ">> exporting to $OUT  (this takes a few minutes)"
+    docker save "$TAG" | gzip > "$OUT"
+    LOAD="gunzip -c $(basename "$OUT") | docker load"
+  else
+    OUT="$BASE"
+    echo ">> exporting to $OUT  (this takes a few minutes)"
+    docker save -o "$OUT" "$TAG"
+    LOAD="docker load -i $(basename "$OUT")"
+  fi
   echo ">> wrote $OUT  ($(du -h "$OUT" | cut -f1))"
-  echo "   copy it to the lab host, then:   gunzip -c $(basename "$OUT") | docker load"
+  echo "   copy it to the lab host, then:   $LOAD"
 fi
