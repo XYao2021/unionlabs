@@ -173,7 +173,17 @@ def main():
         print(f"\n  {YEL}{len(skipped_deps)} skipped{OFF} — an optional dependency is not installed:")
         for label, dep in skipped_deps:
             print(f"    {label}: {dep}")
-        print(f"    {DIM}pip install -r requirements.txt installs all of them{OFF}")
+        # pyphy is COMPILED, so pip cannot supply it — saying "pip installs all of
+        # them" while the line above says "build.sh" contradicts itself. Name the fix
+        # that actually applies to what is missing.
+        pip_missing = any("pip install" in d for _, d in skipped_deps)
+        phy_missing = any("pyphy" in d for _, d in skipped_deps)
+        if pip_missing:
+            print(f"    {DIM}-> pip install -r requirements.txt{OFF}")
+        if phy_missing:
+            print(f"    {DIM}-> pyphy is a COMPILED extension, so pip cannot supply it:{OFF}")
+            print(f"    {DIM}   build it with drivers/usrp/bindings/build.sh, or skip it —{OFF}")
+            print(f"    {DIM}   --channel ideal and --channel lora need nothing.{OFF}")
     if failures:
         print(f"\n  {RED}{len(failures)} of {n} checks FAILED{OFF}")
         for label, msg in failures:
