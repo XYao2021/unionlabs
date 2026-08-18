@@ -53,6 +53,44 @@ of your checkout — which is what you want for a shared testbed or a demo machi
 > the container. Keep it on a trusted network or a Tailscale interface; do not publish
 > 6080 to the open internet.
 
+### If the browser says "Failed to connect to server"
+
+That message comes from the **noVNC client**, so the page itself was served — the HTTP
+half worked and only the WebSocket to `/websockify` failed. Two very different causes
+produce it, so start by reading the container:
+
+```bash
+docker logs unionlabs | tail -20
+```
+
+The startup script now refuses to serve a desktop it cannot back: if Xvfb or x11vnc
+never comes up it exits with `[unionlabs] FATAL: …` and the tail of the relevant log
+(`/tmp/xvfb.log`, `/tmp/x11vnc.log`, `/tmp/websockify.log`) rather than leaving a page
+that can only fail in the browser.
+
+- **A `FATAL` line** — the fault is inside the container. `Xvfb never created
+  /tmp/.X11-unix/X0` means it cannot write `/tmp`: a read-only rootfs, a volume mounted
+  over `/tmp`, or a platform that started the container as a different user.
+- **No `FATAL`, everything listening** — the fault is the hop in between. Confirm the
+  bridge is healthy on the host, where `101` is the answer you want:
+
+  ```bash
+  curl -si -o /dev/null -w '%{http_code}\n' \
+    -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+    -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+    http://localhost:6080/websockify
+  ```
+
+  `101` locally but a failure through a portal means that front end is not forwarding the
+  WebSocket upgrade (an AWS ALB does; CloudFront needs the right policy; an API Gateway
+  HTTP API cannot). Under a path prefix, tell noVNC where the socket really is:
+  `…/vnc.html?path=<prefix>/websockify&autoconnect=1`. To take the proxy out of the
+  picture entirely, tunnel instead: `ssh -N -L 6080:localhost:6080 <user>@<host>`.
+
+Long-lived sessions get a `--heartbeat=30` ping, because load balancers drop silent
+WebSockets — an AWS ALB idles out at 60 s — which otherwise looks like the desktop
+freezing for no reason.
+
 ---
 
 ## 1. What we built
