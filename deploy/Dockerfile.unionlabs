@@ -79,6 +79,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       feh xterm python3-tk iproute2 \
  && rm -rf /var/lib/apt/lists/*
 
+# fcwu-style platforms open "/", and the Ubuntu novnc package has no index there.
+RUN printf '%s\n' \
+      '<!DOCTYPE html><html><head><meta charset="utf-8">' \
+      '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=scale">' \
+      '<title>unionlabs</title></head><body>' \
+      '<a href="vnc.html?autoconnect=1&resize=scale">Open the desktop</a>' \
+      '</body></html>' > /usr/share/novnc/index.html
+
 # ── 3b. stamp the build, so a running deployment can be identified ──
 #    Which image is that pod actually running? On a platform that allocates a new port
 #    per upload it is easy to keep testing the previous deployment for hours. The commit
@@ -148,8 +156,9 @@ RUN cat > /usr/local/bin/start-unionlabs.sh <<'EOF' && chmod +x /usr/local/bin/s
 # layer. A container that exits with the reason in `docker logs` cannot mislead.
 set -e
 export DISPLAY=:0
-RES="${VNC_RESOLUTION:-1440x900}"
+RES="${RESOLUTION:-${VNC_RESOLUTION:-1440x900}}"   # RESOLUTION = fcwu-compat name
 PORT="${NOVNC_PORT:-6080}"
+HTTPPORT="${HTTP_PORT:-80}"
 
 die() {   # die <message> [logfile]
   echo "[unionlabs] FATAL: $1" >&2
@@ -254,6 +263,20 @@ fi
   done ) &
 await 60 listening "${PORT}" || die "websockify is not listening on ${PORT} after 15s, so nothing is serving the browser." /tmp/websockify.log
 
+# fcwu/docker-ubuntu-vnc-desktop contract: platforms built around that image forward
+# their external port to container:80 and open "/". Serve the identical desktop there
+# too, so this image works whichever port the platform wired. Failure to bind 80 is a
+# warning, not fatal — 6080 is already serving.
+if [ "${HTTPPORT}" != "${PORT}" ]; then
+  ( while true; do
+      websockify --web=/usr/share/novnc "${HEARTBEAT[@]}" "${HTTPPORT}" localhost:5900 2>&1 \
+        | tee -a /tmp/websockify80.log | sed -u 's/^/[websockify:80] /' || true
+      echo "[unionlabs] websockify:80 exited, restarting in 1s" >&2; sleep 1
+    done ) &
+  await 40 listening "${HTTPPORT}" \
+    || echo "[unionlabs] WARNING: could not bind ${HTTPPORT}; only ${PORT} is serving" >&2
+fi
+
 echo "[unionlabs] ready — open  http://<host>:${PORT}/vnc.html?autoconnect=1  (no password)"
 sed 's/^/[unionlabs] build: /' /usr/share/novnc/unionlabs-version.txt 2>/dev/null || true
 echo "[unionlabs] the same stamp is served at  /unionlabs-version.txt  — use it to tell"
@@ -284,7 +307,7 @@ EOF
 
 # Documentation only; publishing is a `docker run -p` choice.
 #   6080 = noVNC (browser)   5900 = raw VNC   5599/5700/5800+ = the platform's own ports
-EXPOSE 6080 5900 5599 5700
+EXPOSE 80 6080 5900 5599 5700
 
 ENV DISPLAY=:0 \
     VNC_RESOLUTION=1440x900 \
