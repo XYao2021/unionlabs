@@ -17,6 +17,7 @@ import argparse, base64, json, os, re, socket, ssl, subprocess, sys
 from urllib.parse import urlparse, urljoin
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
+from http.client import BadStatusLine
 
 OK, BAD, INFO = "  ok  ", " FAIL ", "  ..  "
 
@@ -173,6 +174,21 @@ def check_url(page_url, cookie=None):
         return False
     except URLError as e:
         say(BAD, f"cannot fetch the page ({e.reason})")
+        if isinstance(getattr(e, "reason", None), socket.timeout) or "timed out" in str(e.reason):
+            print("       A timeout means the packets are being DROPPED — a firewall or")
+            print("       security group. A port with nothing behind it refuses the")
+            print("       connection immediately instead.")
+        return False
+    except BadStatusLine as e:
+        # Something answered, but not in HTTP. Its first line usually says what it is.
+        banner = str(e.line if hasattr(e, "line") else e).strip().strip("'\"")
+        say(BAD, f"that port is not HTTP — it answered with: {banner!r}")
+        if banner.startswith("SSH-"):
+            print("       That is an SSH server. The noVNC desktop is on a different port;")
+            print("       this one cannot serve a web page no matter what image is running.")
+        return False
+    except Exception as e:
+        say(BAD, f"cannot fetch the page ({type(e).__name__}: {e})")
         return False
 
     if final != page_url:
