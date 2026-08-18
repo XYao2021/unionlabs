@@ -26,11 +26,19 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Derive the refs API URL from the repo so a fork or branch invalidates the cache too.
+REPO_URL="${UNIONLABS_REPO:-https://github.com/XYao2021/unionlabs.git}"
+SLUG="$(sed -E 's#^https://github.com/##; s#\.git$##' <<<"$REPO_URL")"
+REFS_URL="https://api.github.com/repos/${SLUG}/git/refs/heads/${REF}"
+
 echo ">> building $IMAGE  (ref=$REF, initialization.sh $INIT)"
+echo ">> cache key: $REFS_URL"
 BUILD=(docker build)
 [ ${#PLATFORM[@]} -gt 0 ] && BUILD=(docker buildx build "${PLATFORM[@]}" --load)
 "${BUILD[@]}" -f Dockerfile.unionlabs \
+  --build-arg "UNIONLABS_REPO=$REPO_URL" \
   --build-arg "UNIONLABS_REF=$REF" \
+  --build-arg "UNIONLABS_REFS_URL=$REFS_URL" \
   --build-arg "INIT_ARGS=$INIT" \
   -t "$IMAGE" .
 echo ">> built $IMAGE — start it with docker/run-unionlabs.sh"

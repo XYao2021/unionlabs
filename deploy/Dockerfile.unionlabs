@@ -32,6 +32,9 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG UNIONLABS_REPO=https://github.com/XYao2021/unionlabs.git
 ARG UNIONLABS_REF=main
+# Points at the ref's current commit. Its CONTENT changes whenever the branch moves,
+# which is what actually invalidates the clone layer below — see the note there.
+ARG UNIONLABS_REFS_URL=https://api.github.com/repos/XYao2021/unionlabs/git/refs/heads/main
 # What initialization.sh should do. Default installs the full Python stack but does
 # NOT compile the C++ modem — add --build for that (slow, and only useful with a USRP).
 ARG INIT_ARGS="--no-images"
@@ -42,8 +45,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # ── 1. DOWNLOAD the platform ──
-#    A shallow clone of one ref: fast, and the ARG busts the layer cache when the ref
-#    changes so a rebuild really does pick up new commits.
+#    Fetching the ref's SHA first is what makes a rebuild honest. Docker caches a RUN
+#    by its command string, so `git clone --branch main` is a cache hit forever even
+#    after main has moved — a rebuild would silently ship stale code (it did, once).
+#    ADD re-fetches this URL every build and invalidates the layer when the SHA
+#    changes, so the clone below reruns exactly when there is something new.
+ADD ${UNIONLABS_REFS_URL} /tmp/upstream-ref.json
 WORKDIR /opt
 RUN git clone --depth 1 --branch "${UNIONLABS_REF}" "${UNIONLABS_REPO}" unionlabs \
  && git -C unionlabs log --oneline -1
