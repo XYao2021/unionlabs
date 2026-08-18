@@ -55,6 +55,14 @@ of your checkout — which is what you want for a shared testbed or a demo machi
 
 ### If the browser says "Failed to connect to server"
 
+Run the diagnostic before changing anything — it walks the same route the browser walks
+and names the layer that broke. Standard library only, nothing to install:
+
+```bash
+python3 deploy/docker/check-novnc.py                                   # on the host
+python3 deploy/docker/check-novnc.py --url https://portal/…/vnc.html   # from your laptop
+```
+
 That message comes from the **noVNC client**, so the page itself was served — the HTTP
 half worked and only the WebSocket to `/websockify` failed. Two very different causes
 produce it, so start by reading the container:
