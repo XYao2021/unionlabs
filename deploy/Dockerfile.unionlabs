@@ -100,6 +100,13 @@ RUN printf '%s\n' \
       '<a href="vnc.html?autoconnect=1&resize=scale">Open the desktop</a>' \
       '</body></html>' > /usr/share/novnc/index.html
 
+# noVNC 1.0.0 shipped vnc_auto.html and older portal integrations hard-link it;
+# 1.7.0 removed it. A shim keeps any such URL working.
+RUN printf '%s\n' \
+      '<!DOCTYPE html><html><head><meta charset="utf-8">' \
+      '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=scale">' \
+      '</head><body></body></html>' > /usr/share/novnc/vnc_auto.html
+
 # ── 3b. stamp the build, so a running deployment can be identified ──
 #    Which image is that pod actually running? On a platform that allocates a new port
 #    per upload it is easy to keep testing the previous deployment for hours. The commit
