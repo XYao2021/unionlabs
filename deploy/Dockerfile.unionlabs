@@ -79,6 +79,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       feh xterm python3-tk iproute2 \
  && rm -rf /var/lib/apt/lists/*
 
+# ── 3b. stamp the build, so a running deployment can be identified ──
+#    Which image is that pod actually running? On a platform that allocates a new port
+#    per upload it is easy to keep testing the previous deployment for hours. The commit
+#    goes into the noVNC web root (so `curl http://<host>:<port>/unionlabs-version.txt`
+#    answers it from outside, with no shell access) and into the startup banner (so the
+#    pod log answers it too).
+RUN { git -C /opt/unionlabs log -1 --format='commit %H%nauthored %cI'; \
+      echo "built   $(date -u +%Y-%m-%dT%H:%M:%SZ)"; } > /usr/share/novnc/unionlabs-version.txt \
+ && cat /usr/share/novnc/unionlabs-version.txt
+
 # ── 3a. teach noVNC where its own WebSocket is ──
 #    Ubuntu 22.04 ships noVNC 1.0.0, which builds the socket URL as
 #        (wss|ws)://<location.hostname>:<port>/<path>       path defaults to "websockify"
@@ -245,6 +255,9 @@ fi
 await 60 listening "${PORT}" || die "websockify is not listening on ${PORT} after 15s, so nothing is serving the browser." /tmp/websockify.log
 
 echo "[unionlabs] ready — open  http://<host>:${PORT}/vnc.html?autoconnect=1  (no password)"
+sed 's/^/[unionlabs] build: /' /usr/share/novnc/unionlabs-version.txt 2>/dev/null || true
+echo "[unionlabs] the same stamp is served at  /unionlabs-version.txt  — use it to tell"
+echo "[unionlabs] which upload a deployment is actually running."
 echo "[unionlabs] behind a proxy, that hop must forward the WebSocket upgrade. A path"
 echo "[unionlabs] prefix needs nothing: the page derives its own socket path."
 echo "[unionlabs] every request lands in this log — if nothing appears below when the"

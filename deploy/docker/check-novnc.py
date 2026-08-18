@@ -189,6 +189,16 @@ def check_url(page_url, cookie=None):
         return False
     say(OK, "the page is a noVNC client")
 
+    # Which upload is this? Platforms that allocate a port per image make it very easy
+    # to keep testing the previous deployment.
+    try:
+        with urlopen(Request(urljoin(final, "unionlabs-version.txt"), headers=hdrs),
+                     timeout=10, context=ctx) as resp:
+            for line in resp.read().decode("utf-8", "replace").strip().splitlines():
+                say(INFO, "build: " + line.strip())
+    except Exception:
+        say(INFO, "no /unionlabs-version.txt — this image predates the build stamp")
+
     # What path will THIS page's javascript ask for?
     page_dir = re.sub(r"[^/]*$", "", urlparse(final).path).lstrip("/")
     ui_url = urljoin(final, "app/ui.js")
