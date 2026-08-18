@@ -177,7 +177,10 @@ fluxbox >/dev/null 2>&1 &
 
 # supervise x11vnc so the browser always has a live backend. -nopw = NO PASSWORD.
 ( while true; do
-    x11vnc -display :0 -forever -shared -nopw -rfbport 5900 -noxdamage >>/tmp/x11vnc.log 2>&1 || true
+    x11vnc -display :0 -forever -shared -nopw -rfbport 5900 -noxdamage 2>&1 \
+      | tee -a /tmp/x11vnc.log \
+      | grep -E --line-buffered 'accepted_client|client_count|client gone|[Ee]rror|[Ff]ail|refused|[Cc]annot' \
+      | sed -u 's/^/[x11vnc] /' || true
     echo "[unionlabs] x11vnc exited, restarting in 1s" >&2; sleep 1
   done ) &
 await 60 listening 5900 || die "x11vnc is not listening on 5900 after 15s, so the desktop backend is dead. Refusing to serve a noVNC page that could only ever fail with 'Failed to connect to server'." /tmp/x11vnc.log
@@ -196,8 +199,17 @@ if websockify --help 2>&1 | grep -q -- '--heartbeat'; then
 else
   echo "[unionlabs] note: this websockify has no --heartbeat; a proxy may drop idle sessions"
 fi
+# Both logs go to the CONTAINER'S STDOUT as well as their files. On a managed platform
+# the log pane is usually the only window into the pod, and the question that matters —
+# did the browser's request ever arrive, and at which path — is answered by websockify
+# logging "Path: '/...'" for every request. Without it the pod looks equally silent
+# whether the proxy dropped the socket or the viewer never tried at all.
+# x11vnc is filtered down to connection and failure lines on the way to stdout, because
+# it out-talks websockify roughly ten to one and would bury the answer; /tmp/x11vnc.log
+# still gets every line, which is what die() tails.
 ( while true; do
-    websockify --web=/usr/share/novnc "${HEARTBEAT[@]}" "${PORT}" localhost:5900 >>/tmp/websockify.log 2>&1 || true
+    websockify --web=/usr/share/novnc "${HEARTBEAT[@]}" "${PORT}" localhost:5900 2>&1 \
+      | tee -a /tmp/websockify.log | sed -u 's/^/[websockify] /' || true
     echo "[unionlabs] websockify exited, restarting in 1s" >&2; sleep 1
   done ) &
 await 60 listening "${PORT}" || die "websockify is not listening on ${PORT} after 15s, so nothing is serving the browser." /tmp/websockify.log
@@ -205,6 +217,8 @@ await 60 listening "${PORT}" || die "websockify is not listening on ${PORT} afte
 echo "[unionlabs] ready — open  http://<host>:${PORT}/vnc.html?autoconnect=1  (no password)"
 echo "[unionlabs] behind a proxy, that hop must forward the WebSocket upgrade. A path"
 echo "[unionlabs] prefix needs nothing: the page derives its own socket path."
+echo "[unionlabs] every request lands in this log — if nothing appears below when the"
+echo "[unionlabs] browser tries, it never reached this container."
 exec "$@"
 EOF
 
