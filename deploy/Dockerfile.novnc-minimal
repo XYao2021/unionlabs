@@ -6,9 +6,15 @@
 #  this platform run a plain noVNC container correctly? If this image works and the
 #  full one does not, the fault is ours. If this one fails too, it is the platform.
 #
-#  It serves BOTH, because a managed platform may want either:
-#     5900  raw VNC          (a platform that supplies its own noVNC client)
-#     6080  noVNC over HTTP  (a platform that just proxies a port to your browser)
+#  It serves EVERY contract a platform is known to use, because which one this
+#  platform wants is exactly the question:
+#     80    noVNC over HTTP  (the fcwu/docker-ubuntu-vnc-desktop contract: platforms
+#                             built around that image forward <external> -> container:80
+#                             and open "/" in the browser)
+#     6080  noVNC over HTTP  (the classic noVNC port)
+#     5900  raw VNC          (a platform that supplies its own VNC client)
+#  "/" redirects to vnc.html?autoconnect=1, because fcwu-style platforms open "/".
+#  RESOLUTION and VNC_PASSWORD are honoured (fcwu's env names).
 #
 #  No password, two ways. Some viewers cannot negotiate security type None at all and
 #  insist on VNC authentication, so the server offers BOTH: None, and VncAuth with an
@@ -47,8 +53,11 @@ RUN cat > /usr/local/bin/start-minimal.sh <<'EOF' && chmod +x /usr/local/bin/sta
 # produces "Failed to connect to server" in the browser and silence here.
 set -e
 export DISPLAY=:0
-GEOM="${VNC_GEOMETRY:-1280x800}"
+# RESOLUTION is fcwu/docker-ubuntu-vnc-desktop's name for this knob; a platform built
+# around that image may set it, so it wins over our own.
+GEOM="${RESOLUTION:-${VNC_GEOMETRY:-1280x800}}"
 PORT="${NOVNC_PORT:-6080}"
+HTTPPORT="${HTTP_PORT:-80}"
 VNCPORT="${VNC_PORT:-5900}"
 
 die() { echo "[minimal] FATAL: $1" >&2; [ -n "${2:-}" ] && [ -s "$2" ] && tail -n 30 "$2" >&2; exit 1; }
@@ -57,7 +66,14 @@ listening() { ss -ltn 2>/dev/null | grep -q ":$1 " || (exec 3<>/dev/tcp/127.0.0.
 
 echo "[minimal] Xvnc ${GEOM} on ${DISPLAY}, VNC ${VNCPORT}, noVNC ${PORT}"
 SEC="${VNC_SECURITY:-None,VncAuth}"
-echo "[minimal] security types: ${SEC}  (VncAuth passphrase is EMPTY — just press Enter)"
+# fcwu contract: VNC_PASSWORD, when set, password-protects the VNC service.
+if [ -n "${VNC_PASSWORD:-}" ]; then
+  x11vnc -storepasswd "${VNC_PASSWORD}" /root/.vnc/passwd >/dev/null 2>&1
+  SEC="VncAuth"
+  echo "[minimal] security types: ${SEC}  (VNC_PASSWORD is set)"
+else
+  echo "[minimal] security types: ${SEC}  (VncAuth passphrase is EMPTY — just press Enter)"
+fi
 Xvnc "${DISPLAY}" -geometry "${GEOM}" -depth 24 \
      -SecurityTypes "${SEC}" -PasswordFile /root/.vnc/passwd \
      -localhost no -AlwaysShared \
@@ -71,9 +87,20 @@ websockify --web=/usr/share/novnc "${PORT}" "localhost:${VNCPORT}" 2>&1 \
   | sed -u 's/^/[websockify] /' | tee -a /tmp/websockify.log &
 await 60 listening "${PORT}" || die "websockify never listened on ${PORT}" /tmp/websockify.log
 
+# The fcwu contract: the platform forwards its external port to container port 80 and
+# opens "/". A second websockify serves the identical thing there, so this image works
+# whichever port the platform wired. Failure to bind 80 is only fatal if nothing else
+# is serving.
+if [ "${HTTPPORT}" != "${PORT}" ]; then
+  websockify --web=/usr/share/novnc "${HTTPPORT}" "localhost:${VNCPORT}" 2>&1 \
+    | sed -u 's/^/[websockify:80] /' | tee -a /tmp/websockify80.log &
+  await 40 listening "${HTTPPORT}" \
+    || echo "[minimal] WARNING: could not bind ${HTTPPORT}; only ${PORT} is serving" >&2
+fi
+
 echo "[minimal] ready"
 sed 's/^/[minimal] build: /' /usr/share/novnc/minimal-version.txt 2>/dev/null || true
-echo "[minimal] noVNC:  http://<host>:${PORT}/vnc.html?autoconnect=1   (no password)"
+echo "[minimal] noVNC:  http://<host>:${HTTPPORT}/  or  :${PORT}/vnc.html?autoconnect=1"
 echo "[minimal] rawVNC: <host>:${VNCPORT}   (no password, or EMPTY password if asked)"
 echo "[minimal] every request is logged below; nothing here means nothing arrived."
 
@@ -89,12 +116,20 @@ else
 fi
 EOF
 
+# fcwu-style platforms open "/", and the Ubuntu novnc package has no index there.
+RUN printf '%s\n' \
+      '<!DOCTYPE html><html><head><meta charset="utf-8">' \
+      '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=scale">' \
+      '<title>desktop</title></head><body>' \
+      '<a href="vnc.html?autoconnect=1&resize=scale">Open the desktop</a>' \
+      '</body></html>' > /usr/share/novnc/index.html
+
 RUN { echo "novnc-minimal"; echo "built $(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
       echo "stack Xvnc(TigerVNC) + fluxbox + xterm + noVNC/websockify"; } \
       > /usr/share/novnc/minimal-version.txt \
  && cat /usr/share/novnc/minimal-version.txt
 
-EXPOSE 6080 5900
-ENV VNC_GEOMETRY=1280x800 NOVNC_PORT=6080 VNC_PORT=5900 DISPLAY=:0 \
+EXPOSE 80 6080 5900
+ENV VNC_GEOMETRY=1280x800 NOVNC_PORT=6080 HTTP_PORT=80 VNC_PORT=5900 DISPLAY=:0 \
     VNC_SECURITY=None,VncAuth
 ENTRYPOINT ["/usr/local/bin/start-minimal.sh"]
