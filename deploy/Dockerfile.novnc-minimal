@@ -1,0 +1,80 @@
+# syntax=docker/dockerfile:1
+# ─────────────────────────────────────────────────────────────────────────────
+#  novnc-minimal — the smallest honest noVNC desktop, for testing a DEPLOYMENT.
+#
+#  Nothing of unionlabs is in here. Its only job is to answer one question: does
+#  this platform run a plain noVNC container correctly? If this image works and the
+#  full one does not, the fault is ours. If this one fails too, it is the platform.
+#
+#  It serves BOTH, because a managed platform may want either:
+#     5900  raw VNC          (a platform that supplies its own noVNC client)
+#     6080  noVNC over HTTP  (a platform that just proxies a port to your browser)
+#
+#  No password: Xvnc runs with -SecurityTypes None.
+#
+#      docker build -t novnc-minimal -f deploy/Dockerfile.novnc-minimal deploy
+#      docker run -d -p 6080:6080 -p 5900:5900 novnc-minimal
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Xvnc IS both the X server and the VNC server — one process, so there is no
+# "x11vnc attached to an X server that went away" state to get stuck in. That
+# two-process arrangement is what we are trying to rule out.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      tigervnc-standalone-server tigervnc-common \
+      novnc websockify \
+      fluxbox xterm x11-utils \
+      ca-certificates iproute2 procps \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN cat > /usr/local/bin/start-minimal.sh <<'EOF' && chmod +x /usr/local/bin/start-minimal.sh
+#!/usr/bin/env bash
+# Xvnc -> fluxbox -> websockify. Each step waits for the previous one and fails
+# loudly if it never arrives, because serving a noVNC page over a dead backend
+# produces "Failed to connect to server" in the browser and silence here.
+set -e
+export DISPLAY=:0
+GEOM="${VNC_GEOMETRY:-1280x800}"
+PORT="${NOVNC_PORT:-6080}"
+VNCPORT="${VNC_PORT:-5900}"
+
+die() { echo "[minimal] FATAL: $1" >&2; [ -n "${2:-}" ] && [ -s "$2" ] && tail -n 30 "$2" >&2; exit 1; }
+await() { local n="$1"; shift; for _ in $(seq 1 "$n"); do "$@" >/dev/null 2>&1 && return 0; sleep 0.25; done; return 1; }
+listening() { ss -ltn 2>/dev/null | grep -q ":$1 " || (exec 3<>/dev/tcp/127.0.0.1/"$1") 2>/dev/null; }
+
+echo "[minimal] Xvnc ${GEOM} on ${DISPLAY}, VNC ${VNCPORT}, noVNC ${PORT}"
+Xvnc "${DISPLAY}" -geometry "${GEOM}" -depth 24 \
+     -SecurityTypes None -localhost no -AlwaysShared \
+     -rfbport "${VNCPORT}" -desktop minimal 2>&1 | sed -u 's/^/[Xvnc] /' | tee -a /tmp/xvnc.log &
+await 80 listening "${VNCPORT}" || die "Xvnc never listened on ${VNCPORT}" /tmp/xvnc.log
+
+fluxbox >/dev/null 2>&1 &
+(sleep 1; xterm -geometry 100x28+40+40 -T minimal >/dev/null 2>&1) &
+
+websockify --web=/usr/share/novnc "${PORT}" "localhost:${VNCPORT}" 2>&1 \
+  | sed -u 's/^/[websockify] /' | tee -a /tmp/websockify.log &
+await 60 listening "${PORT}" || die "websockify never listened on ${PORT}" /tmp/websockify.log
+
+echo "[minimal] ready"
+sed 's/^/[minimal] build: /' /usr/share/novnc/minimal-version.txt 2>/dev/null || true
+echo "[minimal] noVNC:  http://<host>:${PORT}/vnc.html?autoconnect=1   (no password)"
+echo "[minimal] rawVNC: <host>:${VNCPORT}                              (no password)"
+echo "[minimal] every request is logged below; nothing here means nothing arrived."
+
+# Stay PID 1 with a handler, so a signal can actually reach us and `docker stop`
+# does not wait for the kill timeout.
+trap 'exit 0' TERM INT
+while true; do sleep 3600 & wait $!; done
+EOF
+
+RUN { echo "novnc-minimal"; echo "built $(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+      echo "stack Xvnc(TigerVNC) + fluxbox + xterm + noVNC/websockify"; } \
+      > /usr/share/novnc/minimal-version.txt \
+ && cat /usr/share/novnc/minimal-version.txt
+
+EXPOSE 6080 5900
+ENV VNC_GEOMETRY=1280x800 NOVNC_PORT=6080 VNC_PORT=5900 DISPLAY=:0
+ENTRYPOINT ["/usr/local/bin/start-minimal.sh"]
