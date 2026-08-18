@@ -97,48 +97,18 @@ RUN { git -C /opt/unionlabs log -1 --format='commit %H%nauthored %cI'; \
       echo "built   $(date -u +%Y-%m-%dT%H:%M:%SZ)"; } > /usr/share/novnc/unionlabs-version.txt \
  && cat /usr/share/novnc/unionlabs-version.txt
 
-# ── 3a. teach noVNC where its own WebSocket is ──
-#    Ubuntu 22.04 ships noVNC 1.0.0, which builds the socket URL as
-#        (wss|ws)://<location.hostname>:<port>/<path>       path defaults to "websockify"
-#    — the page's own DIRECTORY is thrown away. Served straight from this container that
-#    is correct, but behind any portal that proxies us under a prefix (an AWS-hosted lab
-#    front end, JupyterHub, a k8s ingress) the page loads from /lab/6080/vnc.html and then
-#    asks for /websockify at the ROOT, which the portal does not route: 404, and the
-#    browser says only "Failed to connect to server" while this container is perfectly
-#    healthy. Newer noVNC behaves the same way, so upgrading is not the fix — deriving the
-#    default from the page's location is. An explicit ?path= still wins, because
-#    initSetting reads the query string ahead of this default.
-#
-#    A default alone is not enough, though: noVNC writes every setting to
-#    localStorage on the FIRST visit and reads it back ahead of the default, so a
-#    host/port/path saved during an earlier broken attempt keeps winning on that
-#    browser no matter what image is deployed. The patch therefore re-asserts the
-#    connection settings from the page location on every load.
-RUN python3 - <<'PATCH'
-p = "/usr/share/novnc/app/ui.js"
-s = open(p).read()
-old = "UI.initSetting('path', 'websockify');"
-derived = ("window.location.pathname.replace(/[^\\/]*$/, '')"
-           ".replace(/^\\//, '') + 'websockify'")
-new = (
-    "UI.initSetting('path', " + derived + ");\n"
-    "        // unionlabs: make the connection settings follow the page. noVNC writes EVERY\n"
-    "        // setting to localStorage on the first visit, so a host/port/path stored during\n"
-    "        // an earlier attempt outlives any change to these defaults and goes on aiming\n"
-    "        // the browser at the wrong place — a stale value no shipped image can beat.\n"
-    "        // Re-assert them from the page unless the URL explicitly overrides.\n"
-    "        [['host', window.location.hostname],\n"
-    "         ['port', port],\n"
-    "         ['encrypt', window.location.protocol === \"https:\"],\n"
-    "         ['path', " + derived + "]\n"
-    "        ].forEach(function (kv) {\n"
-    "            if (WebUtil.getConfigVar(kv[0], null) === null) { UI.updateSetting(kv[0], kv[1]); }\n"
-    "        });"
-)
-assert old in s, "noVNC ui.js changed shape; refusing to guess where the path default is"
-open(p, "w").write(s.replace(old, new, 1))
-print("[unionlabs] noVNC connection settings now follow the page, not localStorage")
-PATCH
+# ── 3a. ship noVNC 1.7.0, not Ubuntu's 1.0.0 from 2018 ──
+#    1.0.0 computed its WebSocket URL from the hostname alone and persisted host/port
+#    in localStorage — two entire classes of "Failed to connect to server" (wrong path
+#    behind a prefix; stale localhost from an earlier visit) that we previously carried
+#    patches for. 1.7.0 defaults host to EMPTY and resolves `new URL(path,
+#    location.href)` relative to the page itself, so both are fixed upstream and the
+#    patches are retired. Its error messages also name what actually failed.
+ADD https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.tar.gz /tmp/novnc.tar.gz
+RUN rm -rf /usr/share/novnc && mkdir -p /usr/share/novnc \
+ && tar -xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1 \
+ && rm /tmp/novnc.tar.gz \
+ && grep -q "initSetting('host', '')" /usr/share/novnc/app/ui.js  # 1.7-family sanity check
 
 RUN cat > /usr/local/bin/start-unionlabs.sh <<'EOF' && chmod +x /usr/local/bin/start-unionlabs.sh
 #!/usr/bin/env bash

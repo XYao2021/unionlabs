@@ -223,10 +223,13 @@ def check_url(page_url, cookie=None):
         with urlopen(Request(ui_url, headers=hdrs),
                      timeout=15, context=ctx) as resp:
             ui = resp.read().decode("utf-8", "replace")
-        patched = "window.location.pathname" in ui and "initSetting('path'" in ui
+        # Either our patched 1.0.0 or stock >=1.1 (host defaults to '' and the URL is
+        # resolved against the page itself) handles a path prefix correctly.
+        patched = ("window.location.pathname" in ui and "initSetting('path'" in ui) \
+                  or "initSetting('host', '')" in ui
         derived = (page_dir + "websockify") if patched else "websockify"
         say(OK if patched else INFO,
-            f"served noVNC {'derives its path (fixed image)' if patched else 'uses the bare default (unpatched)'}")
+            f"served noVNC {'resolves the socket relative to the page (good)' if patched else 'uses the bare default (ancient noVNC)'}")
     except Exception:
         say(INFO, "could not read app/ui.js; assuming the stock default")
 

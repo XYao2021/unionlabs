@@ -116,7 +116,21 @@ else
 fi
 EOF
 
-# fcwu-style platforms open "/", and the Ubuntu novnc package has no index there.
+# Replace Ubuntu's noVNC 1.0.0 (2018) with the official 1.7.0 release. This is not
+# cosmetic: 1.0.0 computes its WebSocket URL from the hostname alone and persists
+# host/port in localStorage, which produced two entire classes of "Failed to connect
+# to server" (wrong path behind a prefix; stale localhost from an earlier visit).
+# 1.7.0 defaults host to EMPTY and then resolves `new URL(path, location.href)` —
+# relative to the page itself — so both failure modes are gone upstream, and its
+# error messages actually name what failed. Verified byte-identical to the source
+# the platform test was made against.
+ADD https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.tar.gz /tmp/novnc.tar.gz
+RUN rm -rf /usr/share/novnc && mkdir -p /usr/share/novnc \
+ && tar -xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1 \
+ && rm /tmp/novnc.tar.gz \
+ && grep -q "initSetting('host', '')" /usr/share/novnc/app/ui.js  # 1.7-family sanity check
+
+# fcwu-style platforms open "/", and noVNC ships no index there.
 RUN printf '%s\n' \
       '<!DOCTYPE html><html><head><meta charset="utf-8">' \
       '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=scale">' \
