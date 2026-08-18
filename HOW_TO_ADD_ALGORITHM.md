@@ -229,7 +229,7 @@ Your algorithm does not change between any of these. Only the flags do.
 ./run.sh --algo my_algo
 
 # 2) through the REAL C++ modem + noise:
-./run.sh --algo my_algo --channel usrp --snr-db 6
+./run.sh --algo my_algo --channel usrp --sim-snr-db 6
 
 # 3) over the LoRa PHY (no hardware needed — the sim backend is the default):
 ./run.sh --algo my_algo --channel lora --lora-sf 9

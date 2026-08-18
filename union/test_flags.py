@@ -89,7 +89,8 @@ check("--lora-cr",      ["--channel","lora","--lora-cr","8"],         lambda a: 
 check("--lora-bw",      ["--channel","lora","--lora-bw","250000"],    lambda a: C(a).tx.bw_hz,     250000)
 check("--lora-power",   ["--channel","lora","--lora-power","20"],     lambda a: C(a).tx.power_dbm, 20)
 check("--freq (lora)",  ["--channel","lora","--freq","923"],          lambda a: C(a).tx.freq_hz,   923_000_000)
-check("--snr-db (sim)", ["--channel","lora","--snr-db","-3"],         lambda a: C(a).medium.snr_db, -3.0)
+check("--sim-snr-db",   ["--channel","lora","--sim-snr-db","-3"],     lambda a: C(a).medium.snr_db, -3.0)
+check("--snr-db (alias)",["--channel","lora","--snr-db","-4"],       lambda a: C(a).medium.snr_db, -4.0)
 check("--max-attempts", ["--channel","lora","--max-attempts","3"],    lambda a: C(a).max_attempts, 3)
 check("--arq (lora)",   ["--channel","lora","--arq","stop-and-wait"], lambda a: C(a).arq,          "stop-and-wait")
 check("--lora-verbose", ["--channel","lora","--lora-verbose"],        lambda a: C(a).verbose,      True)
@@ -99,7 +100,7 @@ check("--lora-backend", ["--channel","lora","--lora-backend","sim"],  lambda a: 
 print("\n  USRP modem  (--channel usrp, the pyphy backend)")
 check("--scheme (pyphy)", ["--channel","usrp","--scheme","BPSK"],     lambda a: C(a).scheme,   "BPSK")
 check("--fec (pyphy)",    ["--channel","usrp","--fec","conv"],        lambda a: C(a).fec,      "conv")
-check("--snr-db (pyphy)", ["--channel","usrp","--snr-db","3"],        lambda a: C(a).snr_db,   3.0)
+check("--sim-snr-db (pyphy)",["--channel","usrp","--sim-snr-db","3"], lambda a: C(a).snr_db,   3.0)
 
 # ── decentralised peers ─────────────────────────────────────────────────────
 print("\n  peer link  (--node K)")

@@ -54,7 +54,7 @@ authoring guide: [`HOW_TO_ADD_ALGORITHM.md`](../../HOW_TO_ADD_ALGORITHM.md).**
 ./run.sh --algo <name> --role loopback
 
 # radio-free THROUGH THE REAL MODEM + noise (see how SNR affects it):
-./run.sh --algo <name> --role loopback --channel pyphy --snr-db 6
+./run.sh --algo <name> --role loopback --channel usrp --sim-snr-db 6
 
 # over the radio (two hosts) — start the rx FIRST:
 ./run.sh --algo <name> --role rx --rx-args addr=192.168.20.2
@@ -71,7 +71,7 @@ authoring guide: [`HOW_TO_ADD_ALGORITHM.md`](../../HOW_TO_ADD_ALGORITHM.md).**
 | `--steps <n>` | `5` | how many round-trips to run |
 | `--scheme <NAME>` | `QPSK` | modulation for the pyphy/radio path (QPSK, BPSK, DQPSK, 16-QAM, …) |
 | `--fec conv\|ldpc\|turbo\|""` | `turbo` | error-correcting code for the pyphy channel |
-| `--snr-db <dB>` | `8` | signal-to-noise ratio for the pyphy channel |
+| `--sim-snr-db <dB>` | `8` | signal-to-noise ratio for the pyphy channel |
 | `--tx-args / --rx-args` | `""` | which radio: `serial=30CD424` (B210) or `addr=192.168.20.2` (N210) |
 | `--ack-host / --net-host` | `127.0.0.1` | the peer host's IP (radio roles) |
 

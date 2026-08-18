@@ -9,7 +9,7 @@ end, with no radio.
 
     python3 union/run_algo.py --algo echo --role loopback
     PYTHONPATH=drivers/usrp/bindings arch -x86_64 python3 union/run_algo.py \
-        --algo echo --role loopback --channel pyphy --snr-db 6
+        --algo echo --role loopback --channel usrp --sim-snr-db 6
 """
 import os, sys
 import numpy as np

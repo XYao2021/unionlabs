@@ -78,7 +78,7 @@ Nothing in these files knows which radio it is on:
 
 ```bash
 ./run.sh --algo fl --channel ideal        # lossless
-./run.sh --algo fl --channel usrp --snr-db 8    # the real C++ modem + noise
+./run.sh --algo fl --channel usrp --sim-snr-db 8    # the real C++ modem + noise
 ./run.sh --algo fl --channel lora --lora-sf 9   # the SX1276 LoRa PHY
 ```
 

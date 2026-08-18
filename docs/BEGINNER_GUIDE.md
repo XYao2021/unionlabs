@@ -92,7 +92,7 @@ hardware**, so you develop the whole experiment on a laptop and change one flag 
 
 ```bash
 ./run.sh --algo fl                                    # ideal — is my logic right?
-./run.sh --algo fl --channel usrp --snr-db 6          # how noisy can the link get?
+./run.sh --algo fl --channel usrp --sim-snr-db 6          # how noisy can the link get?
 ./run.sh --algo fl --channel lora --lora-sf 9         # what does this cost on LoRa?
 ```
 
@@ -148,7 +148,7 @@ computer per node:
 | `--node <k>` | — | run ONE node of a decentralized network (implies `--role peer`) |
 | `--relays <n>` | `1` | relay nodes in the middle of a `chain` |
 | `--topology <t>` | `ring` | `gossip` graph: `ring`, `full`, or an edge list `0-1,1-2,2-0` |
-| `--snr-db <dB>` | `8` | **simulation only** — the SNR the simulated channels model. On real radios SNR is *measured*, not set (see below) |
+| `--sim-snr-db <dB>` | `8` | **simulation only** — the SNR the simulated channels model. On real radios SNR is *measured*, not set (see below) |
 
 > **Simulated SNR vs a real link.** `--snr-db` is how noisy you *ask the simulator to be*:
 > `--usrp-backend pyphy` adds AWGN at that Es/N0, and `--lora-backend sim` tests it against the

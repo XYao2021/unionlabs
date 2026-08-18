@@ -3,7 +3,7 @@
 #
 #   ./run.sh                                   # defaults: algo=echo role=loopback channel=ideal
 #   ./run.sh --algo marl                       # pick any algorithm from experiments/
-#   ./run.sh --algo marl --channel usrp --snr-db 6       # over the USRP PHY
+#   ./run.sh --algo marl --channel usrp --sim-snr-db 6       # over the USRP PHY
 #   ./run.sh --algo fl --channel lora --lora-sf 9        # over the LoRa PHY (SX1276)
 #   ./run.sh --algo clip_semcom --steps 45
 #   ./run.sh --algo fl --steps 20              # federated learning on MNIST

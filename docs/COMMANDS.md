@@ -19,8 +19,8 @@
 ./run.sh list                                           # every algorithm and its roles
 
 # ── same algorithm, a different PHY ──────────────────────────────────────────
-./run.sh --algo fl --channel usrp --snr-db 8            # the real C++ modem + noise
-./run.sh --algo fl --channel usrp --modulation 16-QAM --fec ldpc --snr-db 12
+./run.sh --algo fl --channel usrp --sim-snr-db 8            # the real C++ modem + noise
+./run.sh --algo fl --channel usrp --modulation 16-QAM --fec ldpc --sim-snr-db 12
 ./run.sh --algo fl --channel lora --lora-sf 9           # the SX1276 LoRa PHY
 ./run.sh --algo fl --channel lora --lora-sf 12 --lora-bw 500000 --lora-verbose
 

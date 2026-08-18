@@ -398,8 +398,8 @@ def build_parser():
     ap.add_argument("--fec", default="turbo", choices=["", "conv", "ldpc", "turbo"],
                     help="USRP forward error correction. LoRa has its coding rate "
                          "(--lora-cr) and its CRC in the chip instead.")
-    ap.add_argument("--snr-db", type=float, default=8.0,
-                    help="SIMULATION ONLY: the link SNR the simulated channels model — "
+    ap.add_argument("--sim-snr-db", "--snr-db", dest="snr_db", type=float, default=8.0,
+                    help="SIMULATION ONLY (--snr-db is the older spelling): the link SNR the simulated channels model — "
                          "--usrp-backend pyphy adds AWGN at this Es/N0, and --lora-backend "
                          "sim tests it against the spreading factor's demodulator floor. On "
                          "REAL hardware SNR is MEASURED, not set: drive the link with "
