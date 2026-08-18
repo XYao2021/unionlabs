@@ -10,6 +10,51 @@ single entry point for building on your Mac and running on the lab's Linux hosts
 
 ---
 
+## 0. The one-command image (`unionlabs`)
+
+**If you just want it running, use this one.** A single self-contained image that
+**downloads the platform itself**, runs `deploy/initialization.sh`, and serves a
+desktop over **noVNC with no password**. No local checkout needed to build it.
+
+```bash
+docker/build-unionlabs.sh            # build (clones the repo inside the image)
+docker/run-unionlabs.sh              # start it; prints the link
+```
+
+Then open the URL it prints:
+
+```
+http://<host>:6080/vnc.html?autoconnect=1&resize=scale
+```
+
+It opens straight into a desktop with a terminal already in `/opt/unionlabs` — no
+password prompt, because the VNC server runs with `-nopw`.
+
+| | |
+|---|---|
+| `build-unionlabs.sh --minimal` | skip torch/networkx/opencv — a much smaller image |
+| `build-unionlabs.sh --with-phy` | also compile `sdr_system` + `pyphy` (slow; for a real radio) |
+| `build-unionlabs.sh --ref <branch>` | build a branch, tag or commit instead of `main` |
+| `build-unionlabs.sh --amd64` | cross-build for x86_64 lab hosts from an arm64 Mac |
+| `run-unionlabs.sh --usb` | pass through a B210 |
+| `run-unionlabs.sh --host-net` | host networking, for an N210 (Linux) |
+| `run-unionlabs.sh --port 6081` | serve the browser on another port |
+| `run-unionlabs.sh --refresh` | `git pull` inside the container at start |
+| `run-unionlabs.sh --stop` | stop and remove |
+
+Inside, `./run.sh selftest` confirms the install, exactly as on a laptop.
+
+**How it differs from the two images below:** they `COPY` your local working tree and
+build in two steps (`sdr-phy`, then `sdr-phy-vnc` on top). This one clones from GitHub
+in a single step, so it is reproducible from nothing and does not depend on the state
+of your checkout — which is what you want for a shared testbed or a demo machine.
+
+> **No password is deliberate.** Anyone who can reach port 6080 gets a full desktop in
+> the container. Keep it on a trusted network or a Tailscale interface; do not publish
+> 6080 to the open internet.
+
+---
+
 ## 1. What we built
 
 | Artifact | Path | What it is |

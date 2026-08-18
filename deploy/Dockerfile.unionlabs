@@ -1,0 +1,117 @@
+# syntax=docker/dockerfile:1
+# ─────────────────────────────────────────────────────────────────────────────
+#  unionlabs — ONE self-contained image:
+#    1. downloads the platform from GitHub (no build context needed),
+#    2. runs deploy/initialization.sh to install the whole toolchain,
+#    3. serves a desktop over noVNC with NO PASSWORD.
+#
+#  Unlike Dockerfile / Dockerfile.novnc (which COPY the local tree and layer in two
+#  steps), this one clones the public repo, so you can build it anywhere — including
+#  straight from a URL with no checkout at all:
+#
+#      docker build -t unionlabs -f deploy/Dockerfile.unionlabs .
+#      docker build -t unionlabs https://github.com/XYao2021/unionlabs.git#main:deploy \
+#             -f Dockerfile.unionlabs
+#
+#  Run, then open  http://<host>:6080/vnc.html?autoconnect=1  — no password prompt:
+#      docker run -d --name unionlabs -p 6080:6080 unionlabs
+#      docker run -d --name unionlabs --network host unionlabs        # + USRP (N210)
+#      docker run -d --name unionlabs -p 6080:6080 \
+#                 --device /dev/bus/usb unionlabs                      # + B210 over USB
+#
+#  Build knobs:
+#      --build-arg UNIONLABS_REPO=<url>     a fork
+#      --build-arg UNIONLABS_REF=<branch>   a branch/tag/commit          (default main)
+#      --build-arg INIT_ARGS="--minimal"    skip torch/networkx/opencv   (smaller image)
+#      --build-arg INIT_ARGS="--build"      also compile sdr_system + pyphy
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG UNIONLABS_REPO=https://github.com/XYao2021/unionlabs.git
+ARG UNIONLABS_REF=main
+# What initialization.sh should do. Default installs the full Python stack but does
+# NOT compile the C++ modem — add --build for that (slow, and only useful with a USRP).
+ARG INIT_ARGS="--no-images"
+
+# ── just enough to fetch the repo; initialization.sh installs everything else ──
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# ── 1. DOWNLOAD the platform ──
+#    A shallow clone of one ref: fast, and the ARG busts the layer cache when the ref
+#    changes so a rebuild really does pick up new commits.
+WORKDIR /opt
+RUN git clone --depth 1 --branch "${UNIONLABS_REF}" "${UNIONLABS_REPO}" unionlabs \
+ && git -C unionlabs log --oneline -1
+
+WORKDIR /opt/unionlabs
+
+# ── 2. RUN the project's own installer ──
+#    It is root-aware and non-interactive, so it works unchanged in a container.
+RUN chmod +x deploy/initialization.sh && ./deploy/initialization.sh ${INIT_ARGS}
+
+# ── 3. the noVNC desktop ──
+#    xvfb        headless X display (:0)          x11vnc   VNC server for it
+#    novnc       the browser client               websockify  VNC -> websocket bridge
+#    fluxbox     a minimal window manager         xterm    a terminal in the desktop
+#    feh         quick viewer for figure.png      python3-tk  interactive matplotlib
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      xvfb x11vnc fluxbox novnc websockify \
+      feh xterm python3-tk iproute2 \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN cat > /usr/local/bin/start-unionlabs.sh <<'EOF' && chmod +x /usr/local/bin/start-unionlabs.sh
+#!/usr/bin/env bash
+# Bring up Xvfb -> fluxbox -> x11vnc -> noVNC, then hand control to CMD.
+#
+# The ordering here is deliberate: each step WAITS for the previous one instead of
+# sleeping a guessed interval, because the classic noVNC "cannot connect to server"
+# is x11vnc starting before Xvfb owns the display, or the web bridge starting before
+# x11vnc listens.
+set -e
+export DISPLAY=:0
+RES="${VNC_RESOLUTION:-1440x900}"
+PORT="${NOVNC_PORT:-6080}"
+
+# Optional: pick up newer commits without rebuilding the image.
+if [ "${REFRESH:-0}" = "1" ]; then
+  echo "[unionlabs] REFRESH=1 — pulling latest ${UNIONLABS_REF:-main}"
+  git -C /opt/unionlabs pull --ff-only || echo "[unionlabs] pull failed; keeping the baked-in copy"
+fi
+
+echo "[unionlabs] virtual display ${RES} on ${DISPLAY}"
+Xvfb :0 -screen 0 "${RES}x24" -nolisten tcp &
+for _ in $(seq 1 80); do [ -S /tmp/.X11-unix/X0 ] && break; sleep 0.25; done
+
+fluxbox >/dev/null 2>&1 &
+# a terminal already open in the repo, so the desktop is useful on arrival
+(sleep 1; xterm -geometry 100x30+40+40 -T "unionlabs" -e "cd /opt/unionlabs && bash" >/dev/null 2>&1) &
+
+# supervise x11vnc so the browser always has a live backend. -nopw = NO PASSWORD.
+( while true; do
+    x11vnc -display :0 -forever -shared -nopw -rfbport 5900 -noxdamage >>/tmp/x11vnc.log 2>&1 || true
+    echo "[unionlabs] x11vnc exited, restarting in 1s" >&2; sleep 1
+  done ) &
+for _ in $(seq 1 60); do ss -ltn 2>/dev/null | grep -q ':5900 ' && break; sleep 0.25; done
+
+websockify -D --web=/usr/share/novnc "${PORT}" localhost:5900
+echo "[unionlabs] ready — open  http://<host>:${PORT}/vnc.html?autoconnect=1  (no password)"
+exec "$@"
+EOF
+
+# Documentation only; publishing is a `docker run -p` choice.
+#   6080 = noVNC (browser)   5900 = raw VNC   5599/5700/5800+ = the platform's own ports
+EXPOSE 6080 5900 5599 5700
+
+ENV DISPLAY=:0 \
+    VNC_RESOLUTION=1440x900 \
+    NOVNC_PORT=6080 \
+    SDR_SYSTEM_BIN=/opt/unionlabs/drivers/usrp/build/sdr_system
+
+WORKDIR /opt/unionlabs
+ENTRYPOINT ["/usr/local/bin/start-unionlabs.sh"]
+CMD ["sleep", "infinity"]

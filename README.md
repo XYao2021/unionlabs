@@ -146,5 +146,14 @@ ignored.
 deploy/initialization.sh --build     # toolchain + compile drivers/usrp/build/sdr_system
 ```
 
-`--minimal` skips torch/networkx/opencv (PHY only); `--docs` adds the PDF toolchain. See
-`deploy/DOCKER.md` to run it all in a container instead.
+`--minimal` skips torch/networkx/opencv (PHY only); `--docs` adds the PDF toolchain.
+
+**Or run it in a container instead** — one image that downloads the platform, installs
+everything, and serves a desktop in your browser with no password:
+
+```bash
+deploy/docker/build-unionlabs.sh     # clones the repo inside the image
+deploy/docker/run-unionlabs.sh       # prints a http://<host>:6080/vnc.html link
+```
+
+See [`deploy/DOCKER.md`](deploy/DOCKER.md) for the options and the other two images.
