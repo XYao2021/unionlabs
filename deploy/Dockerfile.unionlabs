@@ -90,15 +90,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #    healthy. Newer noVNC behaves the same way, so upgrading is not the fix — deriving the
 #    default from the page's location is. An explicit ?path= still wins, because
 #    initSetting reads the query string ahead of this default.
+#
+#    A default alone is not enough, though: noVNC writes every setting to
+#    localStorage on the FIRST visit and reads it back ahead of the default, so a
+#    host/port/path saved during an earlier broken attempt keeps winning on that
+#    browser no matter what image is deployed. The patch therefore re-asserts the
+#    connection settings from the page location on every load.
 RUN python3 - <<'PATCH'
 p = "/usr/share/novnc/app/ui.js"
 s = open(p).read()
 old = "UI.initSetting('path', 'websockify');"
-new = ("UI.initSetting('path', window.location.pathname"
-       ".replace(/[^\\/]*$/, '').replace(/^\\//, '') + 'websockify');")
+derived = ("window.location.pathname.replace(/[^\\/]*$/, '')"
+           ".replace(/^\\//, '') + 'websockify'")
+new = (
+    "UI.initSetting('path', " + derived + ");\n"
+    "        // unionlabs: make the connection settings follow the page. noVNC writes EVERY\n"
+    "        // setting to localStorage on the first visit, so a host/port/path stored during\n"
+    "        // an earlier attempt outlives any change to these defaults and goes on aiming\n"
+    "        // the browser at the wrong place — a stale value no shipped image can beat.\n"
+    "        // Re-assert them from the page unless the URL explicitly overrides.\n"
+    "        [['host', window.location.hostname],\n"
+    "         ['port', port],\n"
+    "         ['encrypt', window.location.protocol === \"https:\"],\n"
+    "         ['path', " + derived + "]\n"
+    "        ].forEach(function (kv) {\n"
+    "            if (WebUtil.getConfigVar(kv[0], null) === null) { UI.updateSetting(kv[0], kv[1]); }\n"
+    "        });"
+)
 assert old in s, "noVNC ui.js changed shape; refusing to guess where the path default is"
 open(p, "w").write(s.replace(old, new, 1))
-print("[unionlabs] noVNC default path now derives from the page location")
+print("[unionlabs] noVNC connection settings now follow the page, not localStorage")
 PATCH
 
 RUN cat > /usr/local/bin/start-unionlabs.sh <<'EOF' && chmod +x /usr/local/bin/start-unionlabs.sh

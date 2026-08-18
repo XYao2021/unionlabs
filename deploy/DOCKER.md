@@ -113,6 +113,17 @@ The image therefore patches that default to derive from the page's own location,
 query string. Served at the root it is unchanged. An explicit
 `?path=<prefix>/websockify` still overrides it, since noVNC reads the query string first.
 
+**A shipped default is not enough on its own.** noVNC writes *every* setting to
+`localStorage` on the first visit and reads it back ahead of the default, so `host`,
+`port` and `path` saved during an earlier attempt keep winning on that browser no matter
+which image you deploy. Someone who once opened the desktop at `localhost:6080` while
+testing will afterwards have their browser dial `ws://localhost:6080/websockify` from the
+portal — an instant failure, the connect panel flashing straight back, and a container
+that is provably healthy. The patch therefore re-asserts `host`, `port`, `encrypt` and
+`path` from the page location on every load, still yielding to an explicit query
+parameter. On a browser that already has stale values and an older image, clearing the
+site's storage (devtools → Application → Local Storage) is the immediate fix.
+
 Long-lived sessions get a `--heartbeat=30` ping, because load balancers drop silent
 WebSockets — an AWS ALB idles out at 60 s — which otherwise looks like the desktop
 freezing for no reason.
