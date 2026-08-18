@@ -57,3 +57,7 @@ docs/*.tex
 drivers/lora/deploy/credentials.sh
 **/credentials.sh
 **/device_credentials.sh
+
+# Exported container images (multi-GB tarballs) — rebuild with
+# deploy/docker/build-unionlabs.sh --export
+results/images/

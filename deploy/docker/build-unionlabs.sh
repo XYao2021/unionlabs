@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 # build-unionlabs.sh — build the all-in-one image (downloads the code itself).
 #
-#   ./build-unionlabs.sh                       # full stack (CPU torch), current main
+#   ./build-unionlabs.sh                       # linux/amd64 (the lab hosts), current main
+#   ./build-unionlabs.sh --export              # ...and write a shippable .tar.gz
 #   ./build-unionlabs.sh --minimal             # skip torch/networkx/opencv
 #   ./build-unionlabs.sh --with-phy            # also compile sdr_system + pyphy
 #   ./build-unionlabs.sh --ref my-branch       # a different branch/tag/commit
-#   ./build-unionlabs.sh --amd64               # cross-build for x86_64 lab hosts
+#   ./build-unionlabs.sh --native              # this machine's arch (fast; local testing)
 #
 # The build needs NO local checkout of the platform — the image clones it.
+#
+# PLATFORM: defaults to linux/amd64, because that is what the lab hosts are. On an
+# Apple-Silicon Mac that is an emulated build and takes considerably longer than
+# --native; the result runs on the hosts, which is the point.
 set -euo pipefail
 cd "$(dirname "$0")/.."                       # deploy/
 IMAGE="${IMAGE:-unionlabs}"
 REF=main
 INIT="--no-images --cpu-torch"
-PLATFORM=()
+PLATFORM=(--platform linux/amd64)      # the lab hosts; --native overrides
+EXPORT=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -21,6 +27,8 @@ while [ $# -gt 0 ]; do
     --with-phy) INIT="--build"; shift ;;
     --ref)      REF="$2"; shift 2 ;;
     --amd64)    PLATFORM=(--platform linux/amd64); shift ;;
+    --native)   PLATFORM=(); shift ;;
+    --export)   EXPORT=1; shift ;;
     -h|--help)  sed -n '2,11p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -42,3 +50,15 @@ BUILD=(docker build)
   --build-arg "INIT_ARGS=$INIT" \
   -t "$IMAGE" .
 echo ">> built $IMAGE — start it with docker/run-unionlabs.sh"
+
+# A docker image is not a file: it lives in the daemon's storage. Ship it to a host
+# that cannot pull from a registry by saving a tarball and loading it there.
+if [ "$EXPORT" = 1 ]; then
+  OUT_DIR="$(cd .. && pwd)/results/images"        # regenerable output, already gitignored
+  mkdir -p "$OUT_DIR"
+  OUT="$OUT_DIR/${IMAGE//[:\/]/_}-amd64.tar.gz"
+  echo ">> exporting to $OUT  (this takes a few minutes)"
+  docker save "$IMAGE" | gzip > "$OUT"
+  echo ">> wrote $OUT  ($(du -h "$OUT" | cut -f1))"
+  echo "   copy it to the lab host, then:   gunzip -c $(basename "$OUT") | docker load"
+fi
