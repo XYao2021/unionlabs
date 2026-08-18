@@ -182,8 +182,8 @@ fi
 await 60 listening "${PORT}" || die "websockify is not listening on ${PORT} after 15s, so nothing is serving the browser." /tmp/websockify.log
 
 echo "[unionlabs] ready — open  http://<host>:${PORT}/vnc.html?autoconnect=1  (no password)"
-echo "[unionlabs] through a reverse proxy that hop must forward the WebSocket upgrade;"
-echo "[unionlabs] under a path prefix, add  ?path=<prefix>/websockify  to that URL."
+echo "[unionlabs] behind a proxy, that hop must forward the WebSocket upgrade. A path"
+echo "[unionlabs] prefix needs nothing: the page derives its own socket path."
 exec "$@"
 EOF
 
