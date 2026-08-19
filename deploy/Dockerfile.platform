@@ -65,6 +65,11 @@ RUN cat > /root/.vnc/xstartup <<'EOF' && chmod +x /root/.vnc/xstartup && cp /roo
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
 xrdb $HOME/.Xresources
+# The platform mounts its own volume over /workspace, so the shared experiment layout
+# CANNOT be baked into the image — it has to be created when a session starts. This is
+# idempotent and never overwrites, and a failure here must never cost the user their
+# desktop, hence the || true.
+bash /opt/unionlabs/deploy/workspace/init-workspace.sh >/tmp/init-workspace.log 2>&1 || true
 startxfce4
 EOF
 
