@@ -1,156 +1,147 @@
 # syntax=docker/dockerfile:1
 # ─────────────────────────────────────────────────────────────────────────────
-#  novnc-minimal — the smallest honest noVNC desktop, for testing a DEPLOYMENT.
+#  novnc-minimal — a control image that satisfies the PLATFORM'S REAL CONTRACT.
 #
-#  Nothing of unionlabs is in here. Its only job is to answer one question: does
-#  this platform run a plain noVNC container correctly? If this image works and the
-#  full one does not, the fault is ours. If this one fails too, it is the platform.
+#  The platform's default image revealed the contract nobody documented: the image
+#  contains NO noVNC and NO websockify, installs TurboVNC + an Xfce session script
+#  at /root/.vnc/xstartup, and its CMD is `tail -f /dev/null` — the container starts
+#  and does NOTHING. The PLATFORM then execs /opt/TurboVNC/bin/vncserver into the
+#  running container and serves the web side itself. Our previous images failed
+#  because that exec found no TurboVNC: the platform's own noVNC page then reported
+#  "Target closed" against a backend that never existed.
 #
-#  It serves EVERY contract a platform is known to use, because which one this
-#  platform wants is exactly the question:
-#     80    noVNC over HTTP  (the fcwu/docker-ubuntu-vnc-desktop contract: platforms
-#                             built around that image forward <external> -> container:80
-#                             and open "/" in the browser)
-#     6080  noVNC over HTTP  (the classic noVNC port)
-#     5900  raw VNC          (a platform that supplies its own VNC client)
-#  "/" redirects to vnc.html?autoconnect=1, because fcwu-style platforms open "/".
-#  RESOLUTION and VNC_PASSWORD are honoured (fcwu's env names).
-#
-#  No password, two ways. Some viewers cannot negotiate security type None at all and
-#  insist on VNC authentication, so the server offers BOTH: None, and VncAuth with an
-#  EMPTY passphrase (press Enter at the prompt). VNC_SECURITY overrides the list.
-#
-#      docker build -t novnc-minimal -f deploy/Dockerfile.novnc-minimal deploy
-#      docker run -d -p 6080:6080 -p 5900:5900 novnc-minimal
+#  This image satisfies BOTH worlds:
+#    platform contract   TurboVNC at its stock path, xstartup -> Xfce, CMD keeps the
+#                        container alive doing nothing, exec-friendly
+#    our own stack       TigerVNC Xvnc on :0/5900 + noVNC 1.7.0 on 80 and 6080, so a
+#                        plain `docker run -p ...` still gives a browser desktop, and
+#                        the version files still identify the build
+#  Nothing our stack does can take the container down (STRICT=0 default): on this
+#  platform the container MUST stay alive for the exec path even if our stack fails.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM ubuntu:22.04
 
+ENV CI=true
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Xvnc IS both the X server and the VNC server — one process, so there is no
-# "x11vnc attached to an X server that went away" state to get stuck in. That
-# two-process arrangement is what we are trying to rule out.
+# ── the default image's package set (platform hooks may rely on any of it) ──
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      tigervnc-standalone-server tigervnc-common \
-      novnc websockify \
-      fluxbox xterm x11-utils x11vnc \
-      ca-certificates iproute2 procps \
+      software-properties-common gnupg2 wget lsb-release net-tools \
+      awscli redis-tools curl ssh \
+      xfce4 xfce4-goodies libjpeg-turbo-progs xfce4-terminal \
  && rm -rf /var/lib/apt/lists/*
 
-# TigerVNC ships no vncpasswd here, but x11vnc writes the same 8-byte format and is
-# the only reason it is installed. An EMPTY password is a real, valid VncAuth secret:
-# the challenge is DES'd with 8 zero bytes, so any client can authenticate by sending
-# nothing at all.
-RUN mkdir -p /root/.vnc \
- && x11vnc -storepasswd "" /root/.vnc/passwd \
- && chmod 600 /root/.vnc/passwd
+# ── TurboVNC, exactly as the default image installs it ──
+RUN wget -qO - https://packagecloud.io/dcommander/turbovnc/gpgkey | gpg --dearmor \
+      | tee /usr/share/keyrings/turbovnc-archive-keyring.gpg > /dev/null \
+ && echo "deb [signed-by=/usr/share/keyrings/turbovnc-archive-keyring.gpg] https://packagecloud.io/dcommander/turbovnc/any/ any main" \
+      | tee /etc/apt/sources.list.d/turbovnc.list \
+ && apt-get update && apt-get install -y turbovnc \
+ && rm -rf /var/lib/apt/lists/* \
+ && /opt/TurboVNC/bin/vncserver -help >/dev/null 2>&1 || true \
+ && test -x /opt/TurboVNC/bin/vncserver   # the binary the platform will exec
+
+# ── xstartup: the session TurboVNC launches. Xfce, like the default image. ──
+RUN mkdir -p /root/.vnc && cat > /root/.vnc/xstartup <<'EOF' && chmod +x /root/.vnc/xstartup
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+if command -v startxfce4 >/dev/null 2>&1; then exec startxfce4; fi
+exec fluxbox
+EOF
+# TurboVNC 3.x reads ~/.vnc/xstartup.turbovnc, not xstartup (verified: an exec'd
+# vncserver used its bundled default and auto-detected Xfce). Both names exist so
+# every invocation the platform might use finds a session script.
+RUN cp /root/.vnc/xstartup /root/.vnc/xstartup.turbovnc
+
+# ── our own stack (independent of the platform's): TigerVNC + noVNC 1.7.0 ──
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      tigervnc-standalone-server tigervnc-common websockify \
+      fluxbox xterm x11-utils x11vnc iproute2 procps ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Empty VncAuth password for OUR Xvnc — kept OUT of /root/.vnc on purpose: the
+# platform's TurboVNC reads ~/.vnc, and the default image ships no passwd file
+# there, so putting one in would change TurboVNC's behaviour vs the reference.
+RUN mkdir -p /etc/novnc-minimal \
+ && x11vnc -storepasswd "" /etc/novnc-minimal/passwd \
+ && chmod 644 /etc/novnc-minimal/passwd
+
+ADD https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.tar.gz /tmp/novnc.tar.gz
+RUN rm -rf /usr/share/novnc && mkdir -p /usr/share/novnc \
+ && tar -xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1 \
+ && rm /tmp/novnc.tar.gz \
+ && grep -q "initSetting('host', '')" /usr/share/novnc/app/ui.js
+
+RUN printf '%s\n' \
+      '<!DOCTYPE html><html><head><meta charset="utf-8">' \
+      '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=scale">' \
+      '<title>desktop</title></head><body>' \
+      '<a href="vnc.html?autoconnect=1&resize=scale">Open the desktop</a>' \
+      '</body></html>' > /usr/share/novnc/index.html \
+ && cp /usr/share/novnc/index.html /usr/share/novnc/vnc_auto.html
+
+RUN { echo "novnc-minimal"; echo "built $(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+      echo "stack TurboVNC(platform contract) + TigerVNC/noVNC-1.7.0(ours)"; } \
+      > /usr/share/novnc/minimal-version.txt \
+ && cat /usr/share/novnc/minimal-version.txt
 
 RUN cat > /usr/local/bin/start-minimal.sh <<'EOF' && chmod +x /usr/local/bin/start-minimal.sh
 #!/usr/bin/env bash
-# Xvnc -> fluxbox -> websockify. Each step waits for the previous one and fails
-# loudly if it never arrives, because serving a noVNC page over a dead backend
-# produces "Failed to connect to server" in the browser and silence here.
-set -e
+# Start OUR stack (TigerVNC :0/5900 + noVNC on 80 and 6080), then hand off to CMD.
+# On this platform the container's ONLY hard obligation is to stay alive so the
+# platform can exec TurboVNC into it — so failures here WARN loudly but never take
+# the container down unless STRICT=1.
+set -u
 export DISPLAY=:0
-# RESOLUTION is fcwu/docker-ubuntu-vnc-desktop's name for this knob; a platform built
-# around that image may set it, so it wins over our own.
 GEOM="${RESOLUTION:-${VNC_GEOMETRY:-1280x800}}"
 PORT="${NOVNC_PORT:-6080}"
 HTTPPORT="${HTTP_PORT:-80}"
 VNCPORT="${VNC_PORT:-5900}"
 
-die() { echo "[minimal] FATAL: $1" >&2; [ -n "${2:-}" ] && [ -s "$2" ] && tail -n 30 "$2" >&2; exit 1; }
+warn() { echo "[minimal] PROBLEM: $1" >&2; [ -n "${2:-}" ] && [ -s "$2" ] && tail -n 20 "$2" >&2
+         [ "${STRICT:-0}" = 1 ] && exit 1; return 0; }
 await() { local n="$1"; shift; for _ in $(seq 1 "$n"); do "$@" >/dev/null 2>&1 && return 0; sleep 0.25; done; return 1; }
 listening() { ss -ltn 2>/dev/null | grep -q ":$1 " || (exec 3<>/dev/tcp/127.0.0.1/"$1") 2>/dev/null; }
 
-echo "[minimal] Xvnc ${GEOM} on ${DISPLAY}, VNC ${VNCPORT}, noVNC ${PORT}"
+echo "[minimal] our stack: Xvnc ${GEOM} on ${DISPLAY} (:${VNCPORT}), noVNC on :${HTTPPORT} and :${PORT}"
+echo "[minimal] platform contract: /opt/TurboVNC/bin/vncserver is installed and exec-ready"
 SEC="${VNC_SECURITY:-None,VncAuth}"
-# fcwu contract: VNC_PASSWORD, when set, password-protects the VNC service.
 if [ -n "${VNC_PASSWORD:-}" ]; then
-  x11vnc -storepasswd "${VNC_PASSWORD}" /root/.vnc/passwd >/dev/null 2>&1
-  SEC="VncAuth"
-  echo "[minimal] security types: ${SEC}  (VNC_PASSWORD is set)"
-else
-  echo "[minimal] security types: ${SEC}  (VncAuth passphrase is EMPTY — just press Enter)"
+  x11vnc -storepasswd "${VNC_PASSWORD}" /etc/novnc-minimal/passwd >/dev/null 2>&1; SEC="VncAuth"
 fi
 Xvnc "${DISPLAY}" -geometry "${GEOM}" -depth 24 \
-     -SecurityTypes "${SEC}" -PasswordFile /root/.vnc/passwd \
-     -localhost no -AlwaysShared \
-     -rfbport "${VNCPORT}" -desktop minimal 2>&1 | sed -u 's/^/[Xvnc] /' | tee -a /tmp/xvnc.log &
-await 80 listening "${VNCPORT}" || die "Xvnc never listened on ${VNCPORT}" /tmp/xvnc.log
+     -SecurityTypes "${SEC}" -PasswordFile /etc/novnc-minimal/passwd \
+     -localhost no -AlwaysShared -rfbport "${VNCPORT}" -desktop minimal \
+     2>&1 | sed -u 's/^/[Xvnc] /' | tee -a /tmp/xvnc.log &
+await 80 listening "${VNCPORT}" || warn "our Xvnc never listened on ${VNCPORT}" /tmp/xvnc.log
 
 fluxbox >/dev/null 2>&1 &
 (sleep 1; xterm -geometry 100x28+40+40 -T minimal >/dev/null 2>&1) &
 
 websockify --web=/usr/share/novnc "${PORT}" "localhost:${VNCPORT}" 2>&1 \
   | sed -u 's/^/[websockify] /' | tee -a /tmp/websockify.log &
-await 60 listening "${PORT}" || die "websockify never listened on ${PORT}" /tmp/websockify.log
-
-# The fcwu contract: the platform forwards its external port to container port 80 and
-# opens "/". A second websockify serves the identical thing there, so this image works
-# whichever port the platform wired. Failure to bind 80 is only fatal if nothing else
-# is serving.
+await 60 listening "${PORT}" || warn "websockify never listened on ${PORT}" /tmp/websockify.log
 if [ "${HTTPPORT}" != "${PORT}" ]; then
   websockify --web=/usr/share/novnc "${HTTPPORT}" "localhost:${VNCPORT}" 2>&1 \
     | sed -u 's/^/[websockify:80] /' | tee -a /tmp/websockify80.log &
-  await 40 listening "${HTTPPORT}" \
-    || echo "[minimal] WARNING: could not bind ${HTTPPORT}; only ${PORT} is serving" >&2
+  await 40 listening "${HTTPPORT}" || warn "could not bind ${HTTPPORT}" /tmp/websockify80.log
 fi
 
 echo "[minimal] ready"
 sed 's/^/[minimal] build: /' /usr/share/novnc/minimal-version.txt 2>/dev/null || true
-echo "[minimal] noVNC:  http://<host>:${HTTPPORT}/  or  :${PORT}/vnc.html?autoconnect=1"
-echo "[minimal] rawVNC: <host>:${VNCPORT}   (no password, or EMPTY password if asked)"
-echo "[minimal] every request is logged below; nothing here means nothing arrived."
+echo "[minimal] every web request is logged below; the platform may ALSO exec TurboVNC"
+echo "[minimal] into this container (its display :1 = port 5901) — both can coexist."
 
-# Stay PID 1 with a handler, so a signal can actually reach us and `docker stop`
-# does not wait for the kill timeout. If the platform supplied a command, run it —
-# silently ignoring CMD would make this image behave unlike every other one.
 trap 'exit 0' TERM INT
-if [ "$#" -gt 0 ]; then
-  "$@" &
-  wait $! || true
-else
-  while true; do sleep 3600 & wait $!; done
-fi
+if [ "$#" -gt 0 ]; then "$@" & wait $! || true; else while true; do sleep 3600 & wait $!; done; fi
 EOF
 
-# Replace Ubuntu's noVNC 1.0.0 (2018) with the official 1.7.0 release. This is not
-# cosmetic: 1.0.0 computes its WebSocket URL from the hostname alone and persists
-# host/port in localStorage, which produced two entire classes of "Failed to connect
-# to server" (wrong path behind a prefix; stale localhost from an earlier visit).
-# 1.7.0 defaults host to EMPTY and then resolves `new URL(path, location.href)` —
-# relative to the page itself — so both failure modes are gone upstream, and its
-# error messages actually name what failed. Verified byte-identical to the source
-# the platform test was made against.
-ADD https://github.com/novnc/noVNC/archive/refs/tags/v1.7.0.tar.gz /tmp/novnc.tar.gz
-RUN rm -rf /usr/share/novnc && mkdir -p /usr/share/novnc \
- && tar -xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1 \
- && rm /tmp/novnc.tar.gz \
- && grep -q "initSetting('host', '')" /usr/share/novnc/app/ui.js  # 1.7-family sanity check
-
-# fcwu-style platforms open "/", and noVNC ships no index there.
-RUN printf '%s\n' \
-      '<!DOCTYPE html><html><head><meta charset="utf-8">' \
-      '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=scale">' \
-      '<title>desktop</title></head><body>' \
-      '<a href="vnc.html?autoconnect=1&resize=scale">Open the desktop</a>' \
-      '</body></html>' > /usr/share/novnc/index.html
-
-# noVNC 1.0.0 shipped vnc_auto.html and older portal integrations hard-link it;
-# 1.7.0 removed it. A shim keeps any such URL working.
-RUN printf '%s\n' \
-      '<!DOCTYPE html><html><head><meta charset="utf-8">' \
-      '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=scale">' \
-      '</head><body></body></html>' > /usr/share/novnc/vnc_auto.html
-
-RUN { echo "novnc-minimal"; echo "built $(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
-      echo "stack Xvnc(TigerVNC) + fluxbox + xterm + noVNC/websockify"; } \
-      > /usr/share/novnc/minimal-version.txt \
- && cat /usr/share/novnc/minimal-version.txt
-
-EXPOSE 80 6080 5900
+#   80/6080 our noVNC · 5900 our TigerVNC · 5901 TurboVNC once the platform starts it
+EXPOSE 80 6080 5900 5901
 ENV VNC_GEOMETRY=1280x800 NOVNC_PORT=6080 HTTP_PORT=80 VNC_PORT=5900 DISPLAY=:0 \
     VNC_SECURITY=None,VncAuth
 ENTRYPOINT ["/usr/local/bin/start-minimal.sh"]
+# Same CMD as the platform's default image: stay alive, do nothing, be exec-able.
+CMD ["tail", "-f", "/dev/null"]
