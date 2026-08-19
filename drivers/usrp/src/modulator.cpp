@@ -434,7 +434,14 @@ std::vector<std::complex<float>> Modulator::modulate(const std::vector<uint8_t>&
     }
 
     std::vector<std::complex<float>> encoded_symbols;
-    std::complex<float> pre_symbol = preamble_sequence.back();
+    // .back() on an EMPTY preamble is undefined behaviour — the pyphy bindings build
+    // this Modulator with no preamble, and AddressSanitizer catches the read at
+    // data()[-1] (it happened to survive on macOS by allocator luck). The decoder
+    // derives references symbol-to-symbol, so any defined value works when there is
+    // no preamble to chain from; 1+0j is the conventional initial reference.
+    std::complex<float> pre_symbol = preamble_sequence.empty()
+        ? std::complex<float>(1.0f, 0.0f)
+        : preamble_sequence.back();
 
     if (is_differential){
         encoded_symbols = differential_encode(symbols, pre_symbol);
