@@ -16,9 +16,16 @@ OUT="bindings/pyphy${SUF}"
 SRCS="bindings/pyphy.cpp src/modulator.cpp src/filters.cpp src/synchronization.cpp"
 EXTRA=""
 
+# The stub dir exists so the hardware-free build can compile modulator.cpp, which
+# includes "transceiver.hpp" without using it. It must NOT shadow the real header
+# when transceiver.cpp itself is being compiled (WITH_UHD=1) — that is where the
+# EnergyDetector/AGC declarations live.
+STUB_INC="-Itests/stub"
+
 if [ "${WITH_UHD:-0}" = "1" ]; then
   echo ">> WITH_UHD=1 — adding the Radio source/sink (UHD)"
   SRCS="${SRCS} src/transceiver.cpp"
+  STUB_INC=""
   if pkg-config --exists uhd 2>/dev/null; then
     EXTRA="-DPYPHY_WITH_UHD $(pkg-config --cflags uhd) $(pkg-config --libs uhd)"
   else
@@ -46,7 +53,7 @@ if [ "${PYPHY_VOLK:-1}" = 0 ]; then VOLKDEF=""; else VOLKDEF="-DUSE_VOLK"; fi
 
 g++ -O2 -std=c++17 -shared -fPIC ${ARCHFLAGS} \
     -include atomic -include cstdint ${VOLKDEF} \
-    ${PYINC} ${PYBIND} -Itests/stub -Iinclude ${SYSINC} \
+    ${PYINC} ${PYBIND} ${STUB_INC} -Iinclude ${SYSINC} \
     ${SRCS} ${EXTRA} \
     ${SYSLIB} -lfftw3f -lfftw3f_threads -lvolk \
     ${UNDEF} \
