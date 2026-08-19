@@ -57,14 +57,32 @@ print(json.dumps({
 PY
 )
 
+# Read the reply as JSON. Matching on a substring like '"code":403' is wrong: the API
+# pretty-prints with a space after the colon, so the check silently never fired and a
+# plain 403 surfaced as "unexpected API reply".
+status_code() {
+  python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print(d.get('code', '') if d.get('kind') == 'Status' else '')" <<<"$1"
+}
+
 OUT=$(api POST "/api/v1/namespaces/$NS/services" "$BODY")
-if echo "$OUT" | grep -q '"code":409'; then          # already there: replace it
+if [ "$(status_code "$OUT")" = "409" ]; then         # already there: replace it
   api DELETE "/api/v1/namespaces/$NS/services/$SVC" >/dev/null
   OUT=$(api POST "/api/v1/namespaces/$NS/services" "$BODY")
 fi
-if echo "$OUT" | grep -q '"code":403'; then
-  echo "the API refused (403): the one-time grant is missing." >&2
-  echo "  on the host:  kubectl apply -f deploy/testbed/rbac-expose.yaml" >&2
+if [ "$(status_code "$OUT")" = "403" ]; then
+  echo "The Kubernetes API refused this (403): the one-time grant is missing." >&2
+  echo "" >&2
+  echo "  Ask an admin to run ONCE on the host that owns this cluster:" >&2
+  echo "    sudo env KUBECONFIG=/etc/rancher/rke2/rke2.yaml /snap/bin/kubectl \\" >&2
+  echo "      apply -f ~/Desktop/unionlabs/deploy/testbed/rbac-expose.yaml" >&2
+  echo "" >&2
+  echo "  After that, re-run this script — no host access needed again." >&2
   exit 1
 fi
 
