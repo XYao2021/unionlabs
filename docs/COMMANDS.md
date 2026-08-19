@@ -1,14 +1,72 @@
 # Ready-to-run commands
 
-> **Two levels, two documents.** This file is the **raw radio** level: driving the modem
-> directly with `sdr_system` / `radio.sh`, one command per modulation scheme, with gains tuned
-> from real over-the-air testing. If you want to run an **algorithm** over a PHY instead, that
-> is `./run.sh` — the quick reference is §0 below, and every option is explained in
-> [`BEGINNER_GUIDE.md §3`](BEGINNER_GUIDE.md).
+Four levels, in the order you should meet them: **prove the radio works**, then change one
+knob at a time, then run a real algorithm over it, then drive the modem directly. Every
+option is explained in [`BEGINNER_GUIDE.md §3`](BEGINNER_GUIDE.md); the auto-generated list
+of every modem flag is [`PARAMETERS.md`](PARAMETERS.md).
 
 ---
 
-## 0. Algorithm-level quick reference (`./run.sh`)
+## 1. Start here — is the link alive? (`./radio.sh`)
+
+Raw bursts, no protocol: the shortest path from "the radio is plugged in" to "bits crossed
+the air". **Start the receiver first**, then transmit.
+
+```bash
+# terminal 1 — receiver
+./radio.sh rx --device n210 --args addr=192.168.10.2
+
+# terminal 2 — transmitter
+./radio.sh tx --device n210 --args addr=192.168.10.2 --gain 30
+```
+
+`radio.sh` fills in a working setup so these two lines are complete on their own:
+**915 MHz, DQPSK, single-carrier, 2 MS/s, 1 MSym/s, FEC on**, N210 gains tx/rx = 25/25
+(B210: 78/20). TX leaves the **TX/RX** port, RX listens on **RX2**.
+
+Two practical notes:
+
+- **`--args` is not optional in practice.** The built-in default for `--device n210` is
+  `addr=192.168.20.2`; give the address your radio actually has.
+- **The two roles need two radios.** UHD gives a device to one process exclusively, so one
+  N210 cannot transmit and receive at once. With a single radio, run them one at a time as a
+  smoke test (RX alone shows the noise floor; TX alone confirms the transmit chain).
+
+Print the exact command a wrapper would run, without running it:
+
+```bash
+./radio.sh tx --device n210 --args addr=192.168.10.2 --dry-run
+```
+
+Cabling instead of antennas? Put a **30–40 dB attenuator** between TX/RX and RX2. Feeding a
+transmitter straight into a receiver input damages it.
+
+---
+
+## 2. Then change one thing at a time
+
+```bash
+--device b210|n210|x310     # per-device defaults: subdev, address, gains
+--args serial=30CD424       # or addr=192.168.10.2 — which radio
+--freq 915e6                # carrier
+--scheme BPSK|QPSK|8-PSK|16-QAM|DBPSK|DQPSK|8-DPSK
+--waveform sc|ofdm          # single-carrier, or OFDM (64 subcarriers, CP 16)
+--gain 30                   # tx or rx gain, depending on the role
+--rate 2e6 --sym 1e6        # sample rate / symbol rate
+--fec true|false            # rate-1/2 K=7 convolutional + Viterbi
+```
+
+Anything else you pass is forwarded straight to `sdr_system`, so the whole modem is reachable
+without leaving the wrapper.
+
+**Keep `--scheme`, `--freq`, `--waveform`, `--rate` and `--sym` identical on both ends** — a
+mismatch looks exactly like a dead link. If nothing decodes: raise TX gain in steps, try
+`--scheme BPSK` (most robust), or `--waveform ofdm` (tolerates frequency offset far better —
+set it on both sides). Per-scheme gains tuned over the air are in §5.
+
+---
+
+## 3. Run an algorithm over it (`./run.sh`)
 
 ```bash
 # ── develop: no hardware at all ──────────────────────────────────────────────
@@ -52,9 +110,95 @@
 such as `--topology 0-1,1-2,2-3,3-4,4-5`. Set `DL_NONIID=1` to make the topology actually
 matter — with IID shards every node learns nearly the same model.
 
+### Two machines: the ACK socket is not optional
+
+ARQ is on by default (`--arq stop-and-wait`) and its ACKs travel over **TCP**, not over the
+air. The receiving side listens; the transmitting side connects to it. Those defaults point
+at `127.0.0.1`, which quietly works on one box and quietly fails on two — so on separate
+machines the sender must be told where the receiver is:
+
+```bash
+--ack-host <RX_IP>     # where the ACK socket lives   (default 127.0.0.1, port 5599)
+--net-host <RX_IP>     # the payload/control socket
+--ack-timeout 3000     # ms to wait for an ACK before resending
+```
+
+Port **5599** must be reachable between the two hosts — a firewall or a pod without the right
+network attached produces a link that transmits perfectly and never confirms anything.
+
 ---
 
-## 1. Raw radio — per modulation scheme (sc & OFDM)
+## 4. Drive the modem directly (`sdr_system`) — for experimenters
+
+`radio.sh` is a thin wrapper; the binary takes the same ideas with more roles. Build it with
+`deploy/initialization.sh --build`, then:
+
+```bash
+BIN=drivers/usrp/build/sdr_system
+```
+
+| `--role` | What it does |
+|---|---|
+| `tx` / `rx` | raw bursts, **no ARQ** — what `radio.sh` runs |
+| `source_arq` / `sink_arq` | the two ends of stop-and-wait ARQ, with retransmission |
+| `sense` | channel occupancy / listen-before-talk (§ "Channel sensing") |
+| `both` | legacy single-box routing |
+
+**FEC is OFF in the binary.** `--fec` defaults to `false`; `radio.sh` passes `--fec true`,
+which is why the wrapper appears to enable it by default. Pass it explicitly here:
+
+```bash
+# raw pair, QPSK, FEC on — RX first
+$BIN --role rx --rx-args addr=192.168.10.2 --rx-subdev A:0 --rx-ant RX2 \
+     --rx-freq 915e6 --rx-rate 2e6 --tx-rate 2e6 --symbol_rate 1e6 \
+     --rx-gain 25 --scheme QPSK --waveform sc --fec true
+
+$BIN --role tx --tx-args addr=192.168.10.2 --tx-subdev A:0 --tx-ant TX/RX \
+     --tx-freq 915e6 --tx-rate 2e6 --rx-rate 2e6 --symbol_rate 1e6 \
+     --tx-gain 25 --scheme QPSK --waveform sc --fec true
+```
+
+### ARQ: the sink is the ACK server
+
+Data always crosses the **air**; the ACK comes back over the transport you choose. With the
+default `--ack-transport tcp`:
+
+* **`sink_arq` listens** on `--ack-port` (default **5599**) — start it first.
+* **`source_arq` connects** to `--ack-host:--ack-port` (default **127.0.0.1**:5599).
+
+So the source on another machine *must* be given the sink's address:
+
+```bash
+# ── receiver / ACK server (host A, 10.0.0.5) ──
+$BIN --role sink_arq --rx-args addr=192.168.10.2 --rx-subdev A:0 --rx-ant RX2 \
+     --rx-freq 915e6 --rx-rate 2e6 --tx-rate 2e6 --symbol_rate 1e6 \
+     --rx-gain 25 --scheme QPSK --fec true \
+     --ack-transport tcp --ack-port 5599
+
+# ── transmitter (host B) — points at host A's ACK socket ──
+$BIN --role source_arq --tx-args serial=30CD424 --tx-subdev A:A --tx-ant TX/RX \
+     --tx-freq 915e6 --tx-rate 2e6 --rx-rate 2e6 --symbol_rate 1e6 \
+     --tx-gain 78 --scheme QPSK --fec true \
+     --ack-transport tcp --ack-host 10.0.0.5 --ack-port 5599 \
+     --timeout 3000 --max-attempts 50
+```
+
+| Flag | Meaning |
+|---|---|
+| `--ack-transport tcp\|rf` | ACK over a socket (default), or over a second RF path |
+| `--ack-host` / `--ack-port` | where the source finds the sink's ACK server (`127.0.0.1:5599`) |
+| `--timeout 3000` | ms the source waits for an ACK before resending |
+| `--max-attempts 50` | give up on a chunk after N sends; **0 = never give up**, which keeps a paired sender/receiver in lockstep on a marginal link |
+| `--serve-forever` | `sink_arq` stays up as an access point, re-accepting a new source per session |
+| `--on-demand` | `source_arq` keeps the radio warm and fires one packet per stdin line |
+
+`--ack-transport rf` sends ACKs over a second RF path instead of a socket, and therefore
+requires `--tx-args` and `--rx-args` to name the **same** radio with different
+`--tx-subdev`/`--rx-subdev` (RF A vs RF B on one B210).
+
+---
+
+## 5. Per-scheme reference — every modulation, tuned over the air
 
 Copy-paste TX/RX command pairs with **gains tuned per scheme** from over-the-air
 testing @915 MHz (two B210s, VERT900 antennas ~10 cm apart). All use
