@@ -59,18 +59,28 @@ RUN mkdir -p /root/.vnc /opt/application /workspace
 RUN uhd_images_downloader -t b2xx \
  && test -f /usr/share/uhd/images/usrp_b200_fw.hex
 
-# ── xstartup: the template's file, verbatim; both names TurboVNC 3.x might read ──
+# ── xstartup: TurboVNC 3.x ignores ~/.vnc/xstartup entirely ──
+#    Its vncserver defaults $xstartup to the BUNDLED /opt/TurboVNC/bin/xstartup.turbovnc
+#    unless $xstartup is set in /etc/turbovncserver.conf (verified in the vncserver
+#    source: "if (!$xstartup) { $xstartup = $exedir.'xstartup.turbovnc' }"). So the
+#    reference template's `COPY xstartup /root/.vnc/xstartup` never actually ran — the
+#    desktop everyone sees is the bundled script.
+#
+#    We need a session-start hook (the shared workspace layout cannot be baked, because
+#    the platform mounts over /workspace), so we point $xstartup at our own script — and
+#    that script DELEGATES to the bundled one. That keeps the proven session behaviour
+#    (dbus setup, window-manager detection, /etc/X11/Xsession) byte-for-byte and adds
+#    only the hook.
+RUN printf '%s\n' '$xstartup = "/root/.vnc/xstartup";' > /etc/turbovncserver.conf
+
 RUN cat > /root/.vnc/xstartup <<'EOF' && chmod +x /root/.vnc/xstartup && cp /root/.vnc/xstartup /root/.vnc/xstartup.turbovnc
 #!/bin/bash
-unset SESSION_MANAGER
-unset DBUS_SESSION_BUS_ADDRESS
-xrdb $HOME/.Xresources
-# The platform mounts its own volume over /workspace, so the shared experiment layout
-# CANNOT be baked into the image — it has to be created when a session starts. This is
-# idempotent and never overwrites, and a failure here must never cost the user their
-# desktop, hence the || true.
+# Session-start hook. Anything here must be harmless: a failure must never cost the
+# user their desktop, hence the redirect and the `|| true`.
 bash /opt/unionlabs/deploy/workspace/init-workspace.sh >/tmp/init-workspace.log 2>&1 || true
-startxfce4
+
+# Hand off to TurboVNC's own session script — the one that has always actually run.
+exec /opt/TurboVNC/bin/xstartup.turbovnc "$@"
 EOF
 
 # ── unionlabs, into the template's application slot ──
