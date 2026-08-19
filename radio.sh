@@ -13,13 +13,22 @@
 #   --waveform sc|ofdm        --gain <dB>   --rate <Hz>   --sym <Hz>   --fec true|false
 #   --ant <TX/RX|RX2>         which CONNECTOR to use (default: TX/RX to send, RX2 to receive)
 #   --subdev <A:A|A:B|A:0>    which RF CHANNEL — a B210 has two, RF A (A:A) and RF B (A:B)
-# Any other --flag is passed straight through to sdr_system.
+# ANY sdr_system option can be appended, and it WINS over the wrapper's default for the
+# same option — so the whole modem is reachable here, not just the flags listed above:
+#   ./radio.sh tx --device b210 --tx-gain 85 --det-mult 5      # override + add
+#   ./radio.sh rx --role sink_arq --ack-port 5599              # ARQ roles, tuned RX defaults
+#   ./radio.sh tx --dry-run                                    # see the exact command first
+# Full option list:  drivers/usrp/build/sdr_system --help   (also docs/PARAMETERS.md)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="$HERE/drivers/usrp/build/sdr_system"; [ -x "$BIN" ] || BIN="$HERE/build/sdr_system"
 
 ROLE="${1:-}"; shift 2>/dev/null || true
-case "$ROLE" in tx|rx) ;; *) echo "usage: ./radio.sh <tx|rx> [--device b210|n210|x310] [opts]"; exit 2 ;; esac
+case "$ROLE" in
+  tx|rx) ;;
+  -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) echo "usage: ./radio.sh <tx|rx> [--device b210|n210|x310] [opts]   (--help for more)"; exit 2 ;;
+esac
 
 DEVICE=b210 ARGS="" FREQ=915e6 SCHEME=DQPSK WAVE=sc RATE=2e6 SYM=1e6 GAIN="" FEC=true DRY=0
 ANT="" SUB=""      # empty = the sensible default for this role/device
@@ -69,7 +78,28 @@ else
        --rx-freq "$FREQ" --rx-rate "$RATE" --tx-rate "$RATE" --symbol_rate "$SYM"
        --rx-gain "$GAIN" --scheme "$SCHEME" --waveform "$WAVE" --fec "$FEC")
 fi
-[ ${#EXTRA[@]} -gt 0 ] && CMD+=("${EXTRA[@]}")
+# ── merge: a caller's option REPLACES our default for the same option ──
+# The modem rejects a repeated option ("--tx-ant cannot be specified more than once"),
+# so appending was not enough: anything the wrapper already emits was unreachable. Drop
+# our default for every option the caller named, then append theirs. That is what makes
+# the entire modem configurable from here without enumerating its options in this file.
+if [ ${#EXTRA[@]} -gt 0 ]; then
+  USER_OPTS=" "
+  for t in "${EXTRA[@]}"; do
+    case "$t" in --*) USER_OPTS="$USER_OPTS${t%%=*} ";; esac
+  done
+  MERGED=(); i=0
+  while [ $i -lt ${#CMD[@]} ]; do
+    tok="${CMD[$i]}"
+    case "$tok" in
+      --*) case "$USER_OPTS" in
+             *" $tok "*) i=$((i + 2)); continue ;;   # ours + its value: dropped
+           esac ;;
+    esac
+    MERGED+=("$tok"); i=$((i + 1))
+  done
+  CMD=("${MERGED[@]}" "${EXTRA[@]}")
+fi
 
 echo ">> ${CMD[*]}"
 [ "$DRY" = 1 ] && exit 0

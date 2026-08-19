@@ -58,9 +58,26 @@ transmitter straight into a receiver input damages it.
 --subdev A:A|A:B|A:0        # which RF CHANNEL — B210 has two: RF A = A:A, RF B = A:B
 ```
 
-`--ant` and `--subdev` **replace** the defaults rather than adding to them. That matters:
-the modem rejects a repeated option (`option '--tx-ant' cannot be specified more than
-once`), so passing `--tx-ant` straight through the wrapper would fail — use `--ant`.
+### Every modem option is reachable from the wrapper
+
+The named flags above are shorthand. **Any `sdr_system` option can be appended, and yours
+replaces the wrapper's default for that same option** — so `radio.sh` gives you the tuned
+setup as a starting point without ever standing between you and the modem:
+
+```bash
+./radio.sh tx --device b210 --tx-gain 85 --det-mult 5     # override one, add another
+./radio.sh rx --device b210 --rx-subdev A:B               # RF B
+./radio.sh rx --role sink_arq --ack-port 5599             # an ARQ role, tuned RX defaults
+./radio.sh tx --scheme BPSK --waveform ofdm --fec false
+```
+
+This replacement is what makes it work: the modem rejects a repeated option (`option
+'--tx-ant' cannot be specified more than once`), so an appended flag used to be an error
+rather than an override. The wrapper now drops its own default for anything you name.
+
+See the whole option list with `drivers/usrp/build/sdr_system --help`, or
+[`PARAMETERS.md`](PARAMETERS.md), which is generated from the modem itself. Check what will
+run with `--dry-run` before committing to it.
 
 Anything else you pass is forwarded straight to `sdr_system`, so the whole modem is reachable
 without leaving the wrapper.
