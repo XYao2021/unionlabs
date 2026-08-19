@@ -41,6 +41,41 @@ Print the exact command a wrapper would run, without running it:
 Cabling instead of antennas? Put a **30–40 dB attenuator** between TX/RX and RX2. Feeding a
 transmitter straight into a receiver input damages it.
 
+### ⚠ Check the antennas before transmitting
+
+**Transmitting into a connector with no antenna reflects the power back into the amplifier.**
+Only some ports on this rig are cabled, so not every command below is safe to run as-is:
+
+| Radio | Cabled connector | Can therefore |
+|---|---|---|
+| **N210** `addr=192.168.10.2` | `A:0` **RX2** | **receive only** |
+| **B210** `serial=30CD424` | **RF A** (`A:A`) **TX/RX** | **transmit** (RF A) |
+| **B210** `serial=30CD3F7` | **RF B** (`A:B`) **RX2** | **receive** (RF B) |
+
+Safe pairs, with the flags that make them match the cabling:
+
+```bash
+# TX: B210 30CD424 (RF A, TX/RX — all defaults)
+./radio.sh tx --device b210 --args serial=30CD424
+
+# RX option 1: the N210 (its defaults already point at A:0 / RX2)
+./radio.sh rx --device n210 --args addr=192.168.10.2
+
+# RX option 2: B210 30CD3F7 — needs --subdev A:B, because the default A:A has no antenna
+./radio.sh rx --device b210 --args serial=30CD3F7 --subdev A:B
+```
+
+**Do not run these on this rig:**
+
+| Command | Why |
+|---|---|
+| `./radio.sh tx --device n210 …` | transmits out the N210's TX/RX, which is bare |
+| `./radio.sh tx --device b210 --args serial=30CD3F7` | transmits out RF A TX/RX on 3F7, which is bare |
+| `./radio.sh rx --device b210 --args serial=30CD3F7` *(no `--subdev`)* | listens on RF A RX2 — bare, so it hears nothing and looks like a dead link |
+
+Recabled since? Update the table above — the commands throughout this file are written to
+match it.
+
 ---
 
 ## 2. Then change one thing at a time
@@ -366,10 +401,15 @@ EVM, too noisy for them. See the cable-link note at the bottom.
 
 ## Fixed setup (this rig)
 
-| Role | UHD serial | subdev | antenna |
+| Role | UHD device | subdev | antenna |
 |---|---|---|---|
-| RX / sink   | `30CD3F7` | `A:A` | `RX2`   |
-| TX / source | `30CD424` | `A:A` | `TX/RX` |
+| RX / sink   | `serial=30CD3F7` | `A:B` (**RF B**) | `RX2`   |
+| TX / source | `serial=30CD424` | `A:A` (RF A) | `TX/RX` |
+| RX (alt)    | `addr=192.168.10.2` (N210) | `A:0` | `RX2` |
+
+These are the **cabled** connectors — see the warning in §1. The sink's `A:B` is not the
+modem's default (`A:A`), so it is passed explicitly in every command below; if 3F7 is ever
+recabled to RF A, change `--rx-subdev A:B` back to `A:A` throughout.
 
 Common: `--rx-freq/--tx-freq 915e6`, `--rx-rate/--tx-rate 1.6e6`,
 `--ack-transport tcp --ack-port 5599 --ack-host 127.0.0.1 --det-mult 3 --fec true`.
@@ -406,7 +446,7 @@ phase, and differential fights its per-symbol CPE tracking.
 ```bash
 # RX / sink  (terminal 1)
 ./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
-  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \
+  --rx-subdev A:B --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \
   --scheme BPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
 
 # TX / source  (terminal 2)
@@ -419,7 +459,7 @@ phase, and differential fights its per-symbol CPE tracking.
 ```bash
 # RX / sink
 ./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
-  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \
+  --rx-subdev A:B --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \
   --scheme QPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
 
 # TX / source
@@ -432,7 +472,7 @@ phase, and differential fights its per-symbol CPE tracking.
 ```bash
 # RX / sink
 ./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
-  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 16 \
+  --rx-subdev A:B --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 16 \
   --scheme 8-PSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
 
 # TX / source
@@ -445,7 +485,7 @@ phase, and differential fights its per-symbol CPE tracking.
 ```bash
 # RX / sink
 ./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
-  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \
+  --rx-subdev A:B --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \
   --scheme DBPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
 
 # TX / source
@@ -458,7 +498,7 @@ phase, and differential fights its per-symbol CPE tracking.
 ```bash
 # RX / sink
 ./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
-  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \
+  --rx-subdev A:B --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 20 \
   --scheme DQPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
 
 # TX / source
@@ -471,7 +511,7 @@ phase, and differential fights its per-symbol CPE tracking.
 ```bash
 # RX / sink
 ./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
-  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 16 \
+  --rx-subdev A:B --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 16 \
   --scheme 8-DPSK --fec true --ack-transport tcp --ack-port 5599 --det-mult 3
 
 # TX / source
@@ -488,7 +528,7 @@ phase, and differential fights its per-symbol CPE tracking.
 ```bash
 # RX / sink
 ./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
-  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 22 \
+  --rx-subdev A:B --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 22 \
   --waveform ofdm --ofdm-fft 64 --ofdm-cp 16 --scheme BPSK --fec true \
   --ack-transport tcp --ack-port 5599 --det-mult 3
 
@@ -503,7 +543,7 @@ phase, and differential fights its per-symbol CPE tracking.
 ```bash
 # RX / sink
 ./sdr_system --role sink_arq --rx-args serial=30CD3F7 --tx-args serial=30CD3F7 \
-  --rx-subdev A:A --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 22 \
+  --rx-subdev A:B --rx-ant RX2 --rx-freq 915e6 --rx-rate 1.6e6 --rx-gain 22 \
   --waveform ofdm --ofdm-fft 64 --ofdm-cp 16 --scheme QPSK --fec true \
   --ack-transport tcp --ack-port 5599 --det-mult 3
 
