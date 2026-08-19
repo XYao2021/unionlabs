@@ -54,7 +54,13 @@ transmitter straight into a receiver input damages it.
 --gain 30                   # tx or rx gain, depending on the role
 --rate 2e6 --sym 1e6        # sample rate / symbol rate
 --fec true|false            # rate-1/2 K=7 convolutional + Viterbi
+--ant TX/RX|RX2             # which CONNECTOR (default: TX/RX to send, RX2 to receive)
+--subdev A:A|A:B|A:0        # which RF CHANNEL — B210 has two: RF A = A:A, RF B = A:B
 ```
+
+`--ant` and `--subdev` **replace** the defaults rather than adding to them. That matters:
+the modem rejects a repeated option (`option '--tx-ant' cannot be specified more than
+once`), so passing `--tx-ant` straight through the wrapper would fail — use `--ant`.
 
 Anything else you pass is forwarded straight to `sdr_system`, so the whole modem is reachable
 without leaving the wrapper.
@@ -100,6 +106,16 @@ Which *channel* those connectors belong to is `--subdev`:
 | **X310** | two slots: `A:0`, `B:0` | `A:0` | TX/RX, RX2 per slot |
 
 `radio.sh` sets the right `--subdev` per `--device`, so the basic commands need nothing here.
+To choose explicitly:
+
+```bash
+./radio.sh rx --device b210 --subdev A:B              # receive on RF B's RX2
+./radio.sh tx --device b210 --subdev A:B --ant TX/RX  # transmit on RF B
+./radio.sh tx --device n210 --args addr=192.168.10.2 --ant RX2   # send out RX2 instead
+```
+
+The antenna name is **`TX/RX`** — with the TX first. `RX/TX` is not a UHD antenna name, and
+the wrapper warns if you pass something that is neither `TX/RX` nor `RX2`.
 
 **A B210 has two of everything.** RF A and RF B each carry their own TX/RX and RX2 pair, so
 "the TX/RX port" is ambiguous until you know the channel. Default is RF A — plug into the
