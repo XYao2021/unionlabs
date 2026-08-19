@@ -59,6 +59,31 @@ transmitter straight into a receiver input damages it.
 Anything else you pass is forwarded straight to `sdr_system`, so the whole modem is reachable
 without leaving the wrapper.
 
+### Naming a radio: `serial=` for USB, `addr=` for Ethernet
+
+How you identify a radio depends on how it is attached, and the two forms are not
+interchangeable:
+
+| Radio | Attached by | How you name it |
+|---|---|---|
+| **B210 / B200** | **USB** | `--args serial=30CD424` — a device serial. It has **no IP address**. |
+| **N210 / X310** | **Ethernet** | `--args addr=192.168.10.2` — the radio's own IP on its subnet |
+
+`uhd_find_devices` prints whichever applies (`serial:` for a B210, `addr:` for an N210). With
+a single B210 attached you can omit `--args` entirely; with more than one, the serial is the
+only way to say which.
+
+**Three different addresses are in play — keep them apart:**
+
+| | What it names | Example |
+|---|---|---|
+| `--args serial=` | the radio itself, over USB | `serial=30CD424` |
+| `--args addr=` | the radio itself, over Ethernet | `addr=192.168.10.2` |
+| `--ack-host` | the **host machine** running the ARQ sink | `10.0.0.5` |
+
+An Ethernet radio's `addr=` is the *radio's* IP, not the computer's, and never what
+`--ack-host` wants. Mixing those two is the most common way a two-machine ARQ run fails.
+
 **Keep `--scheme`, `--freq`, `--waveform`, `--rate` and `--sym` identical on both ends** — a
 mismatch looks exactly like a dead link. If nothing decodes: raise TX gain in steps, try
 `--scheme BPSK` (most robust), or `--waveform ofdm` (tolerates frequency offset far better —
