@@ -1,0 +1,34 @@
+# One-time cluster setup so a SESSION CONTAINER can publish its own port.
+#
+#   sudo env KUBECONFIG=/etc/rancher/rke2/rke2.yaml /snap/bin/kubectl apply -f rbac-expose.yaml
+#
+# Without this, exposing a port means logging into the host every time a session is
+# recreated — which is not workable for users who only ever see the desktop. With it,
+# a container runs deploy/testbed/expose-my-port.sh and publishes itself.
+#
+# SCOPE, deliberately narrow: services only, only in this namespace, and no other
+# resource. It does let any session open a node port, so it suits a single-tenant lab
+# and should be reconsidered before a shared or untrusted one.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: unionlabs-expose-port
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "get", "list", "delete", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: default
+  name: unionlabs-expose-port
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+roleRef:
+  kind: Role
+  name: unionlabs-expose-port
+  apiGroup: rbac.authorization.k8s.io
