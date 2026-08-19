@@ -84,6 +84,39 @@ only way to say which.
 An Ethernet radio's `addr=` is the *radio's* IP, not the computer's, and never what
 `--ack-host` wants. Mixing those two is the most common way a two-machine ARQ run fails.
 
+### Which connector do I actually plug into?
+
+Transmit leaves **TX/RX**; receive listens on **RX2**. Those are the defaults
+(`--tx-ant TX/RX`, `--rx-ant RX2`) and there is no reason to change them — so with a normal
+one-way link you only populate **two connectors in total**: TX/RX on the sender, RX2 on the
+receiver. Everything else can stay bare.
+
+Which *channel* those connectors belong to is `--subdev`:
+
+| Model | Channels | Default | Connectors on that channel |
+|---|---|---|---|
+| **N210** | one daughterboard | `A:0` | TX/RX, RX2 |
+| **B210** | two: **RF A** = `A:A`, **RF B** = `A:B` | `A:A` (RF A) | each channel has its **own** TX/RX and RX2 |
+| **X310** | two slots: `A:0`, `B:0` | `A:0` | TX/RX, RX2 per slot |
+
+`radio.sh` sets the right `--subdev` per `--device`, so the basic commands need nothing here.
+
+**A B210 has two of everything.** RF A and RF B each carry their own TX/RX and RX2 pair, so
+"the TX/RX port" is ambiguous until you know the channel. Default is RF A — plug into the
+**RF A** side unless you pass `--tx-subdev A:B` / `--rx-subdev A:B`.
+
+How many antennas you need, by setup:
+
+| Setup | Connectors used |
+|---|---|
+| one-way link (`tx` → `rx`) | TX/RX on the sender · RX2 on the receiver |
+| ARQ with TCP ACKs (default) | same two — the ACK goes over the network, not the air |
+| ARQ with `--ack-transport rf` | **four**: RF A TX/RX + RF A RX2 *and* RF B TX/RX + RF B RX2, on one B210 per box — data on one RF path, ACK on the other |
+
+That last row is the reason `--ack-transport rf` demands `--tx-args` and `--rx-args` naming
+the *same* radio with different subdevs: it is one B210 running full duplex across both of
+its channels, so both channels must actually be cabled.
+
 **Keep `--scheme`, `--freq`, `--waveform`, `--rate` and `--sym` identical on both ends** — a
 mismatch looks exactly like a dead link. If nothing decodes: raise TX gain in steps, try
 `--scheme BPSK` (most robust), or `--waveform ofdm` (tolerates frequency offset far better —
