@@ -49,6 +49,16 @@ RUN wget -qO - https://packagecloud.io/dcommander/turbovnc/gpgkey | gpg --dearmo
 
 RUN mkdir -p /root/.vnc /opt/application /workspace
 
+# ── UHD device images: the B200 series NEEDS them at runtime ──
+#    A USB USRP (B210) has no persistent firmware: the host loads usrp_b200_fw.hex +
+#    the FPGA image at every enumeration, so without these files in the container a
+#    B210 testbed fails with "Could not find path for image". Network USRPs (N210)
+#    boot from their own flash and never read these. -t b2xx keeps it to ~30 MB
+#    instead of the full multi-hundred-MB set; initialization.sh's --no-images stays,
+#    since this targeted download replaces the indiscriminate one.
+RUN uhd_images_downloader -t b2xx \
+ && test -f /usr/share/uhd/images/usrp_b200_fw.hex
+
 # ── xstartup: the template's file, verbatim; both names TurboVNC 3.x might read ──
 RUN cat > /root/.vnc/xstartup <<'EOF' && chmod +x /root/.vnc/xstartup && cp /root/.vnc/xstartup /root/.vnc/xstartup.turbovnc
 #!/bin/bash
