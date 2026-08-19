@@ -110,7 +110,9 @@ def build_channel(a):
 # its own spreading factor instead. Passing one PHY's knob to another is always a
 # mistake, and silently ignoring it would hide a wrong experiment.
 PHY_ONLY_FLAGS = {
-    "usrp": {"scheme": "--scheme", "fec": "--fec",
+    "usrp": {"scheme": "--scheme", "fec": "--fec", "waveform": "--waveform",
+             "tx_subdev": "--tx-subdev", "rx_subdev": "--rx-subdev",
+             "tx_ant": "--tx-ant", "rx_ant": "--rx-ant",
              "ack_transport": "--ack-transport", "ack_timeout": "--ack-timeout",
              "samp_rate": "--samp-rate", "symbol_rate": "--symbol-rate",
              "tx_gain": "--tx-gain", "rx_gain": "--rx-gain"},
@@ -204,7 +206,9 @@ def build_link(a, transport):
               f"(drivers/usrp). Add --channel lora for the LoRa link.")
     return pl.RadioRoundTrip(role=transport, tx_args=a.tx_args, rx_args=a.rx_args,
                              ack_host=a.ack_host, net_host=a.net_host,
-                             net_port=a.net_port, scheme=a.scheme,
+                             net_port=a.net_port, scheme=a.scheme, waveform=a.waveform,
+                             tx_subdev=a.tx_subdev, rx_subdev=a.rx_subdev,
+                             tx_ant=a.tx_ant, rx_ant=a.rx_ant,
                              down_host=a.down_host, down_port=a.down_port,
                              freq_hz=a.freq * 1e6, samp_rate=a.samp_rate,
                              symbol_rate=a.symbol_rate, fec=a.fec,
@@ -392,6 +396,19 @@ def build_parser():
     ap.add_argument("--lora-verbose", action="store_true",
                     help="print fragments / retransmissions / airtime for every message")
     # pyphy channel knobs
+    # Named exactly as the modem names them (drivers/usrp/src/main.cpp), so a flag found
+    # in PARAMETERS.md or a radio.sh command is typed identically here.
+    ap.add_argument("--waveform", default="sc", choices=["sc", "ofdm"],
+                    help="USRP waveform: single-carrier, or OFDM (CFO-robust — worth "
+                         "trying on a marginal link). Both ends must agree.")
+    ap.add_argument("--tx-subdev", default="A:A", metavar="SPEC",
+                    help="USRP transmit RF channel (B210: A:A = RF A, A:B = RF B)")
+    ap.add_argument("--rx-subdev", default="A:0", metavar="SPEC",
+                    help="USRP receive RF channel (N210/X310: A:0)")
+    ap.add_argument("--tx-ant", default="TX/RX", metavar="PORT",
+                    help="USRP transmit connector (default TX/RX)")
+    ap.add_argument("--rx-ant", default="RX2", metavar="PORT",
+                    help="USRP receive connector (default RX2)")
     ap.add_argument("--scheme", "--modulation", dest="scheme", default="QPSK",
                     help="USRP modulation (BPSK/QPSK/8-PSK/16-QAM/DBPSK/DQPSK). "
                          "--modulation is the same flag.")
@@ -520,6 +537,8 @@ def main():
             link = pl.PeerLink(node_id=a.node, n_nodes=a.agents, topology=a.topology,
                                peers=hosts, base_port=a.peer_port, link=peer_link,
                                tx_args=a.tx_args, rx_args=a.rx_args, scheme=a.scheme,
+                               waveform=a.waveform, tx_subdev=a.tx_subdev,
+                               rx_subdev=a.rx_subdev, tx_ant=a.tx_ant, rx_ant=a.rx_ant,
                                lora_backend=a.lora_backend, lora_port=a.lora_port,
                                lora_sf=a.lora_sf, lora_cr=a.lora_cr, lora_bw=a.lora_bw,
                                lora_power=a.lora_power, lora_snr_db=a.snr_db)

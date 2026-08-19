@@ -551,7 +551,7 @@ class PeerLink:
     def __init__(self, node_id, n_nodes, topology="ring", peers=None, base_port=5800,
                  link="tcp", connect_timeout=120.0, tx_args="", rx_args="", scheme="DQPSK",
                  waveform="sc", tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A",
-                 ack_port=5599, chunk=125,
+                 rx_ant="RX2", tx_ant="TX/RX", ack_port=5599, chunk=125,
                  lora_backend="sim", lora_port=None, lora_sf=9, lora_cr=5,
                  lora_bw=125000, lora_power=14, lora_snr_db=0.0, lora_medium=None,
                  lora_timeout=120.0):
@@ -614,7 +614,7 @@ class PeerLink:
             self.tx_gain, self.rx_gain, self.ack_port = tx_gain, rx_gain, ack_port
             self.cfg = dict(scheme=scheme, waveform=waveform, fec=True, rx_freq=915e6,
                             tx_freq=915e6, tx_rate=2e6, rx_rate=2e6, symbol_rate=1e6,
-                            rx_ant="RX2", tx_ant="TX/RX", rx_subdev=rx_subdev,
+                            rx_ant=rx_ant, tx_ant=tx_ant, rx_subdev=rx_subdev,
                             tx_subdev=tx_subdev, det_mult=3, ack_transport="tcp",
                             ack_port=ack_port, bytes_length=chunk, viz=False)
         where = (f" | listening on :{self.base_port + self.id}" if link == "tcp"
@@ -746,7 +746,8 @@ class RadioRoundTrip:
 
     def __init__(self, role, tx_args="", rx_args="", ack_host="127.0.0.1", ack_port=5599,
                  net_host="127.0.0.1", net_port=5700, scheme="DQPSK", waveform="sc",
-                 tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A", chunk=125,
+                 tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A",
+                 rx_ant="RX2", tx_ant="TX/RX", chunk=125,
                  down_host=None, down_port=None, freq_hz=915e6, samp_rate=2e6,
                  symbol_rate=1e6, fec="conv", ack_transport="tcp", ack_timeout_ms=3000,
                  max_attempts=50, arq="stop-and-wait"):
@@ -768,7 +769,7 @@ class RadioRoundTrip:
         self.cfg = dict(scheme=scheme, waveform=waveform, fec=bool(fec_type),
                         rx_freq=float(freq_hz), tx_freq=float(freq_hz),
                         tx_rate=float(samp_rate), rx_rate=float(samp_rate),
-                        symbol_rate=float(symbol_rate), rx_ant="RX2", tx_ant="TX/RX",
+                        symbol_rate=float(symbol_rate), rx_ant=rx_ant, tx_ant=tx_ant,
                         rx_subdev=rx_subdev, tx_subdev=tx_subdev, det_mult=3,
                         ack_transport=ack_transport, ack_port=ack_port,
                         timeout=int(ack_timeout_ms), bytes_length=chunk, viz=False)
