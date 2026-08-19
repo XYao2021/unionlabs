@@ -40,8 +40,12 @@ else
   ARCHFLAGS=""; UNDEF=""; SYSINC=""; SYSLIB=""
 fi
 
+# PYPHY_VOLK=0 builds with the scalar fallbacks instead of VOLK kernels. The scalar
+# path is what sdr_system itself runs. Default stays VOLK on.
+if [ "${PYPHY_VOLK:-1}" = 0 ]; then VOLKDEF=""; else VOLKDEF="-DUSE_VOLK"; fi
+
 g++ -O2 -std=c++17 -shared -fPIC ${ARCHFLAGS} \
-    -include atomic -include cstdint -DUSE_VOLK \
+    -include atomic -include cstdint ${VOLKDEF} \
     ${PYINC} ${PYBIND} -Itests/stub -Iinclude ${SYSINC} \
     ${SRCS} ${EXTRA} \
     ${SYSLIB} -lfftw3f -lfftw3f_threads -lvolk \
