@@ -18,6 +18,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
+#include <fcntl.h>
+#include <cerrno>
+#include <cstring>
 
 namespace net {
 
@@ -73,15 +77,53 @@ inline std::vector<std::complex<float>> recv_symbols(int fd) {
 }
 
 // ── client: connect to host:port, return fd ─────────────────
-inline int connect_to(const std::string& host, int port) {
+// A BOUNDED connect. The blocking version waited the OS default — about two minutes on
+// Linux — whenever packets were silently dropped, and the caller only prints "waiting
+// for the ACK server" once a failure comes back. A wrong address therefore looked like
+// a hang with no output at all. It also distinguishes the two failures, because they
+// have opposite fixes: refused means nothing is listening there, timed out means the
+// packets never arrive (a firewall, or no route between the two networks).
+inline int connect_to(const std::string& host, int port, int timeout_ms = 3000) {
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) throw std::runtime_error("socket() failed");
     int one = 1; ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
     sockaddr_in addr{}; addr.sin_family = AF_INET; addr.sin_port = htons(port);
-    if (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) <= 0)
+    if (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) <= 0) {
+        ::close(fd);
         throw std::runtime_error("bad host: " + host);
-    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
-        throw std::runtime_error("connect() failed (is the RX listening?)");
+    }
+    const std::string where = host + ":" + std::to_string(port);
+    int flags = ::fcntl(fd, F_GETFL, 0);
+    ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    int rc = ::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    if (rc < 0 && errno == EINPROGRESS) {
+        pollfd pfd{fd, POLLOUT, 0};
+        int pr = ::poll(&pfd, 1, timeout_ms);
+        if (pr == 0) {
+            ::close(fd);
+            throw std::runtime_error("connect to " + where + " timed out — the packets are "
+                                     "being DROPPED, not refused: a firewall, or no route "
+                                     "between these two networks");
+        }
+        if (pr < 0) { ::close(fd); throw std::runtime_error("poll() failed"); }
+        int err = 0; socklen_t len = sizeof(err);
+        ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
+        if (err) {
+            ::close(fd);
+            throw std::runtime_error("connect to " + where + " failed: " +
+                                     std::string(std::strerror(err)) +
+                                     (err == ECONNREFUSED
+                                      ? " — the address is reachable but nothing is "
+                                        "listening on that port (is the sink started, "
+                                        "and is its port exposed on the host?)"
+                                      : ""));
+        }
+    } else if (rc < 0) {
+        int err = errno; ::close(fd);
+        throw std::runtime_error("connect to " + where + " failed: " +
+                                 std::string(std::strerror(err)));
+    }
+    ::fcntl(fd, F_SETFL, flags);          // back to blocking for normal use
     return fd;
 }
 
