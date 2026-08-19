@@ -1,35 +1,69 @@
-# settings/ — the devices this account has reserved
+# settings/ — one generated record per live node
 
-One file per reservation (e.g. `lab_a.json`), describing **only the devices actually
-reserved** — not everything physically present on a testbed. A settings file is an
-inventory: stable, hand-authored, reusable across many experiments.
+**These files are generated, not hand-authored.** Each live session publishes
+`<node_id>.json` here describing itself: the USRPs it can see, its addresses, the PHYs
+available to it. `discover-node.py` writes it at session start and refreshes it while
+the session lives.
 
-## What is settled
+Because `/workspace` is shared by every session reserved under the account — including
+across testbeds that cannot reach each other over the network — this folder assembles
+into a fleet-wide inventory with nobody collecting it.
 
-- Keyed by a stable `node_id`. That id is the join key every other file refers to, so a
-  map (not a list) is preferred: duplicate ids then become structurally impossible.
-- Per node, the facts that identify hardware: radio serial, the UHD device args needed to
-  reach it, which PHY it can drive.
-- A **declared** IP is allowed where one is genuinely static (a lab host, an N210 on its
-  own subnet). A **discovered** IP — a session pod's address — must never be written back
-  here; see the parent README.
+```json
+{ "schema": 1, "node_id": "3169C62", "serial": "3169C62", "ip": "192.168.10.2",
+  "role": null, "host": "1-gnuradio-0", "heartbeat_utc": "2026-08-19T10:22:31Z",
+  "radios": [ { "serial": "3169C62", "addr": "192.168.10.2", "type": "usrp2" } ],
+  "interfaces": [ { "name": "eth0", "cidr": "10.42.0.107/32" },
+                  { "name": "n210v", "cidr": "192.168.10.100/24" } ],
+  "lora_ports": [], "uhd": "UHD 4.1.0.5-3" }
+```
 
-## OPEN — the reservation → file flow
+## Lifecycle: a record disappears when its node does
 
-How a settings file comes into existence is **not designed yet**. The candidates:
+A session usually dies by SIGKILL — pod eviction, `docker kill`, a node reboot — and the
+platform's container contract leaves no shutdown hook. A file that had to be *deleted*
+to stay correct would therefore sometimes be wrong, advertising a node that no longer
+exists.
 
-- hand-authored, committed alongside the experiment;
-- generated from the platform's reservation (the portal knows what was granted);
-- generated on the node by probing (`uhd_find_devices` already reports serials, and the
-  radio's serial is arguably the truest node identity in an SDR lab);
-- some combination — generated, then edited.
+So liveness is asserted rather than cleaned up. Every record carries a `heartbeat` its
+owner refreshes (default every 30 s):
 
-This choice decides whether the file is an *input* or an *artifact*, which in turn
-decides whether it belongs in git, in the workspace, or both. Nothing else should be
-specified until it is made.
+| Age of `heartbeat` | Meaning |
+|---|---|
+| fresh | the node is live; use it |
+| stale | the node is gone; readers must ignore the record |
+| older than `--gc` (default 1 h) | any live session deletes it |
 
-## OPEN — does `role` belong here?
+Deletion also happens immediately on a *graceful* stop, but nothing depends on that.
+Records are written temp-then-renamed, so a reader on a shared filesystem never sees a
+half-written file; a record that is corrupt or unreadable is aged out by its mtime.
 
-A node that transmits in one experiment receives in the next, so pinning a role in the
-inventory makes the inventory single-use. A default here, overridable per topology, is
-the likely answer — but see `../topologies/README.md`, where roles are genuinely hard.
+Re-probing on every beat also fixes a real race: the radio NIC is attached to a session
+pod a few seconds **after** it starts, so the first probe can legitimately find nothing
+and a later one picks the radio up. The record's `node_id` follows: a node that gains a
+radio moves from its `host-<hostname>` fallback name to the radio serial, and the old
+record is removed rather than left behind.
+
+## What cannot be probed
+
+`node_id` and `role` are inputs, not facts — a radio cannot say what an experiment calls
+it or what job it is doing. Both default to empty (`node_id` falls back to the radio
+serial, which is stable and physical, unlike the hostname, which is the container id and
+changes every session). Set them with `--node-id` / `--role`, or `WS_NODE_ID` / `WS_ROLE`.
+
+## OPEN — reserved vs merely visible
+
+A probe reports what is *attached*, which is not the same as what the account
+**reserved**. Until the reservation flow is designed, these records describe attachment
+only. See `../README.md`.
+
+## Usage
+
+```bash
+discover-node.py --once                      # probe, write, exit
+discover-node.py --daemon                    # refresh + GC for the life of the session
+discover-node.py --once --node-id n1 --role tx
+```
+
+The session hook starts the daemon automatically; run it by hand only to re-probe
+immediately (for example right after a radio is attached).
