@@ -708,6 +708,22 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         } else if (config.ack_transport != "tcp") {
             std::cerr << "[ERROR] --ack-transport must be 'tcp' or 'rf'\n";
             return EXIT_FAILURE;
+        } else if (config.role == "source_arq" &&
+                   (config.ack_host.empty() || config.ack_host == "0.0.0.0" ||
+                    config.ack_host == "::" || config.ack_host == "*")) {
+            // A wildcard is what a LISTENER binds; it is not a destination. Dialling it
+            // just blocks, which used to surface as an endless "waiting for sink ACK
+            // server" — a wrong address that looked like a slow start.
+            std::cerr << "[ERROR] --ack-host '" << config.ack_host << "' is a listen "
+                         "address, not a destination. source_arq CONNECTS to the sink, so "
+                         "pass the SINK's IP here (127.0.0.1 if it runs on this machine). "
+                         "The sink itself takes no address — it binds every interface.\n";
+            return EXIT_FAILURE;
+        }
+        if (config.role == "sink_arq" && vm.count("ack-host")) {
+            std::cerr << "[NOTE] --ack-host is ignored for sink_arq: the sink LISTENS on "
+                         "every interface. Set it on the source instead, to this host's "
+                         "address.\n";
         }
         std::cout << "[MAIN] Role " << config.role << "  ACK transport: "
                   << config.ack_transport;

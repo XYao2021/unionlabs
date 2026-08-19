@@ -1,7 +1,0 @@
-{
-  "_comment": "Transmit only (one radio), 8-PSK, one-way, 20 repetitions.",
-  "role": "tx",
-  "tx_args": "serial=30CD424", "tx_subdev": "A:A", "tx_ant": "TX/RX",
-  "tx_freq": 915e6, "tx_rate": 1.6e6, "tx_gain": 86,
-  "scheme": "8-PSK", "fec": true, "tx_mode": "burst", "tx_reps": 20
-}

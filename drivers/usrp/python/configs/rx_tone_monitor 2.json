@@ -1,7 +1,0 @@
-{
-  "_comment": "Raw tone monitor: streams RX samples and prints the dominant tone frequency + power (no decode). Works with a continuous or burst TX tone.",
-  "role": "rx",
-  "rx_args": "serial=30CD3F7", "rx_subdev": "A:A", "rx_ant": "RX2",
-  "rx_freq": 915e6, "rx_rate": 1.6e6, "rx_gain": 15,
-  "message_type": "cosine", "viz": false
-}

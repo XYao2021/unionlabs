@@ -150,8 +150,8 @@ def main():
     ap.add_argument("--once", action="store_true", help="probe, write, exit")
     ap.add_argument("--daemon", action="store_true", help="refresh until killed")
     ap.add_argument("--interval", type=int, default=30, help="seconds between beats")
-    ap.add_argument("--gc", type=int, default=3600,
-                    help="reap records unrefreshed for this many seconds")
+    ap.add_argument("--gc", type=int, default=900,
+                    help="reap records unrefreshed for this many seconds (30 missed beats)")
     # Neither of these can be probed — a radio cannot tell you what an experiment calls
     # it or what job it is doing — so they are inputs, empty until something sets them.
     ap.add_argument("--node-id", default=os.environ.get("WS_NODE_ID"),
