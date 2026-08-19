@@ -49,7 +49,7 @@ interface; acceptable on a single-tenant node.
 
 Inside the session desktop:
 ```bash
-~/Desktop/check-radio.sh              # interfaces, route, ping, uhd_find_devices
+~/Desktop/unionlabs/deploy/check-radio.sh     # interfaces, route, ping, uhd_find_devices
 ```
 Expected: `192.168.10.2` pings, and `uhd_find_devices --args addr=192.168.10.2`
 reports the N210. The image already contains UHD 4.1, the compiled modem

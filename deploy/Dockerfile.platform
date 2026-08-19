@@ -80,39 +80,19 @@ RUN cd /opt/unionlabs && chmod +x deploy/initialization.sh \
  && ./deploy/initialization.sh ${INIT_ARGS} \
  && rm -rf /root/.cache /tmp/* /var/lib/apt/lists/*
 
-# Build marker, visible from the Xfce terminal the platform gives the user.
+# Build identity lives INSIDE the repo folder (not /workspace — see above), so it is
+# visible right where the user works: ~/Desktop/unionlabs/BUILD_INFO.txt.
 RUN { echo "unionlabs-platform"; git -C /opt/unionlabs log -1 --format='commit %H%nauthored %cI'; \
       echo "built   $(date -u +%Y-%m-%dT%H:%M:%SZ)"; } \
-      > /workspace/UNIONLABS_BUILD.txt && cat /workspace/UNIONLABS_BUILD.txt
+      > /opt/unionlabs/BUILD_INFO.txt && cat /opt/unionlabs/BUILD_INFO.txt
 
 # Put unionlabs where the user looks first: on the Xfce desktop. The clone stays at
 # /opt/unionlabs (the template's application slot, and what the docs reference); the
 # desktop entry is a symlink, so both paths are the same tree.
-RUN mkdir -p /root/Desktop \
- && ln -s /opt/unionlabs /root/Desktop/unionlabs \
- && ln -s /workspace/UNIONLABS_BUILD.txt /root/Desktop/UNIONLABS_BUILD.txt
+# Only the repo goes on the desktop. Nothing may live in /workspace: the platform
+# mounts its own volume there, which hides baked files and leaves dangling symlinks.
+RUN mkdir -p /root/Desktop && ln -s /opt/unionlabs /root/Desktop/unionlabs
 
-# check-radio.sh: is the N210 reachable from inside this container? Exposing the
-# radio's network is a PLATFORM-side setting (hostNetwork / an extra interface on the
-# pod — the k8s equivalents of the macvlan our deploy/docker/launch.py sets up for
-# plain Docker); no image can grant itself a NIC. This script answers, in one run,
-# whether the platform did its half.
-RUN cat > /workspace/check-radio.sh <<'EOF' && chmod +x /workspace/check-radio.sh && ln -s /workspace/check-radio.sh /root/Desktop/check-radio.sh
-#!/bin/bash
-# usage: ./check-radio.sh [N210-addr]   (default 192.168.10.2)
-ADDR="${1:-192.168.10.2}"
-echo "── interfaces in this container ──"
-ip -4 addr | grep -E '^[0-9]+:|inet ' | sed 's/^/  /'
-echo "── route to ${ADDR}? ──"
-ip route get "${ADDR}" 2>&1 | sed 's/^/  /'
-echo "── ping ${ADDR} ──"
-ping -c 2 -W 2 "${ADDR}" >/dev/null 2>&1 && echo "  reachable"   || echo "  NOT reachable — the radio's subnet is not attached to this container."
-echo "── UHD ──"
-uhd_find_devices --args "addr=${ADDR}" 2>&1 | tail -8 | sed 's/^/  /'
-echo
-echo "If NOT reachable: this is configured on the platform (the pod needs the radio's"
-echo "network attached — hostNetwork or a second interface), not inside the image."
-EOF
 
 # ── the template's GNU Radio library paths, verbatim ──
 ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib/x86_64-linux-gnu
