@@ -45,24 +45,35 @@ transmitter straight into a receiver input damages it.
 
 ## 2. Then change one thing at a time
 
-```bash
---device b210|n210|x310     # per-device defaults: subdev, address, gains
---args serial=30CD424       # or addr=192.168.10.2 — which radio
---freq 915e6                # carrier
---scheme BPSK|QPSK|8-PSK|16-QAM|DBPSK|DQPSK|8-DPSK
---waveform sc|ofdm          # single-carrier, or OFDM (64 subcarriers, CP 16)
---gain 30                   # tx or rx gain, depending on the role
---rate 2e6 --sym 1e6        # sample rate / symbol rate
---fec true|false            # rate-1/2 K=7 convolutional + Viterbi
---ant TX/RX|RX2             # which CONNECTOR (default: TX/RX to send, RX2 to receive)
---subdev A:A|A:B|A:0        # which RF CHANNEL — B210 has two: RF A = A:A, RF B = A:B
-```
+Every flag `radio.sh` accepts — this is the complete list. Anything not given falls back to
+a default tuned over the air, so no command needs all of them.
+
+| Flag | What it sets | Default |
+|---|---|---|
+| `--device b210\|n210\|x310` | which model — picks the subdev, address and gains below | `b210` |
+| `--args <uhd args>` | which radio: `serial=…` (USB) or `addr=…` (Ethernet) | b210: auto-pick · n210: `addr=192.168.20.2` · x310: `addr=192.168.40.2` |
+| `--freq <Hz>` | carrier frequency | `915e6` |
+| `--scheme <NAME>` | `BPSK` `QPSK` `8-PSK` `16-QAM` `DBPSK` `DQPSK` `8-DPSK` | `DQPSK` |
+| `--waveform sc\|ofdm` | single-carrier, or OFDM (64 subcarriers, CP 16) | `sc` |
+| `--gain <dB>` | TX or RX gain, whichever role is running | b210: tx 78 / rx 20 · n210 & x310: 25 / 25 |
+| `--rate <Hz>` | sample rate | `2e6` |
+| `--sym <Hz>` | symbol rate | `1e6` |
+| `--fec true\|false` | rate-1/2 K=7 convolutional + Viterbi | `true` |
+| `--ant TX/RX\|RX2` | which **connector** | `TX/RX` sending · `RX2` receiving |
+| `--subdev A:A\|A:B\|A:0` | which **RF channel** | b210: `A:A` (RF A) · n210 & x310: `A:0` |
+| `--dry-run` | print the command that would run, and stop | off |
+| `-h`, `--help` | usage | — |
+
+**Keep `--scheme`, `--freq`, `--waveform`, `--rate` and `--sym` identical on both ends** — a
+mismatch looks exactly like a dead link. If nothing decodes: raise TX gain in steps, try
+`--scheme BPSK` (most robust), or `--waveform ofdm` (tolerates frequency offset far better —
+set it on both sides). Per-scheme gains tuned over the air are in §5.
 
 ### Every modem option is reachable from the wrapper
 
-The named flags above are shorthand. **Any `sdr_system` option can be appended, and yours
-replaces the wrapper's default for that same option** — so `radio.sh` gives you the tuned
-setup as a starting point without ever standing between you and the modem:
+The table above is shorthand. **Any `sdr_system` option can be appended, and yours replaces
+the wrapper's default for that same option** — so `radio.sh` gives you the tuned setup as a
+starting point without ever standing between you and the modem:
 
 ```bash
 ./radio.sh tx --device b210 --tx-gain 85 --det-mult 5     # override one, add another
@@ -78,9 +89,6 @@ rather than an override. The wrapper now drops its own default for anything you 
 See the whole option list with `drivers/usrp/build/sdr_system --help`, or
 [`PARAMETERS.md`](PARAMETERS.md), which is generated from the modem itself. Check what will
 run with `--dry-run` before committing to it.
-
-Anything else you pass is forwarded straight to `sdr_system`, so the whole modem is reachable
-without leaving the wrapper.
 
 ### Naming a radio: `serial=` for USB, `addr=` for Ethernet
 
