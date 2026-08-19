@@ -8,6 +8,7 @@
 #include <fftw3.h>
 #ifdef USE_VOLK
 #include <volk/volk.h>
+#include <volk/volk_version.h>
 #endif
 
 // 1-d, single-precision FFT class
@@ -150,7 +151,13 @@ class fft{
             for (int i=0; i<U_D*nblocks; i++) {
                 unsigned idx = i*out_nsteps;
 #ifdef USE_VOLK
+// VOLK 3.x renamed this kernel and passes the scalar by pointer; Ubuntu 22.04
+// (the testbed) ships VOLK 2.5, which only has the older by-value form.
+#if defined(VOLK_VERSION_MAJOR) && VOLK_VERSION_MAJOR >= 3
                 volk_32fc_s32fc_multiply2_32fc(out+idx, out+idx, &one_over_fftsize_c, fftsize);
+#else
+                volk_32fc_s32fc_multiply_32fc(out+idx, out+idx, one_over_fftsize_c, fftsize);
+#endif
 #else
                 for (int j=0; j<fftsize; j++) {
                     out[idx++] *= one_over_fftsize;

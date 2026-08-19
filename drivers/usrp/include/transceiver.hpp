@@ -1,3 +1,4 @@
+#pragma once
 // The header for USRP operation threads
 # include "FIFO.hpp"
 
