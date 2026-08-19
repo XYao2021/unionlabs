@@ -76,6 +76,52 @@ Safe pairs, with the flags that make them match the cabling:
 Recabled since? Update the table above — the commands throughout this file are written to
 match it.
 
+### Send a complete message and stop
+
+Nothing to enable — this is the default. `--stop-on-complete` is **`true`**, the payload is
+finite (`--message-type bytes`) and `--tx-mode` is `burst`, so the **receiver exits as soon
+as every chunk is CRC-verified**. Two other defaults matter here: `--tx-reps` is **20** (it
+cycles the whole message 20 times), so pass `--tx-reps 1` for a quick test, and
+`--rx-idle-timeout` is **8 s**, which stops a receiver that never hears anything.
+
+```bash
+# receiver — B210 30CD3F7 on RF B          |  or the N210:
+./radio.sh rx --device b210 \               #  ./radio.sh rx --device n210 \
+  --args serial=30CD3F7 --subdev A:B       #    --args addr=192.168.10.2
+
+# transmitter — B210 30CD424, short known message, one pass
+./radio.sh tx --device b210 --args serial=30CD424 --message "hello unionlabs" --tx-reps 1
+```
+
+`--stop-on-complete false` keeps the receiver running instead — for collecting duplicates or
+measuring the link.
+
+### With ACKs: the transmitter waits for confirmation (ARQ)
+
+`--role tx` / `rx` are **one-way — no ACK at all**. Retransmission needs the ARQ roles, which
+the wrapper reaches through `--role` while keeping every tuned default:
+
+```bash
+# sink: CRC-checks, ACKs, and exits when the message is complete
+./radio.sh rx --device b210 --args serial=30CD3F7 --subdev A:B \
+  --role sink_arq --ack-port 5599
+#   or on the N210:
+./radio.sh rx --device n210 --args addr=192.168.10.2 --role sink_arq --ack-port 5599
+
+# source: waits for each ACK and resends until it arrives
+./radio.sh tx --device b210 --args serial=30CD424 \
+  --role source_arq --ack-host 127.0.0.1 --ack-port 5599 --max-attempts 0
+```
+
+- `--ack-host` is `127.0.0.1` only because both processes are on one machine. **On two
+  machines it must be the sink's IP** — see §3 for reading that address off the receiver.
+- `--max-attempts 0` = never give up, keeping the pair in lockstep on a marginal link; the
+  default `50` abandons a chunk and desynchronises them.
+- The sink also stops when complete — it exits after one message unless `--serve-forever`.
+
+**Start the receiver first in every case**, and remember only `30CD424` may transmit on this
+rig.
+
 ---
 
 ## 2. Then change one thing at a time
