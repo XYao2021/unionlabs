@@ -90,6 +90,24 @@ def why(output):
     return "(no output)"
 
 
+def _radio_flag_check():
+    """radio.sh emits tuned defaults; a caller's flag must REPLACE one, not duplicate it
+    (the modem refuses a repeated option). Same standard test_flags.py holds run.sh to."""
+    print(f"    {'radio.sh flags override':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(HERE, "test_radio_flags.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) radio\.sh override paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines()[:4]:
+        print(f"      {line}")
+    return ("radio.sh flags", "a radio.sh flag no longer overrides the wrapper default")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -164,6 +182,10 @@ def main():
             if "FAIL" in line:
                 print(f"      {line.strip()}")
         failures.append(("flag paths", "a CLI flag no longer reaches what it configures"))
+
+    bad = _radio_flag_check()
+    if bad:
+        failures.append(bad)
 
     print(f"\n  {DIM}skipped (needs hardware):{OFF} LoRa serial/spi backends · USRP radio "
           f"backend · the two-host tx/rx/relay/peer roles")
