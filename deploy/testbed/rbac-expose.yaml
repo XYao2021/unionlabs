@@ -18,6 +18,12 @@ rules:
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["create", "get", "list", "delete", "patch", "update"]
+  # Read-only, and only so a pod can learn which node it runs on: .status.hostIP is the
+  # address the other machine must dial. Namespaced pods:get, rather than a
+  # cluster-scoped nodes:list, keeps this the smallest grant that answers the question.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -89,11 +89,29 @@ fi
 ASSIGNED=$(echo "$OUT" | python3 -c "import json,sys; print(json.load(sys.stdin)['spec']['ports'][0]['nodePort'])" 2>/dev/null) \
   || { echo "unexpected API reply:"; echo "$OUT" | head -20; exit 1; }
 
-# The node's own address — what the other machine must dial.
-NODEIP=$(api GET "/api/v1/nodes" | python3 -c "
-import json,sys
-n=json.load(sys.stdin)['items'][0]['status']['addresses']
-print(next(a['address'] for a in n if a['type']=='InternalIP'))" 2>/dev/null || echo "<node-ip>")
+# The node's own address — what the other machine must dial. Ask this pod which node it
+# is on (.status.hostIP); listing cluster nodes would need a wider, cluster-scoped grant
+# and answers the same question.
+NODEIP=$(api GET "/api/v1/namespaces/$NS/pods/$POD" | python3 -c "
+import json, sys
+try:
+    print(json.load(sys.stdin)['status']['hostIP'])
+except Exception:
+    pass" 2>/dev/null || true)
+if [ -z "$NODEIP" ]; then
+  NODEIP=$(api GET "/api/v1/nodes" | python3 -c "
+import json, sys
+try:
+    a = json.load(sys.stdin)['items'][0]['status']['addresses']
+    print(next(x['address'] for x in a if x['type'] == 'InternalIP'))
+except Exception:
+    pass" 2>/dev/null || true)
+fi
+if [ -z "$NODEIP" ]; then
+  NODEIP="<this machine's IP>"
+  echo "note: could not read this node's address (the grant may predate pods:get)." >&2
+  echo "      The Service IS created — use this machine's own IP with the port below." >&2
+fi
 
 echo "exposed  $POD:$PORT  ->  $NODEIP:$ASSIGNED"
 echo
