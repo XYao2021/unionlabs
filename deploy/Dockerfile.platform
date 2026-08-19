@@ -132,7 +132,23 @@ RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/custom-gnuradio.conf && \
     echo "/usr/local/lib/x86_64-linux-gnu" >> /etc/ld.so.conf.d/custom-gnuradio.conf && \
     ldconfig
 
+# PID 1. Same job as the template's `tail -f /dev/null` — keep the container alive so
+# the platform can exec into it — but it also FORWARDS a graceful stop. Docker and
+# Kubernetes signal PID 1 ONLY; every other process is SIGKILLed when the namespace is
+# torn down, so a daemon's own SIGTERM handler never fires unless PID 1 passes the
+# signal on. That is why a node's settings record outlived its session.
+RUN cat > /usr/local/bin/stay-alive.sh <<'EOF' && chmod +x /usr/local/bin/stay-alive.sh
+#!/bin/bash
+cleanup() {
+  pkill -TERM -f discover-node.py 2>/dev/null || true
+  sleep 1                      # let it delete its record before we go
+  exit 0
+}
+trap cleanup TERM INT
+while true; do sleep 3600 & wait $!; done
+EOF
+
 WORKDIR /workspace
 # Template contract: NO entrypoint; the platform execs TurboVNC into a container
 # that is alive and otherwise idle.
-CMD ["tail", "-f", "/dev/null"]
+CMD ["/usr/local/bin/stay-alive.sh"]

@@ -121,8 +121,10 @@ This replacement is what makes it work: the modem rejects a repeated option (`op
 '--tx-ant' cannot be specified more than once`), so an appended flag used to be an error
 rather than an override. The wrapper now drops its own default for anything you name.
 
-See the whole option list with `drivers/usrp/build/sdr_system --help`, or
-[`PARAMETERS.md`](PARAMETERS.md), which is generated from the modem itself. Check what will
+Complete lists, all generated from the code so they cannot drift:
+[`PARAMETERS.md`](PARAMETERS.md) for the modem's ~100 options, and
+[`PARAMETERS_ALGO.md`](PARAMETERS_ALGO.md) for every `./run.sh` flag and every LoRa driver
+variable. `drivers/usrp/build/sdr_system --help` prints the modem's list live. Check what will
 run with `--dry-run` before committing to it.
 
 ### Naming a radio: `serial=` for USB, `addr=` for Ethernet
