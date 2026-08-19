@@ -205,6 +205,31 @@ set it on both sides). Per-scheme gains tuned over the air are in §5.
          --down-host <SERVER_IP> --down-port 5701                # the middle node
 ```
 
+### Every PHY variable is reachable here too
+
+The named flags cover what most experiments touch. For anything else, each PHY has a
+setter that takes **its own variable names**, so what you read in the PHY's docs is what
+you type — the USRP modem alone has ~100 options, and listing them here would only rot:
+
+```bash
+./run.sh --algo fl --channel usrp --usrp-backend radio --role rx \
+         --usrp-set det_mult=5 --usrp-set viz=true          # any modem option
+./run.sh --algo fl --channel lora --lora-set seed=7 --lora-set reply_timeout=60
+```
+
+Either spelling works (`det-mult` or `det_mult`), and both setters are repeatable. Two
+things they will not do:
+
+- **An unknown variable is refused, not ignored** — with a suggestion:
+  `--usrp-set: usrp has no variable 'det_multiplier' — did you mean det_mult…?` A typo that
+  silently changes nothing is a wrong experiment that looks like a right one.
+- **`--usrp-set` needs `--usrp-backend radio`.** The default `pyphy` backend calls the DSP
+  in-process rather than starting the modem, so modem options cannot reach it; the run stops
+  and says so instead of pretending.
+
+Keys are checked against each PHY's real surface — `sdr.py`'s auto-generated `OPTIONS` for
+the USRP, the driver's own signature for LoRa — so the check stays correct as the PHYs grow.
+
 **Choosing the graph** (`--role gossip`): `ring` (default), `full`, or an explicit edge list
 such as `--topology 0-1,1-2,2-3,3-4,4-5`. Set `DL_NONIID=1` to make the topology actually
 matter — with IID shards every node learns nearly the same model.

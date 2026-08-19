@@ -92,6 +92,14 @@ def build_channel(a):
                      "single process has no peer to answer it. Run the two nodes as "
                      "separate processes (--role tx / --role rx), or use the default "
                      "--usrp-backend pyphy to run the same modem in one process.")
+        # Validate the keys even here, so a typo is caught wherever it is typed — then
+        # refuse rather than drop them: the in-process pyphy backend is the modem's DSP
+        # called directly, not the CLI, so a modem option cannot reach it. Silently
+        # ignoring them would produce a run that looks configured and is not.
+        if _usrp_extra(a):
+            sys.exit("--usrp-set configures the C++ modem process, which the default "
+                     "--usrp-backend pyphy does not start (it calls the DSP in-process). "
+                     "Use --usrp-backend radio with --role tx/rx, or drop --usrp-set.")
         return pl.make_channel("pyphy", scheme=a.scheme, fec=(a.fec or None),
                                snr_db=a.snr_db)
     if kind == "lora":
@@ -100,7 +108,8 @@ def build_channel(a):
                                freq_hz=int(a.freq * 1e6), snr_db=a.snr_db,
                                port=a.lora_port, verbose=a.lora_verbose,
                                max_attempts=(8 if a.max_attempts is None
-                                             else a.max_attempts), arq=a.arq)
+                                             else a.max_attempts), arq=a.arq,
+                               **_lora_extra(a))
     return pl.make_channel("ideal")
 
 
@@ -111,15 +120,85 @@ def build_channel(a):
 # mistake, and silently ignoring it would hide a wrong experiment.
 PHY_ONLY_FLAGS = {
     "usrp": {"scheme": "--scheme", "fec": "--fec", "waveform": "--waveform",
+             "usrp_set": "--usrp-set",
              "tx_subdev": "--tx-subdev", "rx_subdev": "--rx-subdev",
              "tx_ant": "--tx-ant", "rx_ant": "--rx-ant",
              "ack_transport": "--ack-transport", "ack_timeout": "--ack-timeout",
              "samp_rate": "--samp-rate", "symbol_rate": "--symbol-rate",
              "tx_gain": "--tx-gain", "rx_gain": "--rx-gain"},
-    "lora": {"lora_sf": "--lora-sf", "lora_cr": "--lora-cr", "lora_bw": "--lora-bw",
+    "lora": {"lora_set": "--lora-set", "lora_sf": "--lora-sf", "lora_cr": "--lora-cr", "lora_bw": "--lora-bw",
              "lora_power": "--lora-power", "lora_backend": "--lora-backend",
              "lora_port": "--lora-port"},
 }
+
+
+def _usrp_extra(a):
+    """KEY=VALUE for the USRP, checked against sdr.py's OPTIONS — the modem's own
+    auto-generated registry of every option it has."""
+    pairs = _kv_pairs(getattr(a, "usrp_set", []), "usrp")
+    if not pairs:
+        return {}
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "..", "drivers", "usrp", "python"))
+    import sdr
+    known = {k.replace("-", "_") for k in sdr.OPTIONS}
+    _check_keys(pairs, known, "usrp", "docs/PARAMETERS.md (or sdr_system --help)")
+    return pairs
+
+
+def _lora_extra(a):
+    """KEY=VALUE for LoRa, checked against the driver's own signature."""
+    pairs = _kv_pairs(getattr(a, "lora_set", []), "lora")
+    if not pairs:
+        return {}
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "..", "drivers", "lora", "python"))
+    import inspect, lora_driver
+    known = set(inspect.signature(lora_driver.LoRaChannel.__init__).parameters) - {"self"}
+    _check_keys(pairs, known, "lora", "drivers/lora/python/lora_driver.py")
+    return pairs
+
+
+def _kv_pairs(items, phy):
+    """--usrp-set / --lora-set: KEY=VALUE pairs straight onto a PHY's own variables.
+
+    The named flags above cover what most experiments touch. These cover EVERYTHING
+    else — the USRP modem alone has ~100 options — without this file having to list
+    them, which would rot the moment the PHY gains one. Keys are the PHY's own names
+    (either spelling: det-mult or det_mult), and an unknown key is refused rather than
+    ignored, because a typo that silently changes nothing is a wrong experiment that
+    looks like a right one.
+    """
+    out = {}
+    for item in items or []:
+        if "=" not in item:
+            sys.exit(f"--{phy}-set expects KEY=VALUE (got {item!r})")
+        k, v = item.split("=", 1)
+        k = k.strip().replace("-", "_")
+        t = v.strip()
+        if t.lower() in ("true", "false"):
+            val = (t.lower() == "true")
+        else:
+            try:
+                val = int(t)
+            except ValueError:
+                try:
+                    val = float(t)
+                except ValueError:
+                    val = t
+        out[k] = val
+    return out
+
+
+def _check_keys(pairs, known, phy, hint):
+    """Refuse a key the PHY does not have, and say what it might have meant."""
+    for k in pairs:
+        if k in known:
+            continue
+        near = sorted(n for n in known if k[:4] and n.startswith(k[:4]))
+        sys.exit(f"--{phy}-set: {phy} has no variable {k!r}"
+                 + (f" — did you mean {', '.join(near[:4])}?" if near else "")
+                 + f"\n  see {hint}")
 
 
 US_ISM_MHZ = (902.0, 928.0)         # the band both radios are licensed to use here
@@ -209,6 +288,7 @@ def build_link(a, transport):
                              net_port=a.net_port, scheme=a.scheme, waveform=a.waveform,
                              tx_subdev=a.tx_subdev, rx_subdev=a.rx_subdev,
                              tx_ant=a.tx_ant, rx_ant=a.rx_ant,
+                             extra_cfg=_usrp_extra(a),
                              down_host=a.down_host, down_port=a.down_port,
                              freq_hz=a.freq * 1e6, samp_rate=a.samp_rate,
                              symbol_rate=a.symbol_rate, fec=a.fec,
@@ -398,6 +478,13 @@ def build_parser():
     # pyphy channel knobs
     # Named exactly as the modem names them (drivers/usrp/src/main.cpp), so a flag found
     # in PARAMETERS.md or a radio.sh command is typed identically here.
+    ap.add_argument("--usrp-set", action="append", metavar="KEY=VALUE", default=[],
+                    help="any other USRP modem variable, by its own name — repeatable. "
+                         "e.g. --usrp-set det_mult=5 --usrp-set viz=true. "
+                         "Full list: docs/PARAMETERS.md or sdr_system --help")
+    ap.add_argument("--lora-set", action="append", metavar="KEY=VALUE", default=[],
+                    help="any other LoRa driver variable, by its own name — repeatable. "
+                         "e.g. --lora-set seed=7 --lora-set reply_timeout=60")
     ap.add_argument("--waveform", default="sc", choices=["sc", "ofdm"],
                     help="USRP waveform: single-carrier, or OFDM (CFO-robust — worth "
                          "trying on a marginal link). Both ends must agree.")
@@ -539,6 +626,7 @@ def main():
                                tx_args=a.tx_args, rx_args=a.rx_args, scheme=a.scheme,
                                waveform=a.waveform, tx_subdev=a.tx_subdev,
                                rx_subdev=a.rx_subdev, tx_ant=a.tx_ant, rx_ant=a.rx_ant,
+                               extra_cfg=_usrp_extra(a),
                                lora_backend=a.lora_backend, lora_port=a.lora_port,
                                lora_sf=a.lora_sf, lora_cr=a.lora_cr, lora_bw=a.lora_bw,
                                lora_power=a.lora_power, lora_snr_db=a.snr_db)
