@@ -126,6 +126,34 @@ machines the sender must be told where the receiver is:
 Port **5599** must be reachable between the two hosts — a firewall or a pod without the right
 network attached produces a link that transmits perfectly and never confirms anything.
 
+**There is no listener-IP option, and none is needed.** The receiving side binds
+`INADDR_ANY`, so it accepts on *every* interface it has; only the port is yours to choose.
+The address that has to be right is the one you hand the **sender** — and on a session pod
+that address changes every time the session restarts, so never hard-code it. Read it off the
+receiver instead:
+
+```bash
+# on the RECEIVER — the address(es) a sender can reach it on
+hostname -I
+ip -4 -o addr | awk '{print $2, $4}'      # which interface each one belongs to
+```
+
+Pick the address on the network the sender shares. On a testbed with a radio subnet that is
+usually the radio-side address (e.g. `192.168.10.x`), not the cluster address — nodes in
+different clusters cannot reach each other's `10.42.x` pod IPs at all.
+
+Since every live session now publishes its own addresses into the shared workspace, you can
+also just look them up from anywhere, without a shell on the other machine:
+
+```bash
+python3 - <<'PY'
+import json, glob
+for f in glob.glob('/workspace/experiments/settings/*.json'):
+    d = json.load(open(f))
+    print(d['node_id'], [i['cidr'] for i in d['interfaces']])
+PY
+```
+
 ---
 
 ## 4. Drive the modem directly (`sdr_system`) — for experimenters
@@ -163,8 +191,10 @@ $BIN --role tx --tx-args addr=192.168.10.2 --tx-subdev A:0 --tx-ant TX/RX \
 Data always crosses the **air**; the ACK comes back over the transport you choose. With the
 default `--ack-transport tcp`:
 
-* **`sink_arq` listens** on `--ack-port` (default **5599**) — start it first.
-* **`source_arq` connects** to `--ack-host:--ack-port` (default **127.0.0.1**:5599).
+* **`sink_arq` listens** on `--ack-port` (default **5599**), on **all interfaces** — start it
+  first. It has no address to configure.
+* **`source_arq` connects** to `--ack-host:--ack-port` (default **127.0.0.1**:5599). This is
+  the one that changes whenever the receiver's session does.
 
 So the source on another machine *must* be given the sink's address:
 
@@ -186,7 +216,8 @@ $BIN --role source_arq --tx-args serial=30CD424 --tx-subdev A:A --tx-ant TX/RX \
 | Flag | Meaning |
 |---|---|
 | `--ack-transport tcp\|rf` | ACK over a socket (default), or over a second RF path |
-| `--ack-host` / `--ack-port` | where the source finds the sink's ACK server (`127.0.0.1:5599`) |
+| `--ack-port 5599` | the port. Set it on **both** ends — the sink binds it on all interfaces (`INADDR_ANY`), the source dials it |
+| `--ack-host` | **source only**: the sink's address (`127.0.0.1` by default, i.e. same box). There is no matching bind option, because the sink listens everywhere — see §3 for finding the address that changes each session |
 | `--timeout 3000` | ms the source waits for an ACK before resending |
 | `--max-attempts 50` | give up on a chunk after N sends; **0 = never give up**, which keeps a paired sender/receiver in lockstep on a marginal link |
 | `--serve-forever` | `sink_arq` stays up as an access point, re-accepting a new source per session |
