@@ -90,6 +90,51 @@ def why(output):
     return "(no output)"
 
 
+def _topology_check(name, args, timeout=300):
+    """Run a whole topology the way an experiment really runs: one PROCESS per node,
+    started by run.sh, wired only by the file. Nothing else in this sweep exercises the
+    multi-process path — a topology that resolves correctly can still fail to connect,
+    and that is exactly the failure a testbed session hits."""
+    print(f"    {name:<26} ", end="", flush=True)
+    t0 = time.time()
+    env = dict(os.environ, **SMALL)
+    try:
+        p = subprocess.run([os.path.join(REPO, "run.sh"), "topology", name] + args,
+                           cwd=REPO, env=env, capture_output=True, text=True,
+                           timeout=timeout)
+        out, dt = (p.stdout or "") + (p.stderr or ""), time.time() - t0
+        ok = p.returncode == 0 and "all nodes finished" in out
+    except subprocess.TimeoutExpired:
+        out, dt, ok = f"timed out after {timeout}s", time.time() - t0, False
+    if ok:
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s{OFF}")
+        return None
+    dep = missing_dependency(out)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}  {why(out)}")
+    return (name, why(out))
+
+
+def _topology_flag_check():
+    """Does a topology FILE reach the objects it configures? Same standard as the CLI."""
+    print(f"    {'topology files reach targets':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(HERE, "test_topology.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+)/(\d+) topology paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(2) if m else '?'} paths){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in r.stdout.splitlines():
+        if "FAIL" in line:
+            print(f"      {line.strip()}")
+    return ("topology paths", "a setting in a topology file no longer reaches its target")
+
+
 def _radio_flag_check():
     """radio.sh emits tuned defaults; a caller's flag must REPLACE one, not duplicate it
     (the modem refuses a repeated option). Same standard test_flags.py holds run.sh to."""
@@ -187,10 +232,22 @@ def main():
     if bad:
         failures.append(bad)
 
-    print(f"\n  {DIM}skipped (needs hardware):{OFF} LoRa serial/spi backends · USRP radio "
-          f"backend · the two-host tx/rx/relay/peer roles")
+    bad = _topology_flag_check()
+    if bad:
+        failures.append(bad)
 
-    n = len(checks) + 1        # + the flag-path check
+    # and the multi-process path itself: every node of a topology, as its own process
+    print(f"  {DIM}topologies (one process per node){OFF}")
+    for name, extra in (("fl-star-tcp", ["--steps", "2", "--stagger", "1"]),
+                        ("dl-ring3-tcp", ["--steps", "2", "--stagger", "1"])):
+        bad = _topology_check(name, extra)
+        if bad:
+            failures.append(bad)
+
+    print(f"\n  {DIM}skipped (needs hardware):{OFF} LoRa serial/spi backends · USRP radio "
+          f"backend · every topology whose links are wireless")
+
+    n = len(checks) + 5        # + flag paths, radio.sh flags, topology paths, 2 topology runs
     if skipped_deps:
         print(f"\n  {YEL}{len(skipped_deps)} skipped{OFF} — an optional dependency is not installed:")
         for label, dep in skipped_deps:

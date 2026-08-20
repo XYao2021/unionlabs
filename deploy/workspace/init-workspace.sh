@@ -25,6 +25,23 @@ for d in settings topologies cross_channel; do
 done
 [ -e "$ROOT/README.md" ] || cp "$HERE/README.md" "$ROOT/README.md"
 
+# the example wirings — these are meant to be copied and edited, so an existing file of
+# the same name is somebody's experiment and is never overwritten
+for f in "$HERE"/topologies/*.json; do
+  [ -e "$f" ] || continue
+  dst="$ROOT/topologies/$(basename "$f")"
+  if [ -e "$dst" ]; then
+    kept=$((kept + 1))
+  else
+    cp "$f" "$dst"
+    created=$((created + 1))
+  fi
+done
+
 echo "workspace layout at $ROOT"
 find "$ROOT" -maxdepth 1 -mindepth 1 -type d | sort | sed 's|^|  |'
-echo "  ($created README(s) written, $kept already present — nothing overwritten)"
+echo "  ($created file(s) written, $kept already present — nothing overwritten)"
+echo
+echo "example wirings now in $ROOT/topologies:"
+for f in "$ROOT"/topologies/*.json; do [ -e "$f" ] && echo "  $(basename "$f" .json)"; done
+echo "run one with:  ./run.sh --algo fl --topology fl-star-tcp --node srv"

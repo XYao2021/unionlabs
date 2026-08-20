@@ -18,6 +18,19 @@
 #   ./run.sh list                              # list available algorithms + their roles
 #   ./run.sh --help                            # this help + every option
 #
+# THE WIRING OF A WHOLE EXPERIMENT (--topology <file>). Instead of typing each node's
+# radio, ports and hosts on every machine, put them in ONE file that every node reads —
+# /workspace/experiments/topologies/<name>.json — and tell each node which one it is:
+#   ./run.sh --algo fl --topology fl-star-tcp --node srv     # the server's machine
+#   ./run.sh --algo fl --topology fl-star-tcp --node c0      # the first client's
+#   ./run.sh topology fl-star-tcp              # start every node that lives on THIS box
+#   ./run.sh topologies                        # list the wiring files
+#   ./run.sh --algo fl --topology fl-star-tcp --node c0 --print-plan   # resolve, don't run
+# The file says what radio each node owns, which connector (TX/RX, RX2) and RF channel
+# it uses, which port it listens on, and whether each link is carried over the air or
+# over TCP/IP. Anything you type still wins over it. --link tcp runs the client/server
+# roles over plain TCP/IP with no radio at all, which is what fl.py's --uplink tcp does.
+#
 # NODE TYPES (--role). tx = transmits, rx = receives, relay = BOTH (a middle node that
 # receives from upstream and re-transmits downstream), peer = BOTH at different steps
 # (one node of a decentralized network, run as its own process with --node k).
@@ -49,6 +62,14 @@ if [ "${1:-}" = "selftest" ]; then
   shift
   exec python3 "$HERE/union/selftest.py" "$@"
 fi
+if [ "${1:-}" = "topology" ] || [ "${1:-}" = "topo" ]; then
+  # start every node of a topology file that lives on THIS machine, listeners first
+  shift
+  exec python3 "$HERE/union/run_topology.py" "$@"
+fi
+if [ "${1:-}" = "topologies" ]; then
+  exec python3 "$HERE/union/topology.py" "${2:-}"
+fi
 if [ "${1:-}" = "list" ]; then
   echo "algorithms in $HERE/experiments/ :"
   for d in "$HERE"/experiments/*/; do
@@ -62,11 +83,14 @@ if [ "${1:-}" = "list" ]; then
   exit 0
 fi
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-  sed -n '2,42p' "$0"; echo; python3 "$RUN" --help; exit 0
+  sed -n '2,55p' "$0"; echo; python3 "$RUN" --help; exit 0
 fi
 
-# defaults — override any by passing the same flag (the later value wins)
-DEF=(--algo echo --channel ideal --steps 5)
+# What this wrapper adds, and nothing more. --channel ideal and --steps 5 used to be
+# injected here; they are already run_algo's own defaults, and injecting them made them
+# indistinguishable from flags the experimenter typed — which is how a --topology file
+# would lose a setting to a default nobody chose.
+DEF=(--algo echo)
 # don't force a role if the user picked one, or asked for a specific node of a
 # decentralised network (--node K means "I am one peer", i.e. --role peer)
 case " $* " in

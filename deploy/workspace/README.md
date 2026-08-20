@@ -12,9 +12,13 @@ there.
 ```
 /workspace/experiments/
   settings/        which devices this account has RESERVED      (schema: OPEN)
-  topologies/      who exchanges with whom                      (schema: OPEN)
+  topologies/      the wiring of an experiment                  (schema: v1, in use)
   cross_channel/   carrying a link BETWEEN testbeds             (design: OPEN)
 ```
+
+`topologies/` is live: `./run.sh --algo fl --topology <name> --node <id>` reads it, and
+`./run.sh topology <name>` starts every node of it that lives on the machine you are on.
+See its README for the schema and the four examples `init-workspace.sh` seeds.
 
 The three are separate on purpose: they change at different rates, and separating them
 lets one settings file compose with many topologies instead of being copied into each.
@@ -22,7 +26,7 @@ lets one settings file compose with many topologies instead of being copied into
 | Folder | Answers | Changes when |
 |---|---|---|
 | `settings/` | what is reserved, and what each device is | the reservation changes |
-| `topologies/` | who exchanges with whom | every experiment |
+| `topologies/` | who exchanges with whom, over what, on which port and connector | every experiment |
 | `cross_channel/` | how an inter-testbed link is carried | per cross-testbed run |
 
 ## Two constraints that already hold
@@ -47,6 +51,6 @@ created yet, because the shape depends on the topology decisions below.
 
 ## Open questions, per folder
 
-See each folder's README. None of the three schemas is settled, and no code reads these
-files yet — the structure exists so the design discussion has something concrete to
-attach to.
+See each folder's README. `topologies/` is settled and read by `run.sh`; `settings/` is
+written by `discover-node.py` and describes attachment rather than reservation;
+`cross_channel/` is still a design.

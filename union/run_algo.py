@@ -36,6 +36,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)                            # union/ -> repo
 sys.path.insert(0, HERE)
 import phy_link as pl
+import topology as tp
 
 
 def _has_io(c):
@@ -268,21 +269,38 @@ def build_link(a, transport):
     The radio-free channels have no second host to talk to, so they are not links; a
     one-process run of the same experiment is --role loopback."""
     kind = CHANNEL_ALIASES.get(a.channel, a.channel)
-    if kind == "lora":
+    link_kind = getattr(a, "link", "auto")
+    if link_kind == "tcp":
+        # NO RADIO IN THE LOOP. Both directions over TCP/IP, which is what a session
+        # with no antenna attached actually has — and what fl.py calls
+        # --uplink tcp --downlink tcp. The hub collects one payload from every client
+        # before it answers, so a server that averages really does average N models.
+        if transport == "relay":
+            sys.exit("--link tcp does not carry a relay yet: a store-and-forward middle "
+                     "node exists for the radio path (--link usrp), where it is what "
+                     "gets a client out of the server's range. Over TCP/IP the client "
+                     "can reach the server directly — link it straight to the hub.")
+        n_clients = a.clients if a.clients else 1
+        return pl.TcpStar(role=transport, hub_host=a.net_host, hub_port=a.net_port,
+                          clients=n_clients,
+                          node_id=(a.role_index if getattr(a, "role_index", None)
+                                   is not None else int(a.node or 0)))
+    if kind == "lora" or link_kind == "lora":
         sys.path.insert(0, os.path.join(REPO, "drivers", "lora", "python"))
         import lora_driver
-        return lora_driver.LoRaLink(role=transport, node=(a.node if a.node is not None else 0),
+        return lora_driver.LoRaLink(role=transport, node=(int(a.node) if a.node is not None else 0),
                                     backend=a.lora_backend, port=a.lora_port,
                                     sf=a.lora_sf, cr=a.lora_cr, bw_hz=a.lora_bw,
                                     power_dbm=a.lora_power, freq_hz=int(a.freq * 1e6),
                                     snr_db=a.snr_db, verbose=a.lora_verbose,
                                     max_attempts=(8 if a.max_attempts is None
                                                   else a.max_attempts), arq=a.arq)
-    if kind == "ideal":
+    if kind == "ideal" and link_kind == "auto":
         # --channel has never applied to the point-to-point roles, which always meant
         # the USRP link. Keep every existing command working, and say which PHY it got.
         print(f"[run_algo] --role {transport} with no --channel: using the USRP link "
-              f"(drivers/usrp). Add --channel lora for the LoRa link.")
+              f"(drivers/usrp). Add --channel lora for the LoRa link, or --link tcp to "
+              f"run the same roles over TCP/IP with no radio.")
     return pl.RadioRoundTrip(role=transport, tx_args=a.tx_args, rx_args=a.rx_args,
                              ack_host=a.ack_host, net_host=a.net_host,
                              net_port=a.net_port, scheme=a.scheme, waveform=a.waveform,
@@ -379,6 +397,279 @@ def load_app_factory(name):
              f"(need make(role), a class/SdrApp with transmit()/receive(), or module functions)")
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  --topology as a FILE: the wiring of a whole experiment, read by every node
+# ══════════════════════════════════════════════════════════════════════════════
+#  One file says who the nodes are, what radio each owns, which connector and RF
+#  channel it uses, which port it listens on, and how every link is carried. Each node
+#  asks it "which node am I" (--node) and gets the rest of its command line.
+#
+#  PRECEDENCE: anything typed on the command line wins over the file. "Typed" means
+#  "differs from the parser's own default" rather than "appears in argv", because
+#  run.sh passes --channel/--steps on EVERY invocation — comparing against argv would
+#  make the file lose to flags nobody typed.
+MEDIUM_TRANSPORT = {"tcp": "tcp", "wireless": "usrp", "lora": "lora"}
+
+# topology "defaults" -> the flag each one sets. Only knobs that mean the same thing to
+# every node belong here; anything per-node is a property of the node.
+TOPO_DEFAULTS = {"channel": "channel", "steps": "steps", "scheme": "scheme",
+                 "fec": "fec", "waveform": "waveform", "samp_rate": "samp_rate",
+                 "symbol_rate": "symbol_rate", "snr_db": "snr_db",
+                 "sim_snr_db": "snr_db", "freq_mhz": "freq", "peer_port": "peer_port",
+                 "arq": "arq", "max_attempts": "max_attempts",
+                 "ack_transport": "ack_transport", "ack_timeout": "ack_timeout"}
+
+
+def _typed_flags(ap, argv=None):
+    """Which settings did the experimenter actually TYPE? A flag whose value happens to
+    equal the parser default is still a choice ('--steps 5' when 5 is the default), so
+    argv is the authority; the value comparison below then catches anything reaching
+    run_algo another way."""
+    argv = sys.argv[1:] if argv is None else argv
+    opt = {s: act.dest for act in ap._actions for s in act.option_strings}
+    return {opt[t.split("=", 1)[0]] for t in argv
+            if t.startswith("-") and t.split("=", 1)[0] in opt}
+
+
+def _typed(ap, a, dest):
+    """Did the experimenter actually choose this, or is it just the parser's default?"""
+    if dest in getattr(a, "_typed", ()):
+        return True
+    return getattr(a, dest, None) != ap.get_default(dest)
+
+
+def _set(ap, a, dest, value):
+    """Apply a value from the file, unless the command line already said otherwise."""
+    if value is None or _typed(ap, a, dest):
+        return False
+    setattr(a, dest, value)
+    return True
+
+
+def _peer_base_port(topo):
+    """PeerLink gives node k the port base+k, so a file that lists per-node peer ports
+    has to agree with that or two nodes end up dialling the same socket. Check it here,
+    where the message can name both nodes, instead of at connect time."""
+    bases = {}
+    for nd in topo.nodes:
+        if "peer" in nd.ports:
+            bases.setdefault(nd.ports["peer"] - nd.index, []).append(nd.id)
+    if not bases:
+        return None
+    if len(bases) > 1:
+        got = "; ".join(f"base {b} from {', '.join(ids)}" for b, ids in sorted(bases.items()))
+        sys.exit(f"--topology {topo.name}: peer ports must be base+index (node k listens "
+                 f"on base+k), but this file implies more than one base — {got}")
+    return next(iter(bases))
+
+
+def _node_media(topo, nd):
+    """(what this node TRANSMITS over, what it RECEIVES over) across all of its links.
+
+    A link is ordered from -> to, and its two directions can use different media: the
+    RX-only N210 rig is exactly {"up": "wireless", "down": "tcp"} — the client transmits
+    over the air, the server answers over TCP."""
+    out, inc = set(), set()
+    for ln in topo.links_of(nd):
+        if ln.a.id == nd.id:
+            out.add(ln.up); inc.add(ln.down)
+        else:
+            out.add(ln.down); inc.add(ln.up)
+    return out, inc
+
+
+def _transport_for(topo, nd, peer=False):
+    """Which of our transports carries this node's links: tcp | usrp | lora.
+
+    `peer` says this node is one of a decentralised graph. That is the case where BOTH
+    directions may be wireless: PeerLink walks the shared edge schedule, so one end
+    transmits while the other listens and they swap — never at the same instant, which
+    is all a half-duplex radio can do. The point-to-point roles are different: their
+    reply comes back over TCP by construction (RadioRoundTrip, as fl.py does), so a
+    link that asks for RF in both directions is refused rather than half-honoured."""
+    out, inc = _node_media(topo, nd)
+    media = out | inc
+    if media == {"tcp"}:
+        return "tcp"
+    if media <= {"wireless", "tcp"} and "wireless" in media:
+        if out == {"wireless"} and inc == {"wireless"}:
+            if peer:
+                return "usrp"
+            sys.exit(f"--topology {topo.name}: node {nd.id} both transmits and receives "
+                     f"over the air, but the USRP link carries its reply over TCP "
+                     f"(RadioRoundTrip, as fl.py does) — a full-duplex RF round trip is "
+                     f"not implemented. Set that link's down medium to tcp, or make "
+                     f"these nodes peers of a decentralised graph, which takes turns.")
+        return "usrp"
+    if media == {"lora"}:
+        return "lora"
+    sys.exit(f"--topology {topo.name}: node {nd.id} has links over "
+             f"{', '.join(sorted(media))} — one node is attached one way. Split it into "
+             f"two topologies, or give its links a single medium.")
+
+
+def apply_topology(ap, a):
+    """Read the --topology file, if it names one, and fill this run's settings in.
+
+    Returns the Topology (or None when --topology is ring / full / an edge list, which
+    keeps every existing command working untouched)."""
+    try:
+        topo = tp.load_if_file(a.topology)
+    except tp.TopologyError as e:
+        sys.exit(f"--topology: {e}")
+    if topo is None:
+        if a.node is not None and not str(a.node).strip().isdigit():
+            sys.exit(f"--node {a.node!r} is a name, but --topology {a.topology!r} is not "
+                     f"a file that could define it. Give a topology file, or --node K.")
+        return None
+
+    print(f"[run_algo] topology {topo.name} ({len(topo.nodes)} nodes, "
+          f"{len(topo.links)} links) from {topo.path}")
+    if topo.algo and _typed(ap, a, "algo") and a.algo != topo.algo:
+        print(f"[run_algo] NOTE: this file was written for --algo {topo.algo}, "
+              f"running it with --algo {a.algo}")
+
+    for key, dest in TOPO_DEFAULTS.items():         # experiment-wide knobs
+        if key in topo.defaults:
+            _set(ap, a, dest, topo.defaults[key])
+    _set(ap, a, "agents", len(topo.nodes))
+    base = _peer_base_port(topo)
+    if base is not None:
+        _set(ap, a, "peer_port", base)
+    # the graph itself, in the edge-list spelling every runner already understands.
+    # FILE ORDER is the schedule: one exchange at a time, so a half-duplex radio is
+    # never asked to transmit and receive at once.
+    a.topology = topo.edge_spec()
+
+    if a.node is None:                              # a whole-network run in one process
+        return topo
+    try:
+        nd = topo.node(a.node)
+    except tp.TopologyError as e:
+        sys.exit(f"--node: {e}")
+    a.node = nd.index
+    _set(ap, a, "role", nd.role)
+    role_index, role_count = topo.role_group(nd)
+    a.role_index = role_index
+
+    # what the algorithm needs to know about its own place in the network. The
+    # middleware publishes the facts; each algorithm reads the ones it cares about
+    # (fl: which shard am I and how many clients does the server average over).
+    # how many nodes DIAL another one — the client count of a star, which the hub needs
+    # (it aggregates over all of them) and each client needs (it takes shard k of that
+    # many). Derived from the graph, so no algorithm vocabulary leaks into the middleware.
+    dialers = sum(1 for x in topo.nodes
+                  if any(ln.a.id == x.id for ln in topo.links_of(x)))
+    os.environ.update({"UNION_NODE": nd.id, "UNION_INDEX": str(nd.index),
+                       "UNION_NODES": str(len(topo.nodes)),
+                       "UNION_ROLE_INDEX": str(role_index),
+                       "UNION_ROLE_COUNT": str(role_count),
+                       "UNION_CLIENTS": str(max(1, dialers)),
+                       "UNION_TOPOLOGY": topo.name})
+
+    is_peer = (a.role or nd.role) in ("peer", "gossip")
+    transport = _transport_for(topo, nd, peer=is_peer)
+    _set(ap, a, "peers", ",".join(x.host or "127.0.0.1" for x in topo.nodes))
+
+    if is_peer:
+        _set(ap, a, "peer_link", {"tcp": "tcp", "usrp": "wireless",
+                                  "lora": "lora"}[transport])
+        missing = [x.id for x in topo.peers_of(nd) if not x.host]
+        if missing and not _typed(ap, a, "peers"):
+            print(f"[run_algo] NOTE: {', '.join(missing)} ha"
+                  f"{'s' if len(missing) == 1 else 've'} no host in {topo.name}, so this "
+                  f"node will look for them on 127.0.0.1. That is right for several "
+                  f"processes on one machine; give --peers <host per node> otherwise.")
+    else:
+        # a point-to-point role: who do I dial, on which port, over what
+        if a.link == "auto":
+            a.link = MEDIUM_TRANSPORT[
+                "tcp" if transport == "tcp" else
+                ("lora" if transport == "lora" else "wireless")]
+        peers = topo.peers_of(nd)
+        downstream = [ln.b for ln in topo.links_of(nd) if ln.a.id == nd.id]
+        upstream = [ln.a for ln in topo.links_of(nd) if ln.b.id == nd.id]
+        if nd.role in ("server", "rx", "hub") or not downstream:
+            # I SERVE the reply: bind the address this node is reachable at, not the
+            # loopback default — a client on another machine cannot reach 127.0.0.1
+            _set(ap, a, "net_host", nd.host or "127.0.0.1")
+            _set(ap, a, "net_port", nd.port("net", 5700))
+            _set(ap, a, "clients", max(1, len(upstream) or len(peers)))
+        else:
+            hub = downstream[0]
+            if not hub.host and not _typed(ap, a, "net_host"):
+                print(f"[run_algo] NOTE: {hub.id} has no host in {topo.name}, so {nd.id} "
+                      f"will dial 127.0.0.1. That is right for both on one machine; pass "
+                      f"--net-host <address> when {hub.id} is somewhere else (a session "
+                      f"pod's address changes every session, which is why a file should "
+                      f"not carry it).")
+            _set(ap, a, "net_host", hub.host or "127.0.0.1")
+            _set(ap, a, "ack_host", hub.host or "127.0.0.1")    # the ARQ ack goes there too
+            _set(ap, a, "net_port", hub.port("net", 5700))
+            if upstream:                                        # a relay: also SERVES
+                _set(ap, a, "net_port", nd.port("net", 5700))
+                _set(ap, a, "down_host", hub.host or "127.0.0.1")
+                _set(ap, a, "down_port", hub.port("net", nd.port("net", 5700) + 1))
+
+    # the radio this node owns, and the CONNECTOR each direction uses
+    if nd.radio:
+        args = nd.radio["args"]
+        if nd.can_tx():
+            _set(ap, a, "tx_args", args)
+            _set(ap, a, "tx_ant", nd.side("tx", "ant"))
+            _set(ap, a, "tx_subdev", nd.side("tx", "subdev"))
+            _set(ap, a, "tx_gain", nd.side("tx", "gain"))
+        if nd.can_rx():
+            _set(ap, a, "rx_args", args)
+            _set(ap, a, "rx_ant", nd.side("rx", "ant"))
+            _set(ap, a, "rx_subdev", nd.side("rx", "subdev"))
+            _set(ap, a, "rx_gain", nd.side("rx", "gain"))
+        freq = nd.side("tx", "freq_mhz") or nd.side("rx", "freq_mhz")
+        _set(ap, a, "freq", freq)
+        # a run that really drives a USRP should say so, so the band check and the
+        # simulation-only warnings apply to it
+        if transport == "usrp":
+            _set(ap, a, "channel", "usrp")
+            _set(ap, a, "usrp_backend", "radio")
+    if nd.lora:
+        for key, dest in (("backend", "lora_backend"), ("port", "lora_port"),
+                          ("sf", "lora_sf"), ("cr", "lora_cr"), ("bw", "lora_bw"),
+                          ("power", "lora_power")):
+            if key in nd.lora:
+                _set(ap, a, dest, nd.lora[key])
+    return topo
+
+
+def print_plan(a, topo):
+    """What this node resolved to — the answer to 'is the file wired the way I think?'
+    without spending a run to find out."""
+    if topo is not None:
+        print(topo.summary())
+    print("\n  this node")
+    peer = (a.role or "").lower() in ("peer", "gossip")
+    radio = bool(a.tx_args or a.rx_args)
+    fields = [("algo", a.algo), ("node", a.node), ("role", a.role),
+              ("agents", a.agents), ("steps", a.steps), ("graph", a.topology),
+              ("channel", a.channel), ("link", None if peer else a.link),
+              ("peer-link", a.peer_link if peer else None),
+              ("peers", a.peers if peer else None),
+              ("peer-port", a.peer_port if peer else None),
+              ("net", None if peer else f"{a.net_host}:{a.net_port}"),
+              ("ack-host", a.ack_host if radio else None),
+              ("down", f"{a.down_host}:{a.down_port}" if a.down_host else None),
+              ("clients", a.clients), ("freq-MHz", a.freq if radio else None),
+              ("tx", f"{a.tx_args} ant={a.tx_ant} subdev={a.tx_subdev} "
+                     f"gain={a.tx_gain}" if a.tx_args else None),
+              ("rx", f"{a.rx_args} ant={a.rx_ant} subdev={a.rx_subdev} "
+                     f"gain={a.rx_gain}" if a.rx_args else None)]
+    for k, v in fields:
+        if v is not None:
+            print(f"    {k:<10} {v}")
+    env = {k: v for k, v in os.environ.items() if k.startswith("UNION_")}
+    if env:
+        print("    env        " + "  ".join(f"{k}={v}" for k, v in sorted(env.items())))
+
+
 def build_parser():
     """The CLI, as its own function so it can be inspected and tested without
     running an experiment. main() is a thin wrapper over it."""
@@ -388,10 +679,24 @@ def build_parser():
                     help="loopback | chain | gossip | multi | aircomp | tx | rx | relay | peer, "
                          "or any role the algorithm declares in ROLES (e.g. client / server). "
                          "Case-insensitive. Defaults to loopback, or to peer when --node is given.")
-    ap.add_argument("--node", type=int, default=None,
-                    help="run ONE node of a decentralised network as this process: which "
-                         "node am I (0-based). Implies --role peer; --agents says how many "
-                         "nodes there are and --topology which of them I exchange with.")
+    ap.add_argument("--node", default=None, metavar="K|NAME",
+                    help="which node of the experiment am I: a 0-based index, or the id "
+                         "of a node in the --topology file. Implies --role peer unless "
+                         "the file gives this node a role; --agents says how many nodes "
+                         "there are and --topology which of them I exchange with.")
+    ap.add_argument("--link", default="auto", choices=["auto", "tcp", "usrp", "lora"],
+                    help="how the two ends of a point-to-point role (--role tx/rx/relay, "
+                         "or an algorithm's client/server) are attached: tcp (plain "
+                         "TCP/IP — no radio at all), usrp (over the air, reply over TCP), "
+                         "lora. 'auto' follows --channel, which is the older behaviour. "
+                         "A --topology file sets this per link.")
+    ap.add_argument("--clients", type=int, default=None,
+                    help="--link tcp, server end: how many clients the hub collects from "
+                         "before it answers (one FedAvg round). Taken from the topology "
+                         "file when there is one.")
+    ap.add_argument("--print-plan", action="store_true",
+                    help="print the topology and the settings this node resolves to, "
+                         "then exit without running anything")
     ap.add_argument("--peers", default="",
                     help="comma-separated host per node, indexed by node id "
                          "(default: all 127.0.0.1, i.e. several terminals on this machine)")
@@ -416,8 +721,12 @@ def build_parser():
     ap.add_argument("--relays", type=int, default=1,
                     help="number of relay nodes between the two ends (--role chain)")
     ap.add_argument("--topology", default="ring",
-                    help="peer graph for --role gossip: ring (default) | full | an explicit "
-                         "edge list such as 0-1,1-2,2-0 (any graph, e.g. a line or a star)")
+                    help="THE WIRING. A built-in graph (ring | full), an explicit edge "
+                         "list such as 0-1,1-2,2-0, or the name of a topology file in "
+                         "/workspace/experiments/topologies (e.g. fl-star-tcp) — which "
+                         "additionally says what radio each node owns, which connector "
+                         "it uses, which port it listens on and how each link is "
+                         "carried. Anything typed on the command line wins over it.")
     # ── the one RF knob both radios genuinely share: where in the band we sit ──
     ap.add_argument("--freq", type=float, default=915.0, metavar="MHz",
                     help="centre frequency in MHz (default 915). Both PHYs use it. The "
@@ -531,9 +840,21 @@ def build_parser():
 def main():
     ap = build_parser()
     a = ap.parse_args()
+    a.role_index = None
+    a._typed = _typed_flags(ap)         # what was actually typed, vs what merely defaulted
+
+    # the wiring file, when --topology names one: it fills in everything about THIS node
+    # that was not typed on the command line (role, ports, hosts, radio, medium).
+    topo = apply_topology(ap, a)
+    if a.node is not None:
+        a.node = int(a.node)                # a name has been resolved to its index
 
     if a.role is None:                      # --node 3 alone means "I am one peer of the network"
         a.role = "peer" if a.node is not None else "loopback"
+
+    if a.print_plan:
+        print_plan(a, topo)
+        return
 
     if a.radio:                             # one flag names the radio this node process owns
         dev = device_args(a.radio)
@@ -649,13 +970,19 @@ def main():
         # name. WHICH PHY carries it is --channel, exactly as for the group runners: the
         # roles are the middleware's, not any one driver's.
         link = build_link(a, transport)
-        app = factory(algo_role)
+        app = factory(algo_role, index=a.role_index, total=a.clients)
         n = 0
-        while link.step(app):
-            n += 1
-            if transport == "tx" and n >= a.steps:
-                break
-        print(f"[run_algo] radio {algo_role} ({transport}) done: {n} steps")
+        try:
+            while link.step(app):
+                n += 1
+                if transport == "tx" and n >= a.steps:
+                    break
+        finally:
+            # a node that stops because it ran out of --steps still owes the other end a
+            # goodbye — without it the far side waits for a round that never comes
+            if callable(getattr(link, "close", None)):
+                link.close()
+        print(f"[run_algo] {algo_role} ({transport}) done: {n} steps")
 
     # What did the PHY actually cost? For LoRa this is the headline number — the
     # airtime an experiment would really have spent on the air.

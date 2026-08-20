@@ -288,6 +288,42 @@ set it on both sides). Per-scheme gains tuned over the air are in §5.
          --down-host <SERVER_IP> --down-port 5701                # the middle node
 ```
 
+### The whole experiment in one file (`--topology`)
+
+Every command above types one node's wiring on one machine. A topology file holds all of
+it — what radio each node owns, which connector and RF channel it uses, which port it
+listens on, and whether each link goes over the air or over TCP/IP — and every node reads
+the same file, saying only which node it is. The examples live in
+`/workspace/experiments/topologies/` (seeded by `deploy/workspace/init-workspace.sh`).
+
+```bash
+./run.sh topologies                       # what wirings exist, with descriptions
+./run.sh --algo fl --topology fl-star-tcp --node c0 --print-plan   # resolve, run nothing
+
+# federated learning with NO RADIO — every link over plain TCP/IP. Server first.
+./run.sh --algo fl --topology fl-star-tcp --node srv          # on the server's machine
+./run.sh --algo fl --topology fl-star-tcp --node c0           # on client 0's
+./run.sh --algo fl --topology fl-star-tcp --node c1           # on client 1's
+./run.sh topology fl-star-tcp                                 # ...or all of them here
+
+# decentralized learning, 3 peers in a ring, one process per node
+./run.sh --algo dl --topology dl-ring3-tcp --node n0
+./run.sh --algo dl --topology dl-ring3-tcp --node n1
+./run.sh --algo dl --topology dl-ring3-tcp --node n2
+
+# the same federated star on the radios: B210 clients transmit, the RX-only N210
+# answers over TCP — which is what the file's {"up":"wireless","down":"tcp"} means
+./run.sh --algo fl --topology fl-star-radio --node srv
+./run.sh --algo fl --topology fl-star-radio --node c0
+
+# anything you type still wins over the file
+./run.sh --algo fl --topology fl-star-radio --node c0 --steps 40 --tx-gain 65
+```
+
+Without a file, the same two transports are reachable by flag: `--link tcp` runs the
+client/server roles over plain TCP/IP with no radio (`fl.py --uplink tcp --downlink tcp`),
+and `--clients N` tells a server how many clients to collect from before it aggregates.
+
 ### Every PHY variable is reachable here too
 
 The named flags cover what most experiments touch. For anything else, each PHY has a

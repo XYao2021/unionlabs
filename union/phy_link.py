@@ -884,3 +884,160 @@ class RadioRoundTrip:
         if msg is not None: app.consume(msg)
         self._tcp_serve_once(self._pack(app, app.produce()))
         return True
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  The same star, carried by plain TCP/IP — the transport a rig with no antennas has
+# ══════════════════════════════════════════════════════════════════════════════
+class TcpStar:
+    """N clients and one server (the hub), every exchange over TCP/IP.
+
+    WHY THIS EXISTS. RadioRoundTrip is the radio path: the request goes over the air and
+    only the reply comes back over TCP, because our N210 is receive-only. A testbed with
+    no antenna attached cannot run it at all — and that is the common case, so the same
+    experiment has to be runnable with the radio taken out of the loop. This is fl.py's
+    `--uplink tcp --downlink tcp` as a phy_link transport, so `--algo fl` reaches it
+    through the ordinary role split instead of a second program.
+
+    ONE ROUND = the server collects one payload from EVERY live client, mixes them once
+    (the algorithm's produce()), and answers all of them with that same result. That is
+    what FedAvg means, and it is why the hub cannot simply be a two-node link repeated:
+    a server that produced after each single client would average one model at a time.
+
+        client k:  produce() -> hub  ->  wait  ->  consume(the global model)
+        server:    consume(model) x N  ->  produce() once  ->  same reply to all N
+
+    A client that has finished (produce() returns None) sends a zero-length frame and
+    leaves; the server counts down and stops when the last one has gone, so both ends
+    terminate on their own without anyone being told how many rounds the other will do.
+    """
+
+    def __init__(self, role, hub_host="127.0.0.1", hub_port=5700, clients=1, node_id=0,
+                 bind_host="0.0.0.0", connect_timeout=120.0, round_timeout=600.0):
+        import socket, struct as _st
+        self.socket, self._st = socket, _st
+        self._said_done = False
+        self.role = "rx" if role in ("rx", "server", "hub") else "tx"
+        self.hub_host, self.hub_port = hub_host, int(hub_port)
+        self.clients, self.id = max(1, int(clients)), int(node_id)
+        self.connect_timeout, self.round_timeout = float(connect_timeout), float(round_timeout)
+        self._live = set(range(self.clients))     # client indices that have not said done
+        self._srv = None
+        if self.role == "rx":
+            self._srv = socket.socket()
+            self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._srv.bind((bind_host, self.hub_port))
+            self._srv.listen(max(8, self.clients))
+            self._srv.settimeout(self.round_timeout)
+            print(f"[tcp] hub on {bind_host}:{self.hub_port}, waiting for "
+                  f"{self.clients} client(s)")
+        else:
+            print(f"[tcp] client {self.id} -> hub {self.hub_host}:{self.hub_port}")
+
+    # ── framing: length + sender, so the hub knows who spoke and who is done ──
+    def _recvn(self, sock, n):
+        b = b""
+        while len(b) < n:
+            c = sock.recv(n - len(b))
+            if not c:
+                raise ConnectionError("peer closed")
+            b += c
+        return b
+
+    def _send(self, sock, buf):
+        sock.sendall(self._st.pack(">IH", len(buf), self.id) + buf)
+
+    def _read(self, sock):
+        n, src = self._st.unpack(">IH", self._recvn(sock, 6))
+        return src, (self._recvn(sock, n) if n else b"")
+
+    def _connect(self):
+        """The hub may be started a moment later, or a pod may still be scheduling."""
+        import time
+        deadline = time.time() + self.connect_timeout
+        while True:
+            try:
+                return self.socket.create_connection((self.hub_host, self.hub_port),
+                                                     timeout=10.0)
+            except OSError:
+                if time.time() > deadline:
+                    raise ConnectionError(
+                        f"hub {self.hub_host}:{self.hub_port} never came up "
+                        f"({self.connect_timeout:.0f}s) — start the server node first")
+                time.sleep(0.25)
+
+    # ── one round ────────────────────────────────────────────────────────────
+    def step(self, app):
+        if self.role == "tx":
+            x = app.produce()
+            s = self._connect()
+            try:
+                if x is None:                       # finished: tell the hub, then leave
+                    self._send(s, b"")
+                    self._said_done = True
+                    return False
+                self._send(s, Codec.pack(app.spec.check(x)))
+                _, buf = self._read(s)
+                reply = _safe_unpack(buf, app.spec) if buf else None
+                if reply is not None:
+                    app.consume(reply)
+                app.on_result(reply is not None)
+            finally:
+                s.close()
+            return True
+
+        # ── the hub: one payload from every live client, then one answer to all ──
+        waiting, payloads = [], []
+        while self._live and len(waiting) < len(self._live):
+            try:
+                conn, _ = self._srv.accept()
+            except self.socket.timeout:
+                raise ConnectionError(
+                    f"no client contacted the hub within {self.round_timeout:.0f}s "
+                    f"({len(self._live)} still expected)")
+            try:
+                src, buf = self._read(conn)
+            except (ConnectionError, OSError):
+                conn.close()
+                continue
+            if not buf:                              # that client is done for good
+                self._live.discard(src)
+                conn.close()
+                continue
+            waiting.append(conn)
+            payloads.append((src, buf))
+        if not payloads:
+            return False                             # every client has finished
+        for src, buf in payloads:
+            msg = _safe_unpack(buf, app.spec)
+            if msg is not None:
+                app.consume(msg)
+        y = app.produce()
+        out = Codec.pack(app.spec.check(y)) if y is not None else b""
+        for conn in waiting:
+            try:
+                self._send(conn, out)
+            except OSError:
+                pass
+            finally:
+                conn.close()
+        app.on_result(y is not None)
+        return y is not None
+
+    def close(self):
+        """A client that stops because it ran out of --steps has not told the hub, which
+        would then wait for a round that is never coming. Saying goodbye is part of
+        shutting down, not something the round loop can be relied on to reach."""
+        if self.role == "tx" and not self._said_done:
+            try:
+                s = self.socket.create_connection((self.hub_host, self.hub_port),
+                                                  timeout=5.0)
+                try:
+                    self._send(s, b"")
+                    self._said_done = True
+                finally:
+                    s.close()
+            except OSError:
+                pass                                 # the hub is already gone: fine
+        if self._srv is not None:
+            self._srv.close()

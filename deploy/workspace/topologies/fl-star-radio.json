@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "name": "fl-star-radio",
+  "algo": "fl",
+  "description": "The same federated star on the lab rig: two TX-only B210 clients transmit their models over the air to the RX-only N210 server, which answers over TCP/IP.",
+  "defaults": {
+    "steps": 20,
+    "scheme": "DQPSK",
+    "fec": "turbo",
+    "freq_mhz": 915,
+    "samp_rate": 2000000,
+    "symbol_rate": 1000000
+  },
+  "nodes": [
+    {
+      "id": "srv",
+      "role": "server",
+      "host": "192.168.10.1",
+      "ports": { "net": 5700, "ack": 5599 },
+      "radio": {
+        "device": "n210",
+        "args": "addr=192.168.10.2",
+        "rx": { "ant": "RX2", "subdev": "A:0", "gain": 25 },
+        "note": "RX ONLY on purpose — the N210 in this rig never transmits, which is why the downlink below is tcp"
+      }
+    },
+    {
+      "id": "c0",
+      "role": "client",
+      "host": "192.168.10.1",
+      "radio": {
+        "device": "b210",
+        "args": "serial=30CD424",
+        "tx": { "ant": "TX/RX", "subdev": "A:A", "gain": 78 }
+      }
+    },
+    {
+      "id": "c1",
+      "role": "client",
+      "host": "192.168.10.1",
+      "radio": {
+        "device": "b210",
+        "args": "serial=30CD3F7",
+        "tx": { "ant": "TX/RX", "subdev": "A:A", "gain": 78 }
+      }
+    }
+  ],
+  "links": [
+    { "from": "c0", "to": "srv", "medium": { "up": "wireless", "down": "tcp" },
+      "note": "up: B210 TX/RX -> N210 RX2 over the air. down: the aggregate comes back over TCP, and so does the ARQ ack — the N210 transmits nothing." },
+    { "from": "c1", "to": "srv", "medium": { "up": "wireless", "down": "tcp" } }
+  ]
+}

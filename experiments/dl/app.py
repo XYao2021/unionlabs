@@ -24,6 +24,15 @@ RUN  (topology is the experimenter's choice: ring by default, fully connected, o
     ./run.sh --algo dl --role gossip --agents 6 --steps 20 --topology 0-1,1-2,2-3,3-4,4-5
     ./run.sh --algo dl --role gossip --agents 6 --steps 20 --channel pyphy --snr-db 8
 
+    # THE WHOLE RING FROM ONE FILE — the graph, the ports and the medium of every
+    # link are in /workspace/experiments/topologies/dl-ring3-tcp.json; each node says
+    # only which node it is (DL_NODE_ID / DL_NODES come from the file):
+    ./run.sh --algo dl --topology dl-ring3-tcp --node n0
+    ./run.sh --algo dl --topology dl-ring3-tcp --node n1
+    ./run.sh --algo dl --topology dl-ring3-tcp --node n2
+    ./run.sh topology dl-ring3-tcp          # ...or every node that lives on this box
+    ./run.sh --algo dl --topology dl-pair-wireless --node n0    # two peers over the air
+
     # EACH NODE AS ITS OWN PROCESS — one terminal (or one computer) per node.
     # Every node is told which node it is, how many there are, and the graph; from that
     # they all derive the same exchange schedule, so no coordinator is needed. Over TCP,
@@ -95,8 +104,12 @@ class Peer:
     def __init__(self, role, index=None, total=None):
         # index/total come from the group runner; the env vars cover the separate-process
         # case, where each host is started by hand and has to be told which shard is its own
-        self.id = _env("DL_NODE_ID", int, 0) if index is None else int(index)
-        self.n_nodes = _env("DL_NODES", int, 2) if total is None else int(total)
+        # index/total come from the group runner; standalone (--node k) they come from
+        # DL_NODE_ID/DL_NODES, or from the place a topology file gives this node.
+        self.id = (_env("DL_NODE_ID", int, _env("UNION_INDEX", int, 0))
+                   if index is None else int(index))
+        self.n_nodes = (_env("DL_NODES", int, _env("UNION_NODES", int, 2))
+                        if total is None else int(total))
         self.role, self.rounds, self.r = role, ROUNDS, 0
         Xtr, ytr, self.Xte, self.yte = get_dataset(synthetic=bool(SYNTHETIC), seed=0)
         split = label_shards if NONIID else iid_shards

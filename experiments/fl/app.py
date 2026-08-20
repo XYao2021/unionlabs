@@ -24,6 +24,17 @@ RUN
     # radio-free, both ends in one process (lossless channel):
     ./run.sh --algo fl --role loopback --steps 20
 
+    # THE WHOLE STAR FROM ONE FILE — 1 server + 2 clients, every link over TCP/IP
+    # (no radio needed). Each node reads the same file and says only which node it is:
+    ./run.sh --algo fl --topology fl-star-tcp --node srv      # start the server first
+    ./run.sh --algo fl --topology fl-star-tcp --node c0
+    ./run.sh --algo fl --topology fl-star-tcp --node c1
+    ./run.sh topology fl-star-tcp             # ...or every node that lives on this box
+    # the same star on the radios (B210 clients -> RX-only N210, reply over TCP):
+    ./run.sh --algo fl --topology fl-star-radio --node srv
+    # which client am I, and how many are there, then come from the file — no
+    # FL_CLIENT_ID / FL_CLIENTS to keep in step by hand.
+
     # radio-free, but through the REAL modem + AWGN:
     ./run.sh --algo fl --role loopback --steps 20 --channel pyphy --snr-db 8
 
@@ -72,13 +83,20 @@ def _env(name, cast, default):
     return default if v is None or v == "" else cast(v)
 
 
+# Which client am I, and how many are there? Typed as FL_CLIENT_ID / FL_CLIENTS, or —
+# when the run is wired by a topology file — published by the middleware as this node's
+# place among the nodes that share its role. The algorithm's own variables still win, so
+# nothing that worked before changes.
+FL_ROLE_INDEX = _env("UNION_ROLE_INDEX", int, 0)
+FL_ROLE_COUNT = _env("UNION_ROLE_COUNT", int, 1)
+
 HIDDEN      = _env("FL_HIDDEN", int, 64)
 ROUNDS      = _env("FL_ROUNDS", int, 20)
 LOCAL_STEPS = _env("FL_LOCAL_STEPS", int, 30)
 LR          = _env("FL_LR", float, 0.1)
 BATCH       = _env("FL_BATCH", int, 64)
-CLIENTS     = _env("FL_CLIENTS", int, 1)
-CLIENT_ID   = _env("FL_CLIENT_ID", int, 0)
+CLIENTS     = _env("FL_CLIENTS", int, _env("UNION_CLIENTS", int, FL_ROLE_COUNT))
+CLIENT_ID   = _env("FL_CLIENT_ID", int, FL_ROLE_INDEX)
 SYNTHETIC   = _env("FL_SYNTHETIC", int, 0)
 
 

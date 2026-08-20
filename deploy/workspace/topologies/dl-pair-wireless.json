@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "name": "dl-pair-wireless",
+  "algo": "dl",
+  "description": "The smallest decentralized network over the air: two peers, each with a radio that both transmits and receives, exchanging models directly.",
+  "defaults": {
+    "steps": 10,
+    "scheme": "DQPSK",
+    "fec": "turbo",
+    "freq_mhz": 915
+  },
+  "nodes": [
+    {
+      "id": "n0",
+      "role": "peer",
+      "host": "192.168.10.1",
+      "ports": { "peer": 5800 },
+      "radio": {
+        "device": "b210",
+        "args": "serial=30CD424",
+        "tx": { "ant": "TX/RX", "subdev": "A:A", "gain": 78 },
+        "rx": { "ant": "RX2", "subdev": "A:A", "gain": 20 }
+      }
+    },
+    {
+      "id": "n1",
+      "role": "peer",
+      "host": "192.168.10.1",
+      "ports": { "peer": 5801 },
+      "radio": {
+        "device": "b210",
+        "args": "serial=30CD3F7",
+        "tx": { "ant": "TX/RX", "subdev": "A:A", "gain": 78 },
+        "rx": { "ant": "RX2", "subdev": "A:A", "gain": 20 }
+      }
+    }
+  ],
+  "links": [
+    { "from": "n0", "to": "n1", "medium": "wireless",
+      "note": "both directions over the air: each peer transmits its own model and receives its neighbour's, one exchange at a time (half duplex)" }
+  ]
+}

@@ -39,6 +39,9 @@ experiments/marl_multi/real_run_rewards.txt
 results/**/*.pt
 results/**/*.pt.tmp
 
+# Per-node logs from ./run.sh topology <name> — one file per node, regenerable
+results/topology/
+
 # Python bytecode
 __pycache__/
 *.pyc

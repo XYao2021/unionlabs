@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "name": "fl-star-tcp",
+  "algo": "fl",
+  "description": "START HERE. Federated learning, 1 server + 2 clients, every link over plain TCP/IP — the wiring for a testbed with no antenna attached.",
+  "defaults": {
+    "channel": "ideal",
+    "steps": 20,
+    "medium": "tcp"
+  },
+  "nodes": [
+    {
+      "id": "srv",
+      "role": "server",
+      "host": "127.0.0.1",
+      "ports": { "net": 5700 },
+      "note": "the hub: collects one model from EVERY client, FedAvgs once, answers all of them with the same global model. Start this node first."
+    },
+    {
+      "id": "c0",
+      "role": "client",
+      "host": "127.0.0.1",
+      "note": "no radio section: this node has no USRP and needs none, because both directions of its link are tcp"
+    },
+    {
+      "id": "c1",
+      "role": "client",
+      "host": "127.0.0.1"
+    }
+  ],
+  "links": [
+    { "from": "c0", "to": "srv", "medium": "tcp", "note": "up = c0 -> srv (the local model), down = srv -> c0 (the aggregate)" },
+    { "from": "c1", "to": "srv", "medium": "tcp" }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "name": "dl-ring3-tcp",
+  "algo": "dl",
+  "description": "Decentralized learning: 3 peers in a ring, no server, every exchange over TCP/IP. Node k listens on 5800+k.",
+  "defaults": {
+    "channel": "ideal",
+    "steps": 20,
+    "medium": "tcp"
+  },
+  "nodes": [
+    { "id": "n0", "role": "peer", "host": "127.0.0.1", "ports": { "peer": 5800 } },
+    { "id": "n1", "role": "peer", "host": "127.0.0.1", "ports": { "peer": 5801 } },
+    { "id": "n2", "role": "peer", "host": "127.0.0.1", "ports": { "peer": 5802 } }
+  ],
+  "links": [
+    { "from": "n0", "to": "n1", "medium": "tcp", "note": "the node named first speaks first — that ordering IS the schedule" },
+    { "from": "n1", "to": "n2", "medium": "tcp" },
+    { "from": "n2", "to": "n0", "medium": "tcp" }
+  ]
+}
