@@ -489,7 +489,7 @@ def available():
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) < 2:
+    if len(sys.argv) < 2 or not sys.argv[1].strip():
         print("topologies found:")
         for p in available():
             print("  " + p)

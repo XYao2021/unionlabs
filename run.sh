@@ -68,7 +68,10 @@ if [ "${1:-}" = "topology" ] || [ "${1:-}" = "topo" ]; then
   exec python3 "$HERE/union/run_topology.py" "$@"
 fi
 if [ "${1:-}" = "topologies" ]; then
-  exec python3 "$HERE/union/topology.py" "${2:-}"
+  # no argument = list them all; a name = show that one's wiring. Passing "${2:-}"
+  # handed the lister an EMPTY NAME to look up, which it correctly failed to find.
+  shift
+  exec python3 "$HERE/union/topology.py" "$@"
 fi
 if [ "${1:-}" = "list" ]; then
   echo "algorithms in $HERE/experiments/ :"
