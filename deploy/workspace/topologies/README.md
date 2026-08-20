@@ -57,6 +57,8 @@ machines. The four files here are meant to be copied and edited:
 |---|---|
 | `fl-star-tcp.json` | FedAvg, 1 server + 2 clients, all TCP/IP — **no radio needed** |
 | `fl-star-radio.json` | the same star on the lab rig: TX-only B210s → RX-only N210, reply over TCP |
+| `fl-chain-tcp.json` | a 3-node chain, client → relay → server, all TCP/IP |
+| `fl-chain-mixed.json` | the same chain with **one hop over the air and the next over Ethernet** |
 | `dl-ring3-tcp.json` | decentralised learning, 3 peers in a ring, all TCP/IP |
 | `dl-pair-wireless.json` | two peers exchanging over the air, taking turns |
 
@@ -117,6 +119,45 @@ transmits over the air (`up: wireless`) and the server answers over TCP (`down: 
 because the N210 never transmits — the same thing `fl.py --uplink wireless --downlink
 tcp` has always meant.
 
+### The medium belongs to the LINK, not to the experiment
+
+Every hop chooses its own carrier, so a chain can change medium half way:
+
+```json
+"links": [
+  { "from": "n1", "to": "n2", "medium": { "up": "wireless", "down": "tcp" } },
+  { "from": "n2", "to": "n3", "medium": "tcp" }
+]
+```
+
+`n1` transmits to `n2` over the air and `n2` answers over TCP; `n2` then forwards to `n3`
+over TCP entirely. That is `fl-chain-mixed.json`, and it is the shape our rig actually
+allows: one B210 transmitting, one RX-only N210 receiving, and everything past the N210
+reached over Ethernet — because the N210 has nothing to transmit with.
+
+The middle node's two hops are read from the links themselves: the link where it is `to`
+is its **upstream** hop, the link where it is `from` is its **downstream** hop. So
+`from → to` points downstream, along the direction data travels.
+
+| Its hops | What carries them |
+|---|---|
+| wireless in, wireless out | `RadioRoundTrip` — the all-RF relay that already existed |
+| **wireless in, tcp out** | `ChainRelay` — receives over the ARQ byte-pipe, forwards over TCP |
+| **tcp in, wireless out** | `ChainRelay` — the other way round |
+| tcp in, tcp out | `ChainRelay` — no radio anywhere in the chain |
+
+Each leg speaks whatever its NEIGHBOUR speaks, which is why the medium cannot be a
+property of a node: `n2`'s downstream leg is the client of `n3`'s server, so it must
+frame its bytes the way `n3` reads them.
+
+**Replies always come back over TCP.** `down: wireless` is refused, by name, rather than
+half-honoured — the RX-only N210 never transmits, which is the whole reason the split
+exists. Two peers of a decentralised graph are the exception: they take turns, so
+`dl-pair-wireless.json` may use RF in both directions.
+
+Without a file the same thing is reachable by flag:
+`--link chain --up-medium wireless --down-medium tcp`.
+
 ### defaults
 
 Experiment-wide knobs, applied to every node unless typed on the command line:
@@ -173,9 +214,11 @@ an error naming the wrong layer:
 - a misspelled key anywhere (silently ignoring one is how a run ends up wired the way
   nobody asked)
 - a `tcp` link to a node with no `host`, where the caller is not local
-- both directions of a point-to-point link over the air: the USRP round trip carries its
-  reply over TCP, so this is refused rather than half-honoured. Two peers of a
-  decentralised graph MAY use RF both ways — they take turns.
+- a reply direction (`down`) asked to go over the air: every transport here carries the
+  reply over TCP. Two peers of a decentralised graph MAY use RF both ways — they take
+  turns.
+- a node receiving over two different media at once, or transmitting over two — a node is
+  attached one way per direction
 
 `union/test_topology.py` walks each of these, and each setting's full path (file in →
 constructed link out); `./run.sh selftest` runs it, and then runs `fl-star-tcp` and

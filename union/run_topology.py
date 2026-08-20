@@ -92,8 +92,15 @@ def main():
         sys.exit(f"\nno node of {topo.name} runs on this machine "
                  f"(hosts: {', '.join(sorted({n.host or '127.0.0.1' for n in topo.nodes}))})"
                  f"\nrun each node on its own machine, or pass --all to start them here.")
-    # listeners first: a node that only ever receives has to be up before its callers
-    nodes.sort(key=lambda nd: (any(ln.a.id == nd.id for ln in topo.links_of(nd)), nd.index))
+    # Downstream first. A node is only reachable once the node it dials is listening, so
+    # start the sinks (nothing downstream), then the relays, then the pure sources. Every
+    # transport retries its connect for a while, so a wrong order costs seconds rather
+    # than the run — but a chain started backwards spends them on every hop.
+    def stage(nd):
+        out = any(ln.a.id == nd.id for ln in topo.links_of(nd))
+        inc = any(ln.b.id == nd.id for ln in topo.links_of(nd))
+        return (0 if not out else (1 if inc else 2), nd.index)
+    nodes.sort(key=stage)
 
     logs = a.logs or os.path.join(REPO, "results", "topology", topo.name)
     os.makedirs(logs, exist_ok=True)

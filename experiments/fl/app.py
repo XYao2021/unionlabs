@@ -32,6 +32,9 @@ RUN
     ./run.sh topology fl-star-tcp             # ...or every node that lives on this box
     # the same star on the radios (B210 clients -> RX-only N210, reply over TCP):
     ./run.sh --algo fl --topology fl-star-radio --node srv
+    # a chain whose hops use DIFFERENT media — n1 --air--> n2 --TCP--> n3, which is what
+    # an RX-only N210 in the middle can do (start downstream first):
+    ./run.sh --algo fl --topology fl-chain-mixed --node n3
     # which client am I, and how many are there, then come from the file — no
     # FL_CLIENT_ID / FL_CLIENTS to keep in step by hand.
 

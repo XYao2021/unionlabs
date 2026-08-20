@@ -282,9 +282,7 @@ def build_link(a, transport):
                      "can reach the server directly — link it straight to the hub.")
         n_clients = a.clients if a.clients else 1
         return pl.TcpStar(role=transport, hub_host=a.net_host, hub_port=a.net_port,
-                          clients=n_clients,
-                          node_id=(a.role_index if getattr(a, "role_index", None)
-                                   is not None else int(a.node or 0)))
+                          clients=n_clients, node_id=_hub_index(a))
     if kind == "lora" or link_kind == "lora":
         sys.path.insert(0, os.path.join(REPO, "drivers", "lora", "python"))
         import lora_driver
@@ -295,12 +293,39 @@ def build_link(a, transport):
                                     snr_db=a.snr_db, verbose=a.lora_verbose,
                                     max_attempts=(8 if a.max_attempts is None
                                                   else a.max_attempts), arq=a.arq)
+    if link_kind == "chain":
+        # A RELAY WHOSE TWO HOPS DIFFER. Each leg speaks what its neighbour speaks, so
+        # the media are the hops' business, not the node's.
+        up = a.up_medium or "wireless"
+        down = a.down_medium or "tcp"
+        radio = _radio_link(a, "relay") if "wireless" in (up, down) else None
+        return pl.ChainRelay(up_medium=up, down_medium=down, radio=radio,
+                             serve_host="0.0.0.0", serve_port=a.net_port,
+                             down_host=(a.down_host or a.net_host),
+                             down_port=(a.down_port or a.net_port + 1),
+                             node_id=_hub_index(a))
     if kind == "ideal" and link_kind == "auto":
         # --channel has never applied to the point-to-point roles, which always meant
         # the USRP link. Keep every existing command working, and say which PHY it got.
         print(f"[run_algo] --role {transport} with no --channel: using the USRP link "
               f"(drivers/usrp). Add --channel lora for the LoRa link, or --link tcp to "
               f"run the same roles over TCP/IP with no radio.")
+    return _radio_link(a, transport)
+
+
+def _hub_index(a):
+    """This node's index among the clients of the node it dials — what it stamps its
+    frames with. Falls back to its place in its own role group, then to --node."""
+    for attr in ("hub_index", "role_index"):
+        v = getattr(a, attr, None)
+        if v is not None:
+            return int(v)
+    return int(a.node or 0)
+
+
+def _radio_link(a, transport):
+    """The USRP link: request over the air, reply over TCP. Its own function because a
+    ChainRelay borrows it for whichever of its two hops is wireless."""
     return pl.RadioRoundTrip(role=transport, tx_args=a.tx_args, rx_args=a.rx_args,
                              ack_host=a.ack_host, net_host=a.net_host,
                              net_port=a.net_port, scheme=a.scheme, waveform=a.waveform,
@@ -478,31 +503,22 @@ def _node_media(topo, nd):
     return out, inc
 
 
-def _transport_for(topo, nd, peer=False):
-    """Which of our transports carries this node's links: tcp | usrp | lora.
+def _peer_transport(topo, nd):
+    """Which transport carries a DECENTRALISED node's exchanges: tcp | usrp | lora.
 
-    `peer` says this node is one of a decentralised graph. That is the case where BOTH
-    directions may be wireless: PeerLink walks the shared edge schedule, so one end
-    transmits while the other listens and they swap — never at the same instant, which
-    is all a half-duplex radio can do. The point-to-point roles are different: their
-    reply comes back over TCP by construction (RadioRoundTrip, as fl.py does), so a
-    link that asks for RF in both directions is refused rather than half-honoured."""
+    A peer is the one case where both directions may be wireless: PeerLink walks the
+    shared edge schedule, so one end transmits while the other listens and then they
+    swap — never at the same instant, which is all a half-duplex radio can do. The
+    point-to-point roles resolve their media per HOP instead (see apply_topology), since
+    a relay's two hops need not agree."""
     out, inc = _node_media(topo, nd)
     media = out | inc
     if media == {"tcp"}:
         return "tcp"
-    if media <= {"wireless", "tcp"} and "wireless" in media:
-        if out == {"wireless"} and inc == {"wireless"}:
-            if peer:
-                return "usrp"
-            sys.exit(f"--topology {topo.name}: node {nd.id} both transmits and receives "
-                     f"over the air, but the USRP link carries its reply over TCP "
-                     f"(RadioRoundTrip, as fl.py does) — a full-duplex RF round trip is "
-                     f"not implemented. Set that link's down medium to tcp, or make "
-                     f"these nodes peers of a decentralised graph, which takes turns.")
-        return "usrp"
     if media == {"lora"}:
         return "lora"
+    if media <= {"wireless", "tcp"} and "wireless" in media:
+        return "usrp"
     sys.exit(f"--topology {topo.name}: node {nd.id} has links over "
              f"{', '.join(sorted(media))} — one node is attached one way. Split it into "
              f"two topologies, or give its links a single medium.")
@@ -555,11 +571,14 @@ def apply_topology(ap, a):
     # what the algorithm needs to know about its own place in the network. The
     # middleware publishes the facts; each algorithm reads the ones it cares about
     # (fl: which shard am I and how many clients does the server average over).
-    # how many nodes DIAL another one — the client count of a star, which the hub needs
-    # (it aggregates over all of them) and each client needs (it takes shard k of that
-    # many). Derived from the graph, so no algorithm vocabulary leaks into the middleware.
+    # How many nodes ORIGINATE data — the client count a server aggregates over, and the
+    # number of shards the data is split into. A node that both receives and sends is a
+    # relay carrying somebody else's payload, not a source of its own, so counting every
+    # node that dials would make a 3-node chain look like 2 clients. Derived from the
+    # graph, so no algorithm vocabulary leaks into the middleware.
     dialers = sum(1 for x in topo.nodes
-                  if any(ln.a.id == x.id for ln in topo.links_of(x)))
+                  if any(ln.a.id == x.id for ln in topo.links_of(x))
+                  and not any(ln.b.id == x.id for ln in topo.links_of(x)))
     os.environ.update({"UNION_NODE": nd.id, "UNION_INDEX": str(nd.index),
                        "UNION_NODES": str(len(topo.nodes)),
                        "UNION_ROLE_INDEX": str(role_index),
@@ -568,8 +587,9 @@ def apply_topology(ap, a):
                        "UNION_TOPOLOGY": topo.name})
 
     is_peer = (a.role or nd.role) in ("peer", "gossip")
-    transport = _transport_for(topo, nd, peer=is_peer)
+    transport = _peer_transport(topo, nd) if is_peer else None
     _set(ap, a, "peers", ",".join(x.host or "127.0.0.1" for x in topo.nodes))
+    uses_rf = False
 
     if is_peer:
         _set(ap, a, "peer_link", {"tcp": "tcp", "usrp": "wireless",
@@ -581,22 +601,62 @@ def apply_topology(ap, a):
                   f"node will look for them on 127.0.0.1. That is right for several "
                   f"processes on one machine; give --peers <host per node> otherwise.")
     else:
-        # a point-to-point role: who do I dial, on which port, over what
-        if a.link == "auto":
-            a.link = MEDIUM_TRANSPORT[
-                "tcp" if transport == "tcp" else
-                ("lora" if transport == "lora" else "wireless")]
-        peers = topo.peers_of(nd)
-        downstream = [ln.b for ln in topo.links_of(nd) if ln.a.id == nd.id]
-        upstream = [ln.a for ln in topo.links_of(nd) if ln.b.id == nd.id]
-        if nd.role in ("server", "rx", "hub") or not downstream:
-            # I SERVE the reply: bind the address this node is reachable at, not the
-            # loopback default — a client on another machine cannot reach 127.0.0.1
-            _set(ap, a, "net_host", nd.host or "127.0.0.1")
+        # ── a point-to-point role: EVERY HOP HAS ITS OWN MEDIUM ──
+        # A link is ordered from -> to, so `up` is the medium that carries the DATA and
+        # `down` the one that carries the reply. Links where this node is `to` bring
+        # data in; links where it is `from` take data out. A relay has both, and the
+        # two need not agree — that is the whole point.
+        in_links = [ln for ln in topo.links_of(nd) if ln.b.id == nd.id]
+        out_links = [ln for ln in topo.links_of(nd) if ln.a.id == nd.id]
+        arrives = {ln.up for ln in in_links}
+        leaves = {ln.up for ln in out_links}
+        replies = {ln.down for ln in in_links} | {ln.down for ln in out_links}
+        for what, media in (("receives on", arrives), ("transmits on", leaves)):
+            if len(media) > 1:
+                sys.exit(f"--topology {topo.name}: node {nd.id} {what} "
+                         f"{', '.join(sorted(media))} at once. A node is attached one "
+                         f"way per direction; give those links one medium.")
+        all_media = arrives | leaves
+        if all_media != {"lora"} and replies - {"tcp"}:
+            sys.exit(f"--topology {topo.name}: node {nd.id} has a link whose DOWN "
+                     f"direction is {', '.join(sorted(replies - {'tcp'}))}. Every "
+                     f"transport here carries the reply over TCP — the RX-only N210 "
+                     f"never transmits, which is the reason the split exists. Set that "
+                     f"link's down medium to tcp.")
+        med_in = next(iter(arrives)) if arrives else None
+        med_out = next(iter(leaves)) if leaves else None
+        uses_rf = "wireless" in all_media
+        family = {"tcp": "tcp", "wireless": "usrp", "lora": "lora"}
+
+        # Who am I to the node I dial? Its hub counts its clients 0..N-1 and tracks which
+        # of them have finished BY THAT INDEX, so a frame stamped with a node index the
+        # hub never assigned is discarded — and the hub then waits for a goodbye that
+        # already came. This is that index, and it is not the same number as --node.
+        if out_links:
+            nxt = out_links[0].b
+            sources = [ln.a.id for ln in topo.links_of(nxt) if ln.b.id == nxt.id]
+            a.hub_index = sources.index(nd.id) if nd.id in sources else 0
+
+        if in_links and out_links:
+            # A RELAY: one hop in, one hop out, each on its own medium. Both wireless is
+            # the shape RadioRoundTrip already carries; anything else is ChainRelay.
+            a.up_medium, a.down_medium = med_in, med_out
+            if "lora" in all_media:
+                _set(ap, a, "link", "lora")
+            elif med_in == "wireless" and med_out == "wireless":
+                _set(ap, a, "link", "usrp")
+            else:
+                _set(ap, a, "link", "chain")
+            _set(ap, a, "net_host", nd.host or "0.0.0.0")   # what UPSTREAM dials
             _set(ap, a, "net_port", nd.port("net", 5700))
-            _set(ap, a, "clients", max(1, len(upstream) or len(peers)))
-        else:
-            hub = downstream[0]
+            _set(ap, a, "down_host", nxt.host or "127.0.0.1")
+            _set(ap, a, "down_port", nxt.port("net", nd.port("net", 5700) + 1))
+            if med_out == "wireless":
+                _set(ap, a, "ack_host", nxt.host or "127.0.0.1")
+        elif out_links:
+            # A CLIENT: transmits to the next node and reads its reply
+            hub = out_links[0].b
+            _set(ap, a, "link", family[med_out])
             if not hub.host and not _typed(ap, a, "net_host"):
                 print(f"[run_algo] NOTE: {hub.id} has no host in {topo.name}, so {nd.id} "
                       f"will dial 127.0.0.1. That is right for both on one machine; pass "
@@ -606,10 +666,13 @@ def apply_topology(ap, a):
             _set(ap, a, "net_host", hub.host or "127.0.0.1")
             _set(ap, a, "ack_host", hub.host or "127.0.0.1")    # the ARQ ack goes there too
             _set(ap, a, "net_port", hub.port("net", 5700))
-            if upstream:                                        # a relay: also SERVES
-                _set(ap, a, "net_port", nd.port("net", 5700))
-                _set(ap, a, "down_host", hub.host or "127.0.0.1")
-                _set(ap, a, "down_port", hub.port("net", nd.port("net", 5700) + 1))
+        else:
+            # A SERVER: receives, aggregates, answers. Bind the address this node is
+            # reachable at — a client on another machine cannot reach 127.0.0.1.
+            _set(ap, a, "link", family[med_in])
+            _set(ap, a, "net_host", nd.host or "127.0.0.1")
+            _set(ap, a, "net_port", nd.port("net", 5700))
+            _set(ap, a, "clients", max(1, len(in_links)))
 
     # the radio this node owns, and the CONNECTOR each direction uses
     if nd.radio:
@@ -628,7 +691,7 @@ def apply_topology(ap, a):
         _set(ap, a, "freq", freq)
         # a run that really drives a USRP should say so, so the band check and the
         # simulation-only warnings apply to it
-        if transport == "usrp":
+        if transport == "usrp" or uses_rf:
             _set(ap, a, "channel", "usrp")
             _set(ap, a, "usrp_backend", "radio")
     if nd.lora:
@@ -655,6 +718,8 @@ def print_plan(a, topo):
               ("peers", a.peers if peer else None),
               ("peer-port", a.peer_port if peer else None),
               ("net", None if peer else f"{a.net_host}:{a.net_port}"),
+              ("hop in", getattr(a, "up_medium", None)),
+              ("hop out", getattr(a, "down_medium", None)),
               ("ack-host", a.ack_host if radio else None),
               ("down", f"{a.down_host}:{a.down_port}" if a.down_host else None),
               ("clients", a.clients), ("freq-MHz", a.freq if radio else None),
@@ -684,12 +749,22 @@ def build_parser():
                          "of a node in the --topology file. Implies --role peer unless "
                          "the file gives this node a role; --agents says how many nodes "
                          "there are and --topology which of them I exchange with.")
-    ap.add_argument("--link", default="auto", choices=["auto", "tcp", "usrp", "lora"],
+    ap.add_argument("--link", default="auto",
+                    choices=["auto", "tcp", "usrp", "lora", "chain"],
                     help="how the two ends of a point-to-point role (--role tx/rx/relay, "
                          "or an algorithm's client/server) are attached: tcp (plain "
                          "TCP/IP — no radio at all), usrp (over the air, reply over TCP), "
-                         "lora. 'auto' follows --channel, which is the older behaviour. "
-                         "A --topology file sets this per link.")
+                         "lora, or chain (a relay whose two hops use DIFFERENT media — "
+                         "see --up-medium/--down-medium). 'auto' follows --channel, which "
+                         "is the older behaviour. A --topology file sets this per link.")
+    ap.add_argument("--up-medium", default=None, choices=["tcp", "wireless"],
+                    help="--link chain: what carries data INTO this relay (default "
+                         "wireless). From a topology file this is the `up` medium of the "
+                         "link that ends here.")
+    ap.add_argument("--down-medium", default=None, choices=["tcp", "wireless"],
+                    help="--link chain: what carries data OUT of this relay towards the "
+                         "next hop (default tcp). From a topology file this is the `up` "
+                         "medium of the link that starts here.")
     ap.add_argument("--clients", type=int, default=None,
                     help="--link tcp, server end: how many clients the hub collects from "
                          "before it answers (one FedAvg round). Taken from the topology "
@@ -840,7 +915,7 @@ def build_parser():
 def main():
     ap = build_parser()
     a = ap.parse_args()
-    a.role_index = None
+    a.role_index = a.hub_index = None
     a._typed = _typed_flags(ap)         # what was actually typed, vs what merely defaulted
 
     # the wiring file, when --topology names one: it fills in everything about THIS node

@@ -887,6 +887,49 @@ class RadioRoundTrip:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  The wire format of every TCP leg — one definition, because a mismatch HANGS
+# ══════════════════════════════════════════════════════════════════════════════
+#  TcpStar and ChainRelay talk to each other (a relay is a hub's client and a client's
+#  hub), and two classes that disagree about a header do not raise — they block forever
+#  waiting for bytes the other end already sent differently. So neither writes it itself.
+#
+#      >IH  payload length, sender index    then that many bytes
+#      length 0 == "I am done, do not wait for me again"
+def _frame_send(sock, buf, src=0):
+    sock.sendall(struct.pack(">IH", len(buf), int(src)) + buf)
+
+
+def _frame_recvn(sock, n):
+    b = b""
+    while len(b) < n:
+        c = sock.recv(n - len(b))
+        if not c:
+            raise ConnectionError("peer closed")
+        b += c
+    return b
+
+
+def _frame_read(sock):
+    """-> (sender index, payload). An empty payload is the sender saying goodbye."""
+    n, src = struct.unpack(">IH", _frame_recvn(sock, 6))
+    return src, (_frame_recvn(sock, n) if n else b"")
+
+
+def _dial(host, port, timeout=120.0, what="peer"):
+    """The other end may be started a moment later, or a pod may still be scheduling."""
+    import socket, time
+    deadline = time.time() + float(timeout)
+    while True:
+        try:
+            return socket.create_connection((host, port), timeout=10.0)
+        except OSError:
+            if time.time() > deadline:
+                raise ConnectionError(f"{what} {host}:{port} never came up "
+                                      f"({timeout:.0f}s) — start it first")
+            time.sleep(0.25)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  The same star, carried by plain TCP/IP — the transport a rig with no antennas has
 # ══════════════════════════════════════════════════════════════════════════════
 class TcpStar:
@@ -934,37 +977,15 @@ class TcpStar:
         else:
             print(f"[tcp] client {self.id} -> hub {self.hub_host}:{self.hub_port}")
 
-    # ── framing: length + sender, so the hub knows who spoke and who is done ──
-    def _recvn(self, sock, n):
-        b = b""
-        while len(b) < n:
-            c = sock.recv(n - len(b))
-            if not c:
-                raise ConnectionError("peer closed")
-            b += c
-        return b
-
+    # ── framing: the shared wire format above, so a relay and a hub cannot disagree ──
     def _send(self, sock, buf):
-        sock.sendall(self._st.pack(">IH", len(buf), self.id) + buf)
+        _frame_send(sock, buf, self.id)
 
     def _read(self, sock):
-        n, src = self._st.unpack(">IH", self._recvn(sock, 6))
-        return src, (self._recvn(sock, n) if n else b"")
+        return _frame_read(sock)
 
     def _connect(self):
-        """The hub may be started a moment later, or a pod may still be scheduling."""
-        import time
-        deadline = time.time() + self.connect_timeout
-        while True:
-            try:
-                return self.socket.create_connection((self.hub_host, self.hub_port),
-                                                     timeout=10.0)
-            except OSError:
-                if time.time() > deadline:
-                    raise ConnectionError(
-                        f"hub {self.hub_host}:{self.hub_port} never came up "
-                        f"({self.connect_timeout:.0f}s) — start the server node first")
-                time.sleep(0.25)
+        return _dial(self.hub_host, self.hub_port, self.connect_timeout, "hub")
 
     # ── one round ────────────────────────────────────────────────────────────
     def step(self, app):
@@ -1039,5 +1060,136 @@ class TcpStar:
                     s.close()
             except OSError:
                 pass                                 # the hub is already gone: fine
+        if self._srv is not None:
+            self._srv.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  A middle node whose two hops use DIFFERENT media
+# ══════════════════════════════════════════════════════════════════════════════
+class ChainRelay:
+    """One relay, two hops, each carried however the experiment says:
+
+        n1 ──wireless──> n2 ──tcp──> n3        upstream RF, downstream Ethernet
+        n1 ──tcp───────> n2 ──wireless──> n3   and the other way round
+
+    WHY THIS EXISTS. RadioRoundTrip's relay re-transmits downstream over the air, full
+    stop — it was written for the all-RF chain. A file that says the second hop is TCP
+    was therefore read, resolved, and then ignored: the run demanded a transmitter the
+    node did not have. This class is what makes the medium a PROPERTY OF EACH HOP.
+
+    It matters on our rig specifically. With one B210 and one RX-only N210 there is
+    exactly one RF path, B210 -> N210 — so the N210 node can only ever be a receiver,
+    and anything further down the chain has to be reached over TCP/IP. That is the
+    shape this makes runnable.
+
+    Each leg speaks whatever its NEIGHBOUR speaks, which is why the medium cannot be
+    chosen per node:
+
+        upstream wireless   the client transmits over the ARQ byte-pipe; its reply goes
+                            back over TCP, the >I frame RadioRoundTrip's tx expects
+        upstream tcp        we are that client's hub: >IH frames, this file's format
+        downstream wireless we transmit over the ARQ byte-pipe and read the reply over
+                            TCP, exactly as RadioRoundTrip's tx does
+        downstream tcp      we are the next node's client: >IH frames
+
+    One exchange at a time, in that order, so a half-duplex radio is never asked to do
+    two things at once.
+    """
+
+    def __init__(self, up_medium="wireless", down_medium="tcp", radio=None,
+                 serve_host="0.0.0.0", serve_port=5700, down_host="127.0.0.1",
+                 down_port=5701, node_id=0, connect_timeout=120.0, round_timeout=600.0):
+        import socket
+        self.socket = socket
+        self.up, self.down = str(up_medium).lower(), str(down_medium).lower()
+        for which, med in (("upstream", self.up), ("downstream", self.down)):
+            if med not in ("tcp", "wireless"):
+                raise ValueError(f"ChainRelay {which} medium {med!r}: tcp or wireless")
+        if "wireless" in (self.up, self.down) and radio is None:
+            raise ValueError("ChainRelay: a wireless hop needs the USRP link "
+                             "(RadioRoundTrip) to carry it")
+        self.radio = radio
+        self.down_host, self.down_port = down_host, int(down_port)
+        self.id = int(node_id)
+        self.connect_timeout, self.round_timeout = float(connect_timeout), float(round_timeout)
+        self._said_done = False
+        self._srv = None
+        if self.up == "tcp":
+            self._srv = socket.socket()
+            self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._srv.bind((serve_host, int(serve_port)))
+            self._srv.listen(8)
+            self._srv.settimeout(self.round_timeout)
+        print(f"[relay] upstream {self.up}"
+              + (f" (listening on {serve_host}:{serve_port})" if self.up == "tcp" else "")
+              + f" | downstream {self.down} -> {self.down_host}:{self.down_port}")
+
+    def _pack(self, app, y):
+        return Codec.pack(app.spec.check(y if y is not None else np.zeros(1, np.float32)))
+
+    # ── one round: take from upstream, forward downstream, carry the reply back ──
+    def step(self, app):
+        conn = None
+        if self.up == "wireless":
+            buf = self.radio._wl_recv()
+        else:
+            try:
+                conn, _ = self._srv.accept()
+            except self.socket.timeout:
+                raise ConnectionError(f"no upstream node contacted this relay within "
+                                      f"{self.round_timeout:.0f}s")
+            _, buf = _frame_read(conn)
+            if not buf:                       # upstream is finished, and so are we
+                conn.close()
+                return False
+        msg = _safe_unpack(buf, app.spec)
+        if msg is not None:
+            app.consume(msg)
+
+        out = self._pack(app, app.produce())
+        if self.down == "wireless":
+            self.radio._wl_send(out)
+            s = self.radio._tcp_connect(self.down_host, self.down_port)
+            try:
+                back = _safe_unpack(self.radio._tcp_read(s), app.spec)
+            finally:
+                s.close()
+        else:
+            s = _dial(self.down_host, self.down_port, self.connect_timeout, "next hop")
+            try:
+                _frame_send(s, out, self.id)
+                _, rb = _frame_read(s)
+                back = _safe_unpack(rb, app.spec) if rb else None
+            finally:
+                s.close()
+        if back is not None:
+            app.consume(back)
+
+        reply = self._pack(app, app.produce())
+        if self.up == "wireless":
+            self.radio._tcp_serve_once(reply)          # >I: what a RadioRoundTrip tx reads
+        else:
+            try:
+                _frame_send(conn, reply, self.id)
+            finally:
+                conn.close()
+        app.on_result(back is not None)
+        return True
+
+    def close(self):
+        """The node downstream is waiting for us the way a hub waits for a client, so
+        leaving without a word would hang it until its round timeout."""
+        if self.down == "tcp" and not self._said_done:
+            try:
+                s = self.socket.create_connection((self.down_host, self.down_port),
+                                                  timeout=5.0)
+                try:
+                    _frame_send(s, b"", self.id)
+                    self._said_done = True
+                finally:
+                    s.close()
+            except OSError:
+                pass
         if self._srv is not None:
             self._srv.close()

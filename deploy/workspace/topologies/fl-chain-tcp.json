@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "name": "fl-chain-tcp",
+  "algo": "fl",
+  "description": "A three-node chain over TCP/IP: client -> relay -> server. The relay is a store-and-forward middle node; every hop is plain TCP, so no radio is needed.",
+  "defaults": { "steps": 20, "medium": "tcp" },
+  "nodes": [
+    { "id": "n1", "role": "client", "host": "127.0.0.1" },
+    { "id": "n2", "role": "relay",  "host": "127.0.0.1", "ports": { "net": 5700 },
+      "note": "serves n1 on 5700 and dials n3 on 5701 — the ports are the two hops" },
+    { "id": "n3", "role": "server", "host": "127.0.0.1", "ports": { "net": 5701 } }
+  ],
+  "links": [
+    { "from": "n1", "to": "n2", "medium": "tcp" },
+    { "from": "n2", "to": "n3", "medium": "tcp" }
+  ]
+}

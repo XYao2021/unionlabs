@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "name": "fl-chain-mixed",
+  "algo": "fl",
+  "description": "One hop over the air, the next over Ethernet: n1 transmits to n2 by radio, n2 forwards to n3 over TCP/IP. The medium is a property of each LINK, not of the experiment.",
+  "defaults": { "steps": 20, "scheme": "DQPSK", "fec": "turbo", "freq_mhz": 915 },
+  "nodes": [
+    { "id": "n1", "role": "client", "host": "10.0.0.1",
+      "radio": {
+        "device": "b210",
+        "args": "serial=30CD424",
+        "tx": { "ant": "TX/RX", "subdev": "A:A", "gain": 78 },
+        "note": "TX only: this node's whole job is to put the model on the air"
+      } },
+    { "id": "n2", "role": "relay", "host": "10.0.0.2", "ports": { "net": 5700 },
+      "radio": {
+        "device": "n210",
+        "args": "addr=192.168.10.2",
+        "rx": { "ant": "RX2", "subdev": "A:0", "gain": 25 },
+        "note": "RX only — and that is exactly why its downstream hop is tcp: it has nothing to transmit with"
+      } },
+    { "id": "n3", "role": "server", "host": "10.0.0.3", "ports": { "net": 5701 },
+      "note": "no radio at all: it is reached over Ethernet" }
+  ],
+  "links": [
+    { "from": "n1", "to": "n2", "medium": { "up": "wireless", "down": "tcp" },
+      "note": "up: B210 -> N210 over the air. down: n2 answers n1 over TCP, because the N210 never transmits." },
+    { "from": "n2", "to": "n3", "medium": "tcp",
+      "note": "the second hop is Ethernet in both directions" }
+  ]
+}

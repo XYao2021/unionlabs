@@ -44,7 +44,7 @@ def parse(argv, algo="fl"):
         del os.environ[k]                       # each check starts from a clean slate
     ap = R.build_parser()
     a = ap.parse_args(["--algo", algo] + argv)
-    a.role_index = None
+    a.role_index = a.hub_index = None
     a._typed = R._typed_flags(ap, argv)
     topo = R.apply_topology(ap, a)
     if a.node is not None:
@@ -159,6 +159,32 @@ check("-> PeerLink radio cfg",     lambda: (lambda L: (L.cfg["tx_ant"], L.cfg["r
                                                        L.cfg["rx_subdev"]))(peer_link(w0)),
       ("TX/RX", "RX2", "A:A"))
 
+print("\n  fl-chain-mixed — one hop over the air, the next over Ethernet")
+m1, _ = parse(["--topology", "fl-chain-mixed", "--node", "n1"])
+check("source transmits by radio",  lambda: m1.link,                     "usrp")
+check("it dials the RELAY, not n3", lambda: (m1.net_host, m1.net_port),  ("10.0.0.2", 5700))
+m2, _ = parse(["--topology", "fl-chain-mixed", "--node", "n2"])
+check("relay with mixed hops",      lambda: m2.link,                     "chain")
+check("hop in / hop out",           lambda: (m2.up_medium, m2.down_medium),
+      ("wireless", "tcp"))
+check("relay SERVES its own port",  lambda: (m2.net_host, m2.net_port),  ("10.0.0.2", 5700))
+check("relay dials the next hop",   lambda: (m2.down_host, m2.down_port), ("10.0.0.3", 5701))
+check("RX-only relay needs no TX",  lambda: (m2.rx_args, m2.tx_args),
+      ("addr=192.168.10.2", ""))
+check("-> ChainRelay legs",         lambda: (lambda L: (type(L).__name__, L.up, L.down,
+                                                        L.down_port))(
+                                        R.build_link(m2, "relay")),
+      ("ChainRelay", "wireless", "tcp", 5701))
+m3, _ = parse(["--topology", "fl-chain-mixed", "--node", "n3"])
+check("sink is plain TCP",          lambda: (m3.link, m3.net_port),      ("tcp", 5701))
+check("one source in a chain",      lambda: os.environ["UNION_CLIENTS"], "1")
+c2, _ = parse(["--topology", "fl-chain-tcp", "--node", "n2"])
+check("an all-TCP relay",           lambda: (c2.link, c2.up_medium, c2.down_medium),
+      ("chain", "tcp", "tcp"))
+check("frame id = index at the hub", lambda: R._hub_index(c2),           0)
+cc0, _ = parse(["--topology", "fl-star-tcp", "--node", "c1"])
+check("...and in a star, per client", lambda: R._hub_index(cc0),         1)
+
 # ══ 2. anything typed WINS over the file ═════════════════════════════════════
 print("\n  the command line beats the file")
 check("--steps",     lambda: parse(["--topology", "fl-star-tcp", "--node", "c0",
@@ -206,7 +232,8 @@ duplex = wrote("duplex", {"schema": 1, "name": "duplex", "nodes": [
     {"id": "b", "host": "10.0.0.2", "role": "server",
      "radio": {"args": "serial=2", "tx": {}, "rx": {}}}],
     "links": [{"from": "a", "to": "b", "medium": "wireless"}]})
-refuses("full-duplex RF round trip", ["--topology", duplex, "--node", "a"], "not implemented")
+refuses("a reply asked to go over RF", ["--topology", duplex, "--node", "a"],
+        "carries the reply over TCP")
 
 dup = wrote("dup-port", {"schema": 1, "name": "dup-port", "nodes": [
     {"id": "a", "host": "127.0.0.1", "ports": {"net": 5700}},
@@ -233,6 +260,17 @@ refuses("a link to nowhere", ["--topology", ghost, "--node", "a"], "is not a nod
 future = wrote("future", {"schema": 99, "name": "future", "nodes": [{"id": "a"}],
                           "links": [{"from": "a", "to": "a"}]})
 refuses("a schema we cannot read", ["--topology", future, "--node", "a"], "schema")
+
+split = wrote("split-medium", {"schema": 1, "name": "split-medium", "nodes": [
+    {"id": "a", "role": "client", "host": "10.0.0.1",
+     "radio": {"args": "serial=1", "tx": {}}},
+    {"id": "b", "role": "client", "host": "10.0.0.2"},
+    {"id": "c", "role": "server", "host": "10.0.0.3", "ports": {"net": 5700},
+     "radio": {"args": "addr=2", "rx": {}}}],
+    "links": [{"from": "a", "to": "c", "medium": {"up": "wireless", "down": "tcp"}},
+              {"from": "b", "to": "c", "medium": "tcp"}]})
+refuses("a node receiving two ways", ["--topology", split, "--node", "c"],
+        "at once")
 
 refuses("--node that is not in the file", ["--topology", "fl-star-tcp", "--node", "zz"],
         "is not in")

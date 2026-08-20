@@ -318,7 +318,20 @@ the same file, saying only which node it is. The examples live in
 
 # anything you type still wins over the file
 ./run.sh --algo fl --topology fl-star-radio --node c0 --steps 40 --tx-gain 65
+
+# A CHAIN WHOSE HOPS USE DIFFERENT MEDIA: n1 --air--> n2 --TCP--> n3. The relay
+# receives over the radio and forwards over Ethernet, which is what an RX-only N210
+# in the middle can actually do. Start downstream first (n3, then n2, then n1).
+./run.sh --algo fl --topology fl-chain-mixed --node n3
+./run.sh --algo fl --topology fl-chain-mixed --node n2
+./run.sh --algo fl --topology fl-chain-mixed --node n1
+./run.sh topology fl-chain-tcp             # the same chain with no radio at all
 ```
+
+The relay's two hops come from the links: the link where it is `to` is upstream, the one
+where it is `from` is downstream. Without a file, the same relay is
+`--role relay --link chain --up-medium wireless --down-medium tcp` plus `--net-port` (what
+upstream dials) and `--down-host/--down-port` (the next hop).
 
 Without a file, the same two transports are reachable by flag: `--link tcp` runs the
 client/server roles over plain TCP/IP with no radio (`fl.py --uplink tcp --downlink tcp`),

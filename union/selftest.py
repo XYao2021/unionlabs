@@ -239,6 +239,7 @@ def main():
     # and the multi-process path itself: every node of a topology, as its own process
     print(f"  {DIM}topologies (one process per node){OFF}")
     for name, extra in (("fl-star-tcp", ["--steps", "2", "--stagger", "1"]),
+                        ("fl-chain-tcp", ["--steps", "2", "--stagger", "1"]),
                         ("dl-ring3-tcp", ["--steps", "2", "--stagger", "1"])):
         bad = _topology_check(name, extra)
         if bad:
@@ -247,7 +248,7 @@ def main():
     print(f"\n  {DIM}skipped (needs hardware):{OFF} LoRa serial/spi backends · USRP radio "
           f"backend · every topology whose links are wireless")
 
-    n = len(checks) + 5        # + flag paths, radio.sh flags, topology paths, 2 topology runs
+    n = len(checks) + 6        # + flag paths, radio.sh flags, topology paths, 3 topology runs
     if skipped_deps:
         print(f"\n  {YEL}{len(skipped_deps)} skipped{OFF} — an optional dependency is not installed:")
         for label, dep in skipped_deps:
