@@ -86,6 +86,7 @@ check("--fec ''",       ["--fec", ""],                    lambda a: L(a).cfg["fe
 check("--freq",         ["--freq", "905"],                lambda a: L(a).cfg["tx_freq"],       905e6)
 check("--samp-rate",    ["--samp-rate", "4e6"],           lambda a: L(a).cfg["tx_rate"],       4e6)
 check("--symbol-rate",  ["--symbol-rate", "2e6"],         lambda a: L(a).cfg["symbol_rate"],   2e6)
+check("--ack-port",     ["--ack-port", "5610"],           lambda a: L(a).cfg["ack_port"],      5610)
 check("--tx-gain",      ["--tx-gain", "61"],              lambda a: L(a).tx_gain,              61.0)
 check("--rx-gain",      ["--rx-gain", "22"],              lambda a: L(a).rx_gain,              22.0)
 check("--ack-transport",["--ack-transport", "rf"],        lambda a: L(a).cfg["ack_transport"], "rf")

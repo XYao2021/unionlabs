@@ -75,7 +75,8 @@ machines. The four files here are meant to be copied and edited:
 | `host` | where the process runs, as the OTHER nodes must dial it. Omit it when the address is not knowable in advance and pass `--peers` / `--net-host` at launch |
 | `ports.net` | the TCP port this node SERVES to whoever it answers (server / relay) |
 | `ports.peer` | a decentralised node's own port. Node k must be `base + k` — that is the rule `PeerLink` actually follows, and a file that breaks it is refused |
-| `ports.ack` | where the USRP ARQ acknowledgement is collected (default 5599) |
+| `ports.ack` | the TCP port this node's USRP ARQ acknowledgement travels on (default 5599). Two radio nodes sharing a host need different ones |
+| `ports.down` | a relay only: the port of the next hop, when it is not that node's `ports.net` |
 | `radio` | the USRP this node owns — **omit it entirely when the node has no radio** |
 | `lora` | the LoRa radio's `backend` / `port` / `sf` / `cr` / `bw` / `power` |
 

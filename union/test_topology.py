@@ -137,6 +137,8 @@ rsrv, _ = parse(["--topology", "fl-star-radio", "--node", "srv"])
 check("server RX connector",       lambda: (rsrv.rx_args, rsrv.rx_ant, rsrv.rx_subdev,
                                             rsrv.rx_gain),
       ("addr=192.168.10.2", "RX2", "A:0", 25))
+check("ports.ack -> the ARQ socket", lambda: rsrv.ack_port,             5599)
+check("...and into the modem cfg", lambda: R.build_link(rsrv, "rx").cfg["ack_port"], 5599)
 check("server binds a reachable IP", lambda: rsrv.net_host,             "192.168.10.1")
 
 print("\n  dl-ring3-tcp — a decentralised ring, one process per node")
@@ -169,6 +171,14 @@ check("hop in / hop out",           lambda: (m2.up_medium, m2.down_medium),
       ("wireless", "tcp"))
 check("relay SERVES its own port",  lambda: (m2.net_host, m2.net_port),  ("10.0.0.2", 5700))
 check("relay dials the next hop",   lambda: (m2.down_host, m2.down_port), ("10.0.0.3", 5701))
+check("ports.down names it instead", lambda: parse(["--topology", wrote("down-port", {
+    "schema": 1, "name": "down-port", "nodes": [
+        {"id": "a", "role": "client", "host": "10.0.0.1"},
+        {"id": "b", "role": "relay", "host": "10.0.0.2",
+         "ports": {"net": 5700, "down": 5999}},
+        {"id": "c", "role": "server", "host": "10.0.0.3", "ports": {"net": 5701}}],
+    "links": [{"from": "a", "to": "b"}, {"from": "b", "to": "c"}]}),
+    "--node", "b"])[0].down_port, 5999)
 check("RX-only relay needs no TX",  lambda: (m2.rx_args, m2.tx_args),
       ("addr=192.168.10.2", ""))
 check("-> ChainRelay legs",         lambda: (lambda L: (type(L).__name__, L.up, L.down,

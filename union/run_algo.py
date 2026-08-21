@@ -327,7 +327,8 @@ def _radio_link(a, transport):
     """The USRP link: request over the air, reply over TCP. Its own function because a
     ChainRelay borrows it for whichever of its two hops is wireless."""
     return pl.RadioRoundTrip(role=transport, tx_args=a.tx_args, rx_args=a.rx_args,
-                             ack_host=a.ack_host, net_host=a.net_host,
+                             ack_host=a.ack_host, ack_port=a.ack_port,
+                             net_host=a.net_host,
                              net_port=a.net_port, scheme=a.scheme, waveform=a.waveform,
                              tx_subdev=a.tx_subdev, rx_subdev=a.rx_subdev,
                              tx_ant=a.tx_ant, rx_ant=a.rx_ant,
@@ -567,6 +568,8 @@ def apply_topology(ap, a):
     _set(ap, a, "role", nd.role)
     role_index, role_count = topo.role_group(nd)
     a.role_index = role_index
+    if "ack" in nd.ports:            # this node's own ARQ acknowledgement socket
+        _set(ap, a, "ack_port", nd.ports["ack"])
 
     # what the algorithm needs to know about its own place in the network. The
     # middleware publishes the facts; each algorithm reads the ones it cares about
@@ -650,7 +653,10 @@ def apply_topology(ap, a):
             _set(ap, a, "net_host", nd.host or "0.0.0.0")   # what UPSTREAM dials
             _set(ap, a, "net_port", nd.port("net", 5700))
             _set(ap, a, "down_host", nxt.host or "127.0.0.1")
-            _set(ap, a, "down_port", nxt.port("net", nd.port("net", 5700) + 1))
+            # the next hop's port: this node may name it explicitly (ports.down), else it
+            # is the port that node serves on
+            _set(ap, a, "down_port", nd.ports.get("down")
+                 or nxt.port("net", nd.port("net", 5700) + 1))
             if med_out == "wireless":
                 _set(ap, a, "ack_host", nxt.host or "127.0.0.1")
         elif out_links:
@@ -720,7 +726,7 @@ def print_plan(a, topo):
               ("net", None if peer else f"{a.net_host}:{a.net_port}"),
               ("hop in", getattr(a, "up_medium", None)),
               ("hop out", getattr(a, "down_medium", None)),
-              ("ack-host", a.ack_host if radio else None),
+              ("ack", f"{a.ack_host}:{a.ack_port}" if radio else None),
               ("down", f"{a.down_host}:{a.down_port}" if a.down_host else None),
               ("clients", a.clients), ("freq-MHz", a.freq if radio else None),
               ("tx", f"{a.tx_args} ant={a.tx_ant} subdev={a.tx_subdev} "
@@ -902,6 +908,10 @@ def build_parser():
     ap.add_argument("--tx-args", default="", help="UHD device args of the transmit radio")
     ap.add_argument("--rx-args", default="", help="UHD device args of the receive radio")
     ap.add_argument("--ack-host", default="127.0.0.1")
+    ap.add_argument("--ack-port", type=int, default=5599,
+                    help="TCP port the USRP ARQ acknowledgement travels on (default "
+                         "5599). Two nodes sharing a host need different ones, which is "
+                         "what a topology file's ports.ack is for.")
     ap.add_argument("--net-host", default="127.0.0.1")
     ap.add_argument("--net-port", type=int, default=5700,
                     help="TCP reply port this node SERVES to the node upstream of it")
@@ -1019,6 +1029,7 @@ def main():
         try:
             link = pl.PeerLink(node_id=a.node, n_nodes=a.agents, topology=a.topology,
                                peers=hosts, base_port=a.peer_port, link=peer_link,
+                               ack_port=a.ack_port,
                                tx_args=a.tx_args, rx_args=a.rx_args, scheme=a.scheme,
                                waveform=a.waveform, tx_subdev=a.tx_subdev,
                                rx_subdev=a.rx_subdev, tx_ant=a.tx_ant, rx_ant=a.rx_ant,
