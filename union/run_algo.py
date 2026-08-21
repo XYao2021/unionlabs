@@ -568,7 +568,7 @@ def apply_topology(ap, a):
     _set(ap, a, "role", nd.role)
     role_index, role_count = topo.role_group(nd)
     a.role_index = role_index
-    if "ack" in nd.ports:            # this node's own ARQ acknowledgement socket
+    if "ack" in nd.ports:            # what THIS node binds, when it is the sink
         _set(ap, a, "ack_port", nd.ports["ack"])
 
     # what the algorithm needs to know about its own place in the network. The
@@ -657,8 +657,9 @@ def apply_topology(ap, a):
             # is the port that node serves on
             _set(ap, a, "down_port", nd.ports.get("down")
                  or nxt.port("net", nd.port("net", 5700) + 1))
-            if med_out == "wireless":
+            if med_out == "wireless":            # this relay transmits to the next hop
                 _set(ap, a, "ack_host", nxt.host or "127.0.0.1")
+                _set(ap, a, "ack_port", nxt.port("ack", 5599))
         elif out_links:
             # A CLIENT: transmits to the next node and reads its reply
             hub = out_links[0].b
@@ -670,8 +671,15 @@ def apply_topology(ap, a):
                       f"pod's address changes every session, which is why a file should "
                       f"not carry it).")
             _set(ap, a, "net_host", hub.host or "127.0.0.1")
-            _set(ap, a, "ack_host", hub.host or "127.0.0.1")    # the ARQ ack goes there too
             _set(ap, a, "net_port", hub.port("net", 5700))
+            # THE ARQ ACK IS THE SINK'S SOCKET. main.cpp: sink_arq calls accept_one(),
+            # source_arq calls connect_to() — so the receiver listens and the transmitter
+            # dials. A transmitter therefore takes the port of the node it is dialling,
+            # not its own; taking its own is how two nodes end up on different ports and
+            # the ACK never arrives.
+            _set(ap, a, "ack_host", hub.host or "127.0.0.1")
+            if med_out == "wireless":
+                _set(ap, a, "ack_port", hub.port("ack", 5599))
         else:
             # A SERVER: receives, aggregates, answers. Bind the address this node is
             # reachable at — a client on another machine cannot reach 127.0.0.1.

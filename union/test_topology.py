@@ -128,6 +128,15 @@ check("TX connector",              lambda: rc0.tx_ant,                  "TX/RX")
 check("TX RF channel",             lambda: rc0.tx_subdev,               "A:A")
 check("TX gain",                   lambda: rc0.tx_gain,                 78)
 check("ack goes to the server",    lambda: rc0.ack_host,                "192.168.10.1")
+check("...on the SINK's ack port", lambda: parse(["--topology", wrote("ack-port", {
+    "schema": 1, "name": "ack-port", "nodes": [
+        {"id": "srv", "role": "server", "host": "10.0.0.9",
+         "ports": {"net": 5700, "ack": 5610},
+         "radio": {"args": "addr=2", "rx": {}}},
+        {"id": "c0", "role": "client", "host": "10.0.0.8",
+         "radio": {"args": "serial=1", "tx": {}}}],
+    "links": [{"from": "c0", "to": "srv", "medium": {"up": "wireless", "down": "tcp"}}]}),
+    "--node", "c0"])[0].ack_port, 5610)
 check("-> RadioRoundTrip cfg",     lambda: (lambda L: (L.cfg["tx_ant"], L.cfg["tx_subdev"],
                                                        L.tx_gain, L.cfg["scheme"],
                                                        L.cfg["tx_freq"]))(
@@ -140,6 +149,7 @@ check("server RX connector",       lambda: (rsrv.rx_args, rsrv.rx_ant, rsrv.rx_s
 check("ports.ack -> the ARQ socket", lambda: rsrv.ack_port,             5599)
 check("...and into the modem cfg", lambda: R.build_link(rsrv, "rx").cfg["ack_port"], 5599)
 check("server binds a reachable IP", lambda: rsrv.net_host,             "192.168.10.1")
+check("...on every interface",     lambda: R.build_link(rsrv, "rx").bind_host,  "0.0.0.0")
 
 print("\n  dl-ring3-tcp — a decentralised ring, one process per node")
 n1, topo = parse(["--topology", "dl-ring3-tcp", "--node", "n1"], algo="dl")

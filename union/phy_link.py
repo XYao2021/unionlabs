@@ -746,7 +746,8 @@ class RadioRoundTrip:
     to the node upstream of it, and reads its own reply from down_host:down_port."""
 
     def __init__(self, role, tx_args="", rx_args="", ack_host="127.0.0.1", ack_port=5599,
-                 net_host="127.0.0.1", net_port=5700, scheme="DQPSK", waveform="sc",
+                 net_host="127.0.0.1", net_port=5700, bind_host="0.0.0.0",
+                 scheme="DQPSK", waveform="sc",
                  tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A",
                  rx_ant="RX2", tx_ant="TX/RX", extra_cfg=None, chunk=125,
                  down_host=None, down_port=None, freq_hz=915e6, samp_rate=2e6,
@@ -758,7 +759,12 @@ class RadioRoundTrip:
         import sdr, socket, struct as _st
         self.sdr, self.socket, self._st = sdr, socket, _st
         self.role = role
+        # net_host is WHERE TO DIAL for the reply; bind_host is what the answering end
+        # LISTENS on. They were one field, so a node told to serve at its own routable
+        # address tried to bind an address a pod does not own (EADDRNOTAVAIL) — and the
+        # cross-machine case is the only one where the two differ.
         self.net_host, self.net_port = net_host, net_port
+        self.bind_host = bind_host
         # The USRP PHY is assembled from parts WE choose — carrier, sample/symbol rate,
         # modulation, FEC, gains — so every one of them is a parameter here rather than
         # a constant. (They used to be hardcoded, which silently ignored the CLI.)
@@ -833,7 +839,7 @@ class RadioRoundTrip:
         """Hand one framed payload to whoever connects upstream, then close."""
         srv = self.socket.socket()
         srv.setsockopt(self.socket.SOL_SOCKET, self.socket.SO_REUSEADDR, 1)
-        srv.bind((self.net_host, self.net_port)); srv.listen(1)
+        srv.bind((self.bind_host, self.net_port)); srv.listen(1)
         conn, _ = srv.accept()
         try:
             self._tcp_frame(conn, buf)
