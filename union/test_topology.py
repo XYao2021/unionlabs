@@ -93,6 +93,8 @@ def peer_link(a):
     link = pl.PeerLink(node_id=a.node, n_nodes=a.agents, topology=a.topology,
                        peers=[h for h in a.peers.split(",") if h] or None,
                        base_port=a.peer_port, link=a.peer_link or "tcp",
+                       peer_ports=[int(p) for p in a.peer_ports.split(",") if p.strip()]
+                       or None,
                        tx_args=a.tx_args, rx_args=a.rx_args, scheme=a.scheme,
                        tx_ant=a.tx_ant, rx_ant=a.rx_ant, tx_subdev=a.tx_subdev,
                        rx_subdev=a.rx_subdev)
@@ -205,6 +207,38 @@ check("frame id = index at the hub", lambda: R._hub_index(c2),           0)
 cc0, _ = parse(["--topology", "fl-star-tcp", "--node", "c1"])
 check("...and in a star, per client", lambda: R._hub_index(cc0),         1)
 
+print("\n  advertise — what a node BINDS vs what everyone else DIALS (NodePort)")
+NODEPORT = {"schema": 1, "name": "nodeport", "algo": "fl", "nodes": [
+    {"id": "srv", "role": "server", "host": "10.42.0.107",
+     "ports": {"net": 5700, "ack": 5599},
+     "advertise": {"host": "10.10.1.23", "ports": {"net": 35700, "ack": 35999}},
+     "radio": {"args": "addr=192.168.10.2", "rx": {}}},
+    {"id": "c0", "role": "client", "host": "10.42.0.108",
+     "radio": {"args": "serial=30CD424", "tx": {}}}],
+    "links": [{"from": "c0", "to": "srv", "medium": {"up": "wireless", "down": "tcp"}}]}
+np_file = wrote("nodeport", NODEPORT)
+nc, _ = parse(["--topology", np_file, "--node", "c0"])
+check("dials the PUBLISHED address", lambda: (nc.net_host, nc.net_port),
+      ("10.10.1.23", 35700))
+check("...and the published ack",  lambda: (nc.ack_host, nc.ack_port),
+      ("10.10.1.23", 35999))
+ns, _ = parse(["--topology", np_file, "--node", "srv"])
+check("the sink BINDS its own port", lambda: (ns.net_port, ns.ack_port), (5700, 5599))
+check("...on every interface",     lambda: R.build_link(ns, "rx").bind_host, "0.0.0.0")
+
+PEERPORT = {"schema": 1, "name": "peer-np", "algo": "dl", "defaults": {"medium": "tcp"},
+            "nodes": [
+                {"id": "p0", "role": "peer", "host": "10.42.0.1", "ports": {"peer": 5800},
+                 "advertise": {"host": "10.10.1.21", "ports": {"peer": 30801}}},
+                {"id": "p1", "role": "peer", "host": "10.42.0.2", "ports": {"peer": 5801},
+                 "advertise": {"host": "10.10.1.22", "ports": {"peer": 30907}}}],
+            "links": [{"from": "p0", "to": "p1", "medium": "tcp"}]}
+pp, _ = parse(["--topology", wrote("peer-np", PEERPORT), "--node", "p0"], algo="dl")
+check("peers dial published ports", lambda: pp.peer_ports,            "30801,30907")
+check("...but LISTEN on base+k",   lambda: peer_link(pp).base_port + pp.node, 5800)
+check("-> PeerLink dial table",    lambda: peer_link(pp).peer_ports,  [30801, 30907])
+check("peers dial published hosts", lambda: pp.peers,                 "10.10.1.21,10.10.1.22")
+
 # ══ 2. anything typed WINS over the file ═════════════════════════════════════
 print("\n  the command line beats the file")
 check("--steps",     lambda: parse(["--topology", "fl-star-tcp", "--node", "c0",
@@ -291,6 +325,23 @@ split = wrote("split-medium", {"schema": 1, "name": "split-medium", "nodes": [
               {"from": "b", "to": "c", "medium": "tcp"}]})
 refuses("a node receiving two ways", ["--topology", split, "--node", "c"],
         "at once")
+
+clash = wrote("published-clash", {"schema": 1, "name": "published-clash", "nodes": [
+    {"id": "a", "role": "client", "host": "10.0.0.1",
+     "advertise": {"host": "10.10.1.9", "ports": {"net": 35700}}},
+    {"id": "b", "role": "server", "host": "10.0.0.2", "ports": {"net": 5700},
+     "advertise": {"host": "10.10.1.9", "ports": {"net": 35700}}}],
+    "links": [{"from": "a", "to": "b"}]})
+refuses("two nodes, one published port", ["--topology", clash, "--node", "a"],
+        "both published at")
+
+homeless = wrote("homeless-ports", {"schema": 1, "name": "homeless-ports", "nodes": [
+    {"id": "a", "role": "client", "host": "10.0.0.1"},
+    {"id": "b", "role": "server", "ports": {"net": 5700},
+     "advertise": {"ports": {"net": 35700}}}],
+    "links": [{"from": "a", "to": "b"}]})
+refuses("published ports, no address", ["--topology", homeless, "--node", "a"],
+        "without a host")
 
 refuses("--node that is not in the file", ["--topology", "fl-star-tcp", "--node", "zz"],
         "is not in")

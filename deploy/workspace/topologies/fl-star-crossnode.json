@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "name": "fl-star-crossnode",
+  "algo": "fl",
+  "description": "The radio star spread ACROSS MACHINES: the server binds its ports inside its pod, and publishes them on its node's IP with expose-my-port.sh, so a client on another machine can reach them.",
+  "defaults": { "steps": 20, "scheme": "DQPSK", "fec": "turbo", "freq_mhz": 915 },
+  "nodes": [
+    {
+      "id": "srv",
+      "role": "server",
+      "host": "10.42.0.107",
+      "ports": { "net": 5700, "ack": 5599 },
+      "advertise": {
+        "host": "10.10.1.23",
+        "ports": { "net": 35700, "ack": 35999 },
+        "note": "made by: expose-my-port.sh 5599 35999 ; expose-my-port.sh 5700 35700 — pin the nodePorts so this file stays true across sessions. The host is the NODE's IP, and it changes per session: pass --net-host/--ack-host at launch when it does."
+      },
+      "radio": {
+        "device": "n210",
+        "args": "addr=192.168.10.2",
+        "rx": { "ant": "RX2", "subdev": "A:0", "gain": 25 }
+      },
+      "note": "TWO listeners, so two published ports: 5599 is the ARQ acknowledgement the RF receiver accepts, 5700 is the TCP reply it serves"
+    },
+    {
+      "id": "c0",
+      "role": "client",
+      "host": "10.42.0.108",
+      "radio": {
+        "device": "b210",
+        "args": "serial=30CD424",
+        "tx": { "ant": "TX/RX", "subdev": "A:A", "gain": 78 }
+      },
+      "note": "a transmitter binds NOTHING — it dials the sink, so it needs no published port of its own"
+    }
+  ],
+  "links": [
+    { "from": "c0", "to": "srv", "medium": { "up": "wireless", "down": "tcp" } }
+  ]
+}

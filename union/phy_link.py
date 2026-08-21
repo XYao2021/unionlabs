@@ -549,6 +549,7 @@ class PeerLink:
     """
 
     def __init__(self, node_id, n_nodes, topology="ring", peers=None, base_port=5800,
+                 peer_ports=None,
                  link="tcp", connect_timeout=120.0, tx_args="", rx_args="", scheme="DQPSK",
                  waveform="sc", tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A",
                  rx_ant="RX2", tx_ant="TX/RX", extra_cfg=None, ack_port=5599, chunk=125,
@@ -573,6 +574,14 @@ class PeerLink:
         if len(self.hosts) < self.n:
             raise ValueError(f"--peers lists {len(self.hosts)} hosts but there are {self.n} nodes")
         self.base_port, self.link = int(base_port), link
+        # Node k LISTENS on base+k, and normally everyone dials that same arithmetic. A
+        # published port (a NodePort is whatever the cluster handed out) breaks it, so
+        # the ports to dial can be given per node instead.
+        self.peer_ports = ([int(p) for p in peer_ports] if peer_ports
+                           else [self.base_port + k for k in range(self.n)])
+        if len(self.peer_ports) < self.n:
+            raise ValueError(f"--peer-ports lists {len(self.peer_ports)} ports but there "
+                             f"are {self.n} nodes")
         self.connect_timeout = float(connect_timeout)
         self.lora_timeout = float(lora_timeout)
         self._inbox = {}                       # frames that arrived out of schedule order
@@ -634,7 +643,7 @@ class PeerLink:
         return b
 
     def _send_tcp(self, pid, buf):
-        host, port = self.hosts[pid], self.base_port + pid
+        host, port = self.hosts[pid], self.peer_ports[pid]
         import time
         deadline = time.time() + self.connect_timeout
         while True:                                  # the peer's terminal may start later

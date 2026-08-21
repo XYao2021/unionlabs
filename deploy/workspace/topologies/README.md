@@ -59,6 +59,7 @@ machines. The four files here are meant to be copied and edited:
 | `fl-star-radio.json` | the same star on the lab rig: TX-only B210s → RX-only N210, reply over TCP |
 | `fl-chain-tcp.json` | a 3-node chain, client → relay → server, all TCP/IP |
 | `fl-chain-mixed.json` | the same chain with **one hop over the air and the next over Ethernet** |
+| `fl-star-crossnode.json` | the radio star **across machines**: bind in the pod, publish on the node's IP |
 | `dl-ring3-tcp.json` | decentralised learning, 3 peers in a ring, all TCP/IP |
 | `dl-pair-wireless.json` | two peers exchanging over the air, taking turns |
 
@@ -77,6 +78,7 @@ machines. The four files here are meant to be copied and edited:
 | `ports.peer` | a decentralised node's own port. Node k must be `base + k` — that is the rule `PeerLink` actually follows, and a file that breaks it is refused |
 | `ports.ack` | the TCP port this node's USRP ARQ acknowledgement travels on (default 5599). Two radio nodes sharing a host need different ones |
 | `ports.down` | a relay only: the port of the next hop, when it is not that node's `ports.net` |
+| `advertise` | `{ "host", "ports" }` — what OTHERS dial, when a NodePort or a port mapping renumbers what this node binds. See below |
 | `radio` | the USRP this node owns — **omit it entirely when the node has no radio** |
 | `lora` | the LoRa radio's `backend` / `port` / `sf` / `cr` / `bw` / `power` |
 
@@ -167,6 +169,47 @@ Experiment-wide knobs, applied to every node unless typed on the command line:
 `medium` (the default for links given in shorthand).
 
 ---
+
+## Across machines: what a node BINDS vs what others DIAL
+
+A container never receives traffic sent to its host's IP, so a cross-machine run needs
+each listener published — `deploy/testbed/expose-my-port.sh 5599 35999` asks Kubernetes
+for a NodePort Service pointing at this pod. **That renumbers the port**: the node listens
+on 5599 inside its pod and callers must dial 35999 on the node's IP. One number per port
+cannot say both, so a node may carry an `advertise` block:
+
+```json
+{ "id": "srv", "host": "10.42.0.107",
+  "ports":     { "net": 5700,  "ack": 5599  },
+  "advertise": { "host": "10.10.1.23", "ports": { "net": 35700, "ack": 35999 } } }
+```
+
+`ports` is what this node listens on; `advertise` is what everyone else dials. Without an
+`advertise` block the two are the same, which is the ordinary same-network case. Pin the
+nodePorts (`expose-my-port.sh 5599 35999`) so the file stays true across sessions; the
+node's IP is not authored state and usually still arrives as `--net-host` / `--ack-host`
+at launch.
+
+Decentralised peers normally work out each other's ports as `base + k`. A NodePort is
+whatever the cluster handed out, so when peers are published the dial ports travel as a
+list (`--peer-ports 30801,30907`) while each node still LISTENS on `base + its own id`.
+
+### How many ports must a host publish? Count its LISTENERS
+
+| Node | Binds — publish these | Dials |
+|---|---|---|
+| transmits over the air (a B210 client) | **nothing** | the sink's `ack` and `net` |
+| receives over the air (the N210 server) | **`ack` 5599 + `net` 5700** | — |
+| TCP client | nothing | the hub's `net` |
+| TCP server / hub | `net` 5700 | — |
+| relay, air in → TCP out | **`ack` 5599 + `net` 5700** | the next hop's `net` |
+| decentralised peer | its own `peer` port | its neighbours' |
+
+So a machine that RECEIVES over the air needs two published ports, and a machine that only
+transmits needs none. Which side listens is not a convention — `drivers/usrp/src/main.cpp`
+has `sink_arq` call `accept_one(ack_port)` and `source_arq` call `connect_to(ack_host,
+ack_port)`. Several listening nodes on one machine need one published port each, on
+different numbers, which is what per-node `ports` is for.
 
 ## What the file does NOT contain
 

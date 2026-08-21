@@ -328,6 +328,12 @@ the same file, saying only which node it is. The examples live in
 ./run.sh topology fl-chain-tcp             # the same chain with no radio at all
 ```
 
+Across machines, publish each LISTENER with `deploy/testbed/expose-my-port.sh` and put the
+published address in the node's `advertise` block — a NodePort renumbers the port, so what
+a node binds (5599) is not what callers dial (35999). Count listeners to know how many to
+publish: a node receiving over the air binds two (the ARQ ack and the TCP reply), a node
+that only transmits binds none. `fl-star-crossnode.json` is that shape.
+
 The relay's two hops come from the links: the link where it is `to` is upstream, the one
 where it is `from` is downstream. Without a file, the same relay is
 `--role relay --link chain --up-medium wireless --down-medium tcp` plus `--net-port` (what

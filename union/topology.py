@@ -92,7 +92,7 @@ def _known(d, allowed, what):
 class Node:
     """One node: what it is, where it runs, what it listens on, what radio it owns."""
 
-    KEYS = ("id", "role", "host", "ports", "radio", "lora", "note")
+    KEYS = ("id", "role", "host", "ports", "advertise", "radio", "lora", "note")
     PORTS = ("net", "peer", "ack", "down")
     RADIO = ("device", "args", "serial", "addr", "tx", "rx", "note")
     SIDE = ("ant", "subdev", "gain", "freq_mhz")
@@ -110,6 +110,18 @@ class Node:
         ports = _dict(raw.get("ports"), f"node {self.id}: ports")
         _known(ports, self.PORTS, f"node {self.id}: ports")
         self.ports = {k: int(v) for k, v in ports.items()}
+        # ── what this node BINDS vs what everyone else DIALS ──
+        # A NodePort (deploy/testbed/expose-my-port.sh) publishes container port 5599 on
+        # the node's IP as, say, 35999 — so the number a peer must dial is NOT the number
+        # this node listens on, and the address is the node's, not the pod's. `advertise`
+        # is that outside view; without it the two are the same, which is the ordinary
+        # same-network case.
+        adv = _dict(raw.get("advertise"), f"node {self.id}: advertise")
+        _known(adv, ("host", "ports", "note"), f"node {self.id}: advertise")
+        adv_ports = _dict(adv.get("ports"), f"node {self.id}: advertise.ports")
+        _known(adv_ports, self.PORTS, f"node {self.id}: advertise.ports")
+        self.adv_host = str(adv.get("host") or "").strip()
+        self.adv_ports = {k: int(v) for k, v in adv_ports.items()}
         self.lora = _dict(raw.get("lora"), f"node {self.id}: lora")
 
         radio = raw.get("radio")
@@ -152,7 +164,21 @@ class Node:
         return s.get(key, default)
 
     def port(self, which, default):
+        """What this node LISTENS on — its own socket, inside its own container."""
         return int(self.ports.get(which, default))
+
+    def dial_host(self):
+        """The address another node must use to reach this one."""
+        return self.adv_host or self.host
+
+    def dial_port(self, which, default):
+        """The port another node must use — the published one where there is one."""
+        if which in self.adv_ports:
+            return int(self.adv_ports[which])
+        return int(self.ports.get(which, default))
+
+    def published(self):
+        return bool(self.adv_host or self.adv_ports)
 
     def is_local(self):
         return self.host in LOCAL_HOSTS
@@ -304,7 +330,7 @@ class Topology:
         # with EADDRINUSE halfway through a run that looked fine when it started
         used = {}
         for nd in self.nodes:
-            for which in ("net", "peer"):
+            for which in ("net", "peer", "ack"):
                 if which in nd.ports:
                     key = (nd.host or "127.0.0.1", nd.ports[which])
                     if key in used:
@@ -312,10 +338,25 @@ class Topology:
                             f"nodes {used[key]} and {nd.id} both listen on "
                             f"{key[0]}:{key[1]} ({which}) — give them different ports")
                     used[key] = nd.id
+        # two nodes published at the same address and port collide just as surely, and
+        # that one is found by a peer dialling the wrong node rather than by a bind error
+        pub = {}
+        for nd in self.nodes:
+            for which, port in nd.adv_ports.items():
+                key = (nd.dial_host(), port)
+                if key in pub:
+                    raise TopologyError(
+                        f"nodes {pub[key]} and {nd.id} are both published at "
+                        f"{key[0]}:{key[1]} ({which}) — a caller cannot tell them apart")
+                pub[key] = nd.id
+            if nd.adv_ports and not nd.dial_host():
+                raise TopologyError(f"node {nd.id}: advertise.ports without a host — say "
+                                    f"where those ports are published, or pass it at "
+                                    f"launch with --net-host/--ack-host")
         # a node that is dialled has to be reachable: peers over tcp need its host
         for ln in self.links:
             for (src, dst, med) in ((ln.a, ln.b, ln.up), (ln.b, ln.a, ln.down)):
-                if med == "tcp" and not dst.host and not src.is_local():
+                if med == "tcp" and not dst.dial_host() and not src.is_local():
                     raise TopologyError(
                         f"link {ln.a.id}-{ln.b.id} is tcp, but node {dst.id} has no host "
                         f"and {src.id} is not local — give {dst.id} a host, or pass one "
@@ -402,6 +443,10 @@ class Topology:
             ports = ",".join(f"{k}:{v}" for k, v in sorted(nd.ports.items())) or "-"
             out.append(f"  [{nd.index}] {nd.id:<10} role={nd.role:<8} "
                        f"host={nd.host or '(unset)':<15} ports={ports:<20} {radio}")
+            if nd.published():
+                pub = ",".join(f"{k}:{v}" for k, v in sorted(nd.adv_ports.items())) or "-"
+                out.append(f"       {'':<10} others dial {nd.dial_host() or '(unset)'}"
+                           f"  ports={pub}")
         for ln in self.links:
             out.append(f"  link  {ln.describe()}")
         return "\n".join(out)

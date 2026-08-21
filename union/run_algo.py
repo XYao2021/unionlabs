@@ -591,13 +591,20 @@ def apply_topology(ap, a):
 
     is_peer = (a.role or nd.role) in ("peer", "gossip")
     transport = _peer_transport(topo, nd) if is_peer else None
-    _set(ap, a, "peers", ",".join(x.host or "127.0.0.1" for x in topo.nodes))
+    _set(ap, a, "peers", ",".join(x.dial_host() or "127.0.0.1" for x in topo.nodes))
+    # A peer normally listens on base+k, so everyone can work out everyone else's port.
+    # A published port breaks that arithmetic — a NodePort is whatever the cluster gave
+    # out — so the dial ports travel as a list whenever they are not base+k.
+    base = a.peer_port
+    dial = [x.dial_port("peer", base + x.index) for x in topo.nodes]
+    if any(p != base + i for i, p in enumerate(dial)):
+        _set(ap, a, "peer_ports", ",".join(str(p) for p in dial))
     uses_rf = False
 
     if is_peer:
         _set(ap, a, "peer_link", {"tcp": "tcp", "usrp": "wireless",
                                   "lora": "lora"}[transport])
-        missing = [x.id for x in topo.peers_of(nd) if not x.host]
+        missing = [x.id for x in topo.peers_of(nd) if not x.dial_host()]
         if missing and not _typed(ap, a, "peers"):
             print(f"[run_algo] NOTE: {', '.join(missing)} ha"
                   f"{'s' if len(missing) == 1 else 've'} no host in {topo.name}, so this "
@@ -652,14 +659,15 @@ def apply_topology(ap, a):
                 _set(ap, a, "link", "chain")
             _set(ap, a, "net_host", nd.host or "0.0.0.0")   # what UPSTREAM dials
             _set(ap, a, "net_port", nd.port("net", 5700))
-            _set(ap, a, "down_host", nxt.host or "127.0.0.1")
+            _set(ap, a, "down_host", nxt.dial_host() or "127.0.0.1")
             # the next hop's port: this node may name it explicitly (ports.down), else it
-            # is the port that node serves on
+            # is the port that node PUBLISHES (which is the one it serves on, unless a
+            # NodePort renumbered it)
             _set(ap, a, "down_port", nd.ports.get("down")
-                 or nxt.port("net", nd.port("net", 5700) + 1))
+                 or nxt.dial_port("net", nd.port("net", 5700) + 1))
             if med_out == "wireless":            # this relay transmits to the next hop
-                _set(ap, a, "ack_host", nxt.host or "127.0.0.1")
-                _set(ap, a, "ack_port", nxt.port("ack", 5599))
+                _set(ap, a, "ack_host", nxt.dial_host() or "127.0.0.1")
+                _set(ap, a, "ack_port", nxt.dial_port("ack", 5599))
         elif out_links:
             # A CLIENT: transmits to the next node and reads its reply
             hub = out_links[0].b
@@ -670,16 +678,16 @@ def apply_topology(ap, a):
                       f"--net-host <address> when {hub.id} is somewhere else (a session "
                       f"pod's address changes every session, which is why a file should "
                       f"not carry it).")
-            _set(ap, a, "net_host", hub.host or "127.0.0.1")
-            _set(ap, a, "net_port", hub.port("net", 5700))
+            _set(ap, a, "net_host", hub.dial_host() or "127.0.0.1")
+            _set(ap, a, "net_port", hub.dial_port("net", 5700))
             # THE ARQ ACK IS THE SINK'S SOCKET. main.cpp: sink_arq calls accept_one(),
             # source_arq calls connect_to() — so the receiver listens and the transmitter
             # dials. A transmitter therefore takes the port of the node it is dialling,
             # not its own; taking its own is how two nodes end up on different ports and
             # the ACK never arrives.
-            _set(ap, a, "ack_host", hub.host or "127.0.0.1")
+            _set(ap, a, "ack_host", hub.dial_host() or "127.0.0.1")
             if med_out == "wireless":
-                _set(ap, a, "ack_port", hub.port("ack", 5599))
+                _set(ap, a, "ack_port", hub.dial_port("ack", 5599))
         else:
             # A SERVER: receives, aggregates, answers. Bind the address this node is
             # reachable at — a client on another machine cannot reach 127.0.0.1.
@@ -731,6 +739,7 @@ def print_plan(a, topo):
               ("peer-link", a.peer_link if peer else None),
               ("peers", a.peers if peer else None),
               ("peer-port", a.peer_port if peer else None),
+              ("peer-dial", a.peer_ports if peer and a.peer_ports else None),
               ("net", None if peer else f"{a.net_host}:{a.net_port}"),
               ("hop in", getattr(a, "up_medium", None)),
               ("hop out", getattr(a, "down_medium", None)),
@@ -791,6 +800,10 @@ def build_parser():
                          "(default: all 127.0.0.1, i.e. several terminals on this machine)")
     ap.add_argument("--peer-port", type=int, default=5800,
                     help="base TCP port for peer exchange; node k listens on peer-port + k")
+    ap.add_argument("--peer-ports", default="",
+                    help="comma-separated port per node to DIAL, indexed by node id, when "
+                         "they are not peer-port + k — which is what a NodePort does to "
+                         "them. Each node still LISTENS on peer-port + its own id.")
     ap.add_argument("--peer-link", default=None, choices=["tcp", "wireless", "lora"],
                     help="how decentralised peers exchange: tcp (LAN / same machine), "
                          "wireless (the USRP radio), lora (the LoRa radio). Defaults to "
@@ -1035,9 +1048,10 @@ def main():
         kind = CHANNEL_ALIASES.get(a.channel, a.channel)
         peer_link = a.peer_link or ("lora" if kind == "lora" else "tcp")
         try:
+            dial_ports = [int(p) for p in a.peer_ports.split(",") if p.strip()] or None
             link = pl.PeerLink(node_id=a.node, n_nodes=a.agents, topology=a.topology,
                                peers=hosts, base_port=a.peer_port, link=peer_link,
-                               ack_port=a.ack_port,
+                               peer_ports=dial_ports, ack_port=a.ack_port,
                                tx_args=a.tx_args, rx_args=a.rx_args, scheme=a.scheme,
                                waveform=a.waveform, tx_subdev=a.tx_subdev,
                                rx_subdev=a.rx_subdev, tx_ant=a.tx_ant, rx_ant=a.rx_ant,
