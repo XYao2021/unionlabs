@@ -20,9 +20,18 @@ APPLIED="$ENVDIR/.applied"
 mkdir -p "$ENVDIR"
 [ -f "$REQ" ] || { echo "# add one library per line" > "$REQ"; }
 
-if [ ! -x "$VENV/bin/python" ]; then
+if [ ! -x "$VENV/bin/pip" ]; then
   echo "[sync-env] creating the account environment at $VENV"
-  python3 -m venv --system-site-packages "$VENV"
+  rm -rf "$VENV"                      # a half-made venv (no pip) is worse than none
+  python3 -m venv --system-site-packages "$VENV" || true
+  if [ ! -x "$VENV/bin/pip" ]; then
+    # Ubuntu strips ensurepip from the base python; venv then comes up with no
+    # pip inside and every install fails two steps later with a confusing path
+    # error. Say the real cause.
+    echo "[sync-env] FATAL: venv has no pip — the image lacks python3-venv" >&2
+    echo "[sync-env]        (apt-get install python3-venv, then re-run)" >&2
+    exit 1
+  fi
 fi
 
 # strip comments/blanks so a comment edit does not trigger an install. grep
