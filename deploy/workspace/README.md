@@ -12,6 +12,7 @@ there.
 ```
 /workspace/experiments/
   algorithms/      the algorithms themselves (fl, dl, ...)      (seeded from the repo)
+  env/             the account's libraries: requirements.txt -> a persistent venv
   settings/        which devices this account has RESERVED      (schema: OPEN)
   topologies/      the wiring of an experiment                  (schema: v1, in use)
   cross_channel/   carrying a link BETWEEN testbeds             (design: OPEN)
@@ -35,6 +36,7 @@ lets one settings file compose with many topologies instead of being copied into
 | `settings/` | what is reserved, and what each device is | the reservation changes |
 | `topologies/` | who exchanges with whom, over what, on which port and connector | every experiment |
 | `algorithms/` | what the nodes actually run | when the code changes |
+| `env/` | the account's extra libraries, installed once into a persistent venv | when a user adds a line |
 | `cross_channel/` | how an inter-testbed link is carried | per cross-testbed run |
 
 ## Two constraints that already hold

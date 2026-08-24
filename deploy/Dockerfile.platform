@@ -80,6 +80,15 @@ RUN cat > /root/.vnc/xstartup <<'EOF' && chmod +x /root/.vnc/xstartup && cp /roo
 # user their desktop, hence the redirect and the `|| true`.
 bash /opt/unionlabs/deploy/workspace/init-workspace.sh >/tmp/init-workspace.log 2>&1 || true
 
+# The account's own libraries: bring the persistent environment up to date with
+# env/requirements.txt (a hash no-op when unchanged) and put it on PATH for
+# every terminal this desktop opens. Backgrounded: a first-time install must
+# never delay the desktop.
+setsid bash /opt/unionlabs/deploy/workspace/env/sync-env.sh \
+  >/tmp/sync-env.log 2>&1 < /dev/null &
+grep -q 'experiments/env/venv' /root/.bashrc 2>/dev/null || \
+  echo 'export PATH=/workspace/experiments/env/venv/bin:$PATH' >> /root/.bashrc
+
 # Publish what this node is (radios, addresses, PHYs) into the shared workspace, and keep
 # the record's heartbeat fresh so it disappears when this session does. Detached and
 # backgrounded: probing takes seconds and must never delay the desktop.

@@ -1,0 +1,11 @@
+# ── the account's extra Python libraries — ONE PLACE, EVERY SESSION ─────────
+# Add a line here and it is installed into the shared environment the next
+# time a session starts (or run sync-env.sh by hand to get it right now).
+# Already-installed libraries are never touched again: only what you ADD costs
+# anything, once, for the whole account, on every testbed.
+#
+#   networkx
+#   torch-geometric==2.5
+#
+# System (apt) packages cannot be installed this way — list them in
+# packages.txt in this folder instead; those are baked by the platform.

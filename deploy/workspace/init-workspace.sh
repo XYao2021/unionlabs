@@ -14,7 +14,7 @@ ROOT="${ROOT:-/workspace/experiments}"
 [ -d "$(dirname "$ROOT")" ] || { echo "no $(dirname "$ROOT") — is this a session with the workspace mounted?" >&2; exit 1; }
 
 created=0 kept=0
-for d in settings topologies cross_channel algorithms; do
+for d in settings topologies cross_channel algorithms env; do
   mkdir -p "$ROOT/$d"
   if [ -e "$ROOT/$d/README.md" ]; then
     kept=$((kept + 1))
@@ -23,6 +23,13 @@ for d in settings topologies cross_channel algorithms; do
     created=$((created + 1))
   fi
 done
+
+# the env manifest — seeded once, never overwritten (it is the user's file)
+if [ ! -e "$ROOT/env/requirements.txt" ] && [ -e "$HERE/env/requirements.txt" ]; then
+  cp "$HERE/env/requirements.txt" "$ROOT/env/requirements.txt"
+  created=$((created + 1))
+fi
+cp "$HERE/env/sync-env.sh" "$ROOT/env/sync-env.sh" 2>/dev/null || true   # tool, always current
 
 # the repo's algorithms — seeded once per folder, never overwritten, so an
 # algorithm the account has edited in the shared workspace stays as edited
