@@ -20,6 +20,15 @@ APPLIED="$ENVDIR/.applied"
 mkdir -p "$ENVDIR"
 [ -f "$REQ" ] || { echo "# add one library per line" > "$REQ"; }
 
+# A healthy venv has pip AND can see the image's own packages (numpy stands in
+# for all of them). A venv that fails either test is a broken survivor — EFS
+# outlives every image fix, so a venv born broken stays broken until someone
+# recreates it. Do that here, not by hand in a pod.
+if [ -x "$VENV/bin/python" ] && ! "$VENV/bin/python" -c "import numpy" >/dev/null 2>&1; then
+  echo "[sync-env] venv cannot see the system packages — recreating it"
+  rm -rf "$VENV"
+  rm -f "$APPLIED"
+fi
 if [ ! -x "$VENV/bin/pip" ]; then
   echo "[sync-env] creating the account environment at $VENV"
   rm -rf "$VENV"                      # a half-made venv (no pip) is worse than none
