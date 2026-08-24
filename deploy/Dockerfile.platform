@@ -60,6 +60,32 @@ RUN mkdir -p /root/.vnc /opt/application /workspace
 RUN uhd_images_downloader -t b2xx \
  && test -f /usr/share/uhd/images/usrp_b200_fw.hex
 
+# ── VS Code, the desktop's default editor ──
+#    Direct .deb (no MS apt repo to maintain); apt resolves its libraries. The
+#    desktop runs as root, and Code refuses root without --no-sandbox, so a
+#    wrapper earlier in PATH carries the flags and the launcher points at it.
+#    NOTE the unversioned "latest" URL is cached by Docker like any RUN — the
+#    editor updates only when this layer is rebuilt, which is the right
+#    stability for a lab image. Placed BEFORE the repo clone on purpose:
+#    code-only rebuilds reuse this layer.
+RUN apt-get update \
+ && curl -fsSL -o /tmp/code.deb "https://update.code.visualstudio.com/latest/linux-deb-x64/stable" \
+ && apt-get install -y /tmp/code.deb \
+ && rm -rf /tmp/code.deb /var/lib/apt/lists/* \
+ && printf '#!/bin/sh\nexec /usr/share/code/code --no-sandbox --password-store=basic "$@"\n' \
+      > /usr/local/bin/code \
+ && chmod +x /usr/local/bin/code \
+ && sed -i 's|^Exec=/usr/share/code/code|Exec=/usr/local/bin/code|' /usr/share/applications/code.desktop \
+ && mkdir -p /root/Desktop \
+ && install -m 755 /usr/share/applications/code.desktop /root/Desktop/code.desktop \
+ && mkdir -p /root/.config \
+ && { echo "[Default Applications]"; \
+      for m in text/plain text/markdown text/x-python text/x-csrc text/x-c++src \
+               text/x-makefile application/json application/x-shellscript \
+               application/x-yaml; do echo "$m=code.desktop"; done; } \
+      > /root/.config/mimeapps.list \
+ && echo 'export EDITOR="code -w" VISUAL="code -w"' >> /root/.bashrc
+
 # ── xstartup: TurboVNC 3.x ignores ~/.vnc/xstartup entirely ──
 #    Its vncserver defaults $xstartup to the BUNDLED /opt/TurboVNC/bin/xstartup.turbovnc
 #    unless $xstartup is set in /etc/turbovncserver.conf (verified in the vncserver
