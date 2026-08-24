@@ -2,7 +2,7 @@
 """
 phy_link.py — the uniform algorithm <-> PHY abstraction layer.
 
-A user drops an algorithm into  experiments/<name>/app.py  as a subclass of SdrApp.
+A user drops an algorithm into  algorithms/<name>/app.py  as a subclass of SdrApp.
 The framework grabs the algorithm's OUTPUT at the transmitter, sends it over the
 PHY, and hands the RECEIVED message back to the algorithm's INPUT — a synchronous
 request/response round-trip. The algorithm never touches the radio.

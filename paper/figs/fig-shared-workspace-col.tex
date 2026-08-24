@@ -1,0 +1,50 @@
+%% The shared workspace — COLUMN variant. One account, four sessions on four
+%% testbeds that cannot reach each other; the mounted workspace in the middle
+%% is the only shared state. Wiring flows out to every session (solid),
+%% records flow back in (dashed). 2x2 around the centre to fit one column.
+\documentclass[tikz,border=4pt]{standalone}
+\usepackage{xcolor}
+\input{unionstyle}
+\begin{document}
+\begin{tikzpicture}[x=1mm, y=1mm]
+
+%% ── the workspace in the middle ──────────────────────────────────────────
+\node[share, text width=60mm] (ws) at (0,0)
+  {\textbf{/workspace} \emph{(one account)}\\[2pt]
+   {\scriptsize \monos{topologies/} --- authored wiring, written once}\\
+   {\scriptsize \monos{settings/} --- discovered records,\\
+    heartbeat 30\,s, stale $=$ gone}};
+
+%% ── four sessions, four testbeds: two above, two below ───────────────────
+\node[code, text width=26mm] (sa) at (-16.5,24)
+  {\textbf{session} {\scriptsize testbed A}\\
+   {\scriptsize N210 RX · server}\\\monos{--node srv}};
+\node[code, text width=26mm] (sb) at (16.5,24)
+  {\textbf{session} {\scriptsize testbed B}\\
+   {\scriptsize B210 TX · client}\\\monos{--node c0}};
+\node[code, text width=26mm] (sc) at (-16.5,-24)
+  {\textbf{session} {\scriptsize testbed C}\\
+   {\scriptsize LoRa · client}\\\monos{--node c1}};
+\node[code, text width=26mm] (sd) at (16.5,-24)
+  {\textbf{session} {\scriptsize testbed D}\\
+   {\scriptsize X310 · client}\\\monos{--node dst}};
+
+\node[lbl, above=1.5mm of sa.north west, anchor=south west]
+  {testbeds cannot reach each other};
+
+%% ── wiring toward the session (solid), record toward the workspace (dashed)
+\foreach \s in {sa,sb} {
+  \draw[flow] ([xshift=-2]ws.north -| \s) -- ([xshift=-2]\s.south);
+  \draw[back] ([xshift=2]\s.south) -- ([xshift=2]ws.north -| \s);
+}
+\foreach \s in {sc,sd} {
+  \draw[flow] ([xshift=-2]ws.south -| \s) -- ([xshift=-2]\s.north);
+  \draw[back] ([xshift=2]\s.north) -- ([xshift=2]ws.south -| \s);
+}
+\node[onarrow, left=0.5pt]
+  at ([xshift=-3.5]{$(ws.north -| sa)!0.5!(sa.south)$}) {linking};
+\node[onarrow, right=0.5pt]
+  at ([xshift=3.5]{$(sd.north)!0.5!(ws.south -| sd)$}) {record};
+
+\end{tikzpicture}
+\end{document}

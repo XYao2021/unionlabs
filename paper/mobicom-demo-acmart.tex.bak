@@ -1,0 +1,284 @@
+%% ---------------------------------------------------------------------------
+%%  UnionLabs — ACM MobiCom demo paper (2 pages + references on page 3)
+%%
+%%  Build:   make          (latexmk -pdf mobicom-demo.tex)
+%%  or:      pdflatex mobicom-demo && bibtex mobicom-demo && pdflatex ... x2
+%%
+%%  BEFORE SUBMITTING, fill in every  \TODO{...}  and check the items in
+%%  README.md.  The reserved space in Section 3.4 is deliberately empty: put the
+%%  remaining features there.
+%% ---------------------------------------------------------------------------
+\documentclass[sigconf,nonacm]{acmart}
+%% For a double-blind venue instead:  \documentclass[sigconf,anonymous]{acmart}
+%% Remove `nonacm` and fill in the \acmConference/\acmISBN/\acmDOI block below
+%% once the camera-ready details are known.
+
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds}
+\usepackage{xcolor}
+\usepackage{balance}
+\usepackage{enumitem}   %% list spacing options used in Sec. 4
+
+%% A visible marker for what still has to be written. Delete the definition and
+%% every use before submission.
+\newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+%% --- venue block (FILL IN: dates and location) ------------------------------
+\acmConference[MobiCom '26]{The 32nd Annual International Conference on Mobile
+  Computing and Networking}{Month DD--DD, 2026}{City, Country}
+\acmYear{2026}
+\copyrightyear{2026}
+%% \acmISBN{...}   \acmDOI{...}   \setcopyright{acmlicensed}
+
+\begin{document}
+
+\title{Demo: UnionLabs --- Write the Experiment Once, Run It Over Any PHY,
+       Any Topology, Any Testbed}
+
+%% ---------------------------------------------------------------------------
+%%  AUTHORS — FILL IN. (acmart's \author/\email/\affiliation are fragile: put
+%%  plain text here, not macros.)
+%% ---------------------------------------------------------------------------
+\author{First Author}
+\affiliation{%
+  \institution{Institution}
+  \city{City}
+  \country{Country}}
+\email{first@example.edu}
+
+\author{Second Author}
+\affiliation{%
+  \institution{Institution}
+  \city{City}
+  \country{Country}}
+\email{second@example.edu}
+
+\begin{abstract}
+Wireless learning experiments are written twice: once against a simulator, and
+again --- differently --- against radios, a testbed's container contract, and
+whatever ports that testbed will let through. UnionLabs removes the second
+writing. An algorithm declares only \emph{what to transmit} and \emph{what to
+receive}; the platform carries each payload over a real single-carrier/OFDM
+modem on USRP hardware, over LoRa, or over no radio at all, with no change to
+the algorithm. This demo introduces the layer added since our earlier PHY work:
+the \emph{wiring of a multi-node experiment is now a file}. One JSON document
+names the nodes, the radio each owns down to the connector and RF channel, the
+port each listens on, the address others must dial to reach it through a
+NodePort, and --- per link, per direction --- whether that hop is carried over
+the air, over TCP/IP, or over LoRa. Every node reads the same file and asks it
+one question: \emph{which node am I}. We demonstrate federated and
+decentralised learning running unchanged across a laptop, a lab pair of USRPs,
+and a shared Kubernetes-managed testbed, including a chain whose first hop is
+over the air and whose second is Ethernet.
+\end{abstract}
+
+\begin{CCSXML}
+<ccs2012>
+<concept><concept_id>10003033.10003079.10003081</concept_id>
+<concept_desc>Networks~Network experimentation</concept_desc>
+<concept_significance>500</concept_significance></concept>
+<concept><concept_id>10003033.10003079.10011672</concept_id>
+<concept_desc>Networks~Network measurement</concept_desc>
+<concept_significance>300</concept_significance></concept>
+<concept><concept_id>10010147.10010257</concept_id>
+<concept_desc>Computing methodologies~Machine learning</concept_desc>
+<concept_significance>300</concept_significance></concept>
+</ccs2012>
+\end{CCSXML}
+\ccsdesc[500]{Networks~Network experimentation}
+\ccsdesc[300]{Networks~Network measurement}
+\ccsdesc[300]{Computing methodologies~Machine learning}
+
+\keywords{software-defined radio, testbeds, federated learning, decentralised
+learning, reproducibility, experiment orchestration}
+
+\maketitle
+
+%% ===========================================================================
+\section{Motivation}
+%% ===========================================================================
+An experiment that puts learning inside the radio loop --- federated averaging
+over the air~\cite{mcmahan2017fedavg}, decentralised consensus over a
+graph~\cite{lian2017dpsgd}, over-the-air computation~\cite{nazer2007computation}
+--- is easy to state and expensive to run. The algorithm is a page of code. What
+surrounds it is not: a modem, an ARQ path, which USRP is on which connector,
+which node dials which port, and a testbed whose containers cannot even see each
+other until somebody publishes a port.
+
+Shared platforms removed the hardware barrier~\cite{powder,colosseum,aerpaw},
+and open PHY stacks removed the waveform barrier~\cite{gnuradio,srslte,oai}. The
+barrier that remains is that an experiment's \emph{wiring} lives in people's
+heads and in shell history. It is retyped on every machine, and the retypings
+disagree --- a client dials 5700 while the server serves 5701; a node is told to
+transmit on a radio that is receive-only. The failure surfaces minutes later,
+from a layer that is not the one at fault.
+
+UnionLabs makes the wiring a first-class, checkable artifact, and keeps the
+algorithm ignorant of it.
+
+%% ===========================================================================
+\section{The substrate (prior work)}
+%% ===========================================================================
+Two pieces predate this demo and are summarised only so the new layer makes
+sense.
+
+\textbf{The PHY engine.} A C++ modem (\code{sdr\_system}) implements frame
+synchronisation, carrier-frequency and phase correction, equalisation,
+(de)modulation across BPSK/QPSK/8-PSK/16-QAM and their differential variants,
+convolutional/LDPC/turbo coding, CRC-16, and stop-and-wait ARQ, over
+single-carrier or OFDM waveforms, driving USRP N210/B210/X310 through UHD. It
+is reachable in-process (as a Python extension, for radio-free runs with AWGN)
+or as a separate process driving real radios.
+
+\textbf{The union API.} An algorithm implements three methods ---
+\code{produce()}, \code{consume(msg)}, and optionally \code{on\_result(ack)} ---
+and declares the shape of its payload. It imports nothing from any driver. That
+single rule is what lets one file run over the ideal channel, the USRP modem, or
+LoRa by changing one flag, and it is enforced by a self-test that runs every
+experiment over every radio-free PHY.
+
+%% ===========================================================================
+\section{What is new}
+%% ===========================================================================
+
+\subsection{The wiring is a file}
+A topology is a JSON document under \code{/workspace/experiments/topologies/}.
+It names each node, its role in the algorithm's own vocabulary, the radio it
+owns, the ports it listens on, and the links between nodes. Each node is
+launched with the same file and its own identity:
+
+\begin{quote}\code{./run.sh -{}-algo fl -{}-topology fl-chain-mixed -{}-node n2}\end{quote}
+
+\noindent Everything else --- role, peers, ports, device arguments, connector,
+subdevice, gains --- is resolved from the file, and anything typed on the
+command line still wins over it. \code{-{}-print-plan} resolves a node and
+prints what it would do without running anything.
+
+\subsection{The medium belongs to the link}
+Each link states how it is carried, and the two directions may differ:
+\code{\{"up": "wireless", "down": "tcp"\}}. This is not a convenience. Our rig
+has one transmit-capable B210 and one receive-only N210, so the only RF path is
+B210$\rightarrow$N210 and the reply \emph{must} return over TCP. A chain can
+therefore change medium half way (Figure~\ref{fig:wiring}): the middle node
+receives over the air and forwards over Ethernet, which is exactly what an
+RX-only node in the middle can do.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=6mm,
+  every node/.style={font=\small},
+  box/.style={draw, rounded corners=2pt, minimum height=8mm, minimum width=17mm,
+              align=center, font=\small\bfseries, fill=black!3},
+  rf/.style={-{Latex[length=2mm]}, thick, densely dashed},
+  ip/.style={-{Latex[length=2mm]}, thick},
+]
+\node[box] (n1) {n1\\[-1pt]\scriptsize client};
+\node[box, right=16mm of n1] (n2) {n2\\[-1pt]\scriptsize relay};
+\node[box, right=16mm of n2] (n3) {n3\\[-1pt]\scriptsize server};
+
+\draw[rf] (n1) -- node[above, font=\scriptsize] {wireless}
+                node[below, font=\scriptsize] {B210$\rightarrow$N210} (n2);
+\draw[ip] (n2) -- node[above, font=\scriptsize] {tcp}
+                node[below, font=\scriptsize] {Ethernet} (n3);
+
+\node[below=7mm of n1, font=\scriptsize, align=center] (p1)
+  {radio: \code{serial=30CD424}\\ TX/RX, A:A, 78\,dB\\ binds: --- };
+\node[below=7mm of n2, font=\scriptsize, align=center] (p2)
+  {radio: \code{addr=192.168.10.2}\\ RX2, A:0, 25\,dB\\ binds: ack, net};
+\node[below=7mm of n3, font=\scriptsize, align=center] (p3)
+  {no radio\\ \phantom{RX2, A:0}\\ binds: net};
+\end{tikzpicture}
+\caption{One file, three nodes, two media. The medium is a property of each
+link and of each direction; the reply on hop one returns over TCP because the
+N210 never transmits. Ports a node \emph{binds} are what a host must publish.}
+\label{fig:wiring}
+\end{figure}
+
+\subsection{What the file refuses}
+A wiring that cannot run is rejected when it is read, naming the node --- not
+three minutes later by UHD. A wireless direction whose transmitter has no
+transmit section; two nodes on one host claiming one port; peer ports that break
+the \code{base+k} rule the peer transport actually follows; a misspelled key; a
+link to a node that does not exist; a reply asked to travel over the air. Each
+of these was a real failure with an error that named the wrong layer.
+
+\subsection{\TODO{additional features --- space reserved}}
+\TODO{Add the remaining features here. Roughly 25--30 lines of two-column text
+fit in this subsection without pushing the references off page~3. Candidates
+already in the platform, to keep or cut: the slotted-ALOHA multi-agent runner
+and MARL medium-access experiments; semantic communication (CLIP) over the
+link; space--time-coded over-the-air computation; the jammer/interference
+experiment; per-PHY airtime accounting; the LoRa driver's three backends
+(sim/serial/SPI); the compressed top-$k$ uplink with error feedback; the
+cross-testbed hierarchical FL design.}
+
+\vspace{2mm}
+\TODO{one or two sentences per feature, or a compact itemised list, is the right
+density for a demo paper.}
+\vspace{2mm}
+
+\subsection{Running on a shared testbed}
+The platform image follows the testbed's own container contract: it stays alive
+and idle, and the platform execs its VNC server into it. A session hook
+materialises the shared workspace, publishes what the node is (its radios,
+addresses and PHYs) as a heartbeated record, and attaches the radio's network
+into the session's own namespace. Because a container never receives traffic
+sent to its host, each \emph{listener} must be published; a node that only
+transmits publishes nothing. A NodePort renumbers the port, so a node states
+both what it binds and what others should dial:
+
+\begin{quote}\code{"ports": \{"ack": 5599\}, "advertise": \{"host": "10.10.1.23", "ports": \{"ack": 35999\}\}}\end{quote}
+
+\subsection{Everything is checked}
+The claim ``the same algorithm runs everywhere'' is only worth making if it is
+tested. A single command runs every experiment over every radio-free PHY, walks
+44 command-line flags and 82 topology settings from the text a user types to the
+object each one configures, and launches multi-node topologies as real
+processes. \TODO{update these counts at submission time.}
+
+%% ===========================================================================
+\section{Demonstration}
+%% ===========================================================================
+Visitors see the \emph{same} experiment file three times, and watch the wiring
+change underneath it.
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
+\item \textbf{No radio.} Federated averaging on MNIST, one server and two
+clients as three processes on a laptop, wired by \code{fl-star-tcp}. Accuracy
+climbs per round.
+\item \textbf{Over the air.} The same algorithm, wired by
+\code{fl-star-radio}: a B210 transmits each model over the 915\,MHz link to an
+N210, which answers over TCP. Visitors watch per-chunk ARQ, retransmissions and
+airtime.
+\item \textbf{Mixed chain.} \code{fl-chain-mixed}: hop one over the air, hop
+two over Ethernet, with the relay's own log naming each leg it opened.
+\item \textbf{On the testbed.} The same commands in a remote session on a
+Kubernetes-managed testbed, reached over VNC, with its N210 attached and its
+ports published.
+\item \textbf{Break it on purpose.} We edit the file to ask a receive-only
+radio to transmit; the run refuses at load and says which node and which link.
+\end{enumerate}
+
+\textbf{Requirements.} \TODO{table space, power, poster board, and whether you
+bring your own network. State that no venue Internet is required if the demo is
+self-contained, or what you need if it is not.}
+
+%% ===========================================================================
+\section{Conclusion}
+%% ===========================================================================
+UnionLabs already let one algorithm run over any physical layer. It now lets one
+\emph{experiment} --- nodes, radios, connectors, ports, and the medium of every
+hop --- be written down once, checked before it runs, and moved between a
+laptop, a lab bench, and a shared testbed without being retyped. Code, images
+and the wirings shown here are available at \TODO{repository URL}.
+
+\balance
+%% References start on page 3 --- ACM demo papers are two pages plus references.
+\clearpage
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{refs}
+
+\end{document}

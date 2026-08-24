@@ -1,0 +1,269 @@
+%% ---------------------------------------------------------------------------
+%%  UnionLabs — ACM MobiCom demo paper.
+%%
+%%  FORMAT per the MobiCom call for demos: 2 pages double-column US letter,
+%%  fonts no smaller than 10pt, ACM template, plus ONE EXTRA PAGE FOR
+%%  REFERENCES (which is why \clearpage precedes the bibliography).
+%%  Demo submissions are SINGLE-BLIND: authors are named, do not anonymise.
+%%
+%%  Structure follows the collaborator's demo paper (CCNC25RT.pdf, AirTwinX):
+%%  motivation -> design with bold run-in components -> named demonstration
+%%  scenarios -> references. No results section and no conclusion; two pages
+%%  have no room for either, and a demo is not judged on them.
+%%
+%%  Build:   make
+%%  BEFORE SUBMITTING: fill every \TODO{...} (they render in red), then delete
+%%  the \newcommand{\TODO} line. See README.md.
+%% ---------------------------------------------------------------------------
+\documentclass[sigconf,10pt]{acmart}
+
+\usepackage{graphicx}
+\graphicspath{{figs/}}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds,calc}
+\usepackage{xcolor}
+\usepackage{balance}
+
+\newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+%% Narrow columns + unbreakable \code{} spans overflow the measure; let TeX
+%% stretch a little rather than run into the next column.
+\emergencystretch=1.2em
+\hyphenpenalty=100
+
+%% --- venue block. MobiCom 2026: Austin, Texas, 26--30 October 2026. --------
+\acmConference[MobiCom '26]{The 32nd Annual International Conference on Mobile
+  Computing and Networking}{October 26--30, 2026}{Austin, TX, USA}
+\acmYear{2026}
+\copyrightyear{2026}
+\setcopyright{acmlicensed}
+%% \acmISBN{...} \acmDOI{...}  — add when ACM supplies them.
+
+\begin{document}
+
+\title{UnionLabs: Write the Wireless Experiment Once,
+       Run It Over Any PHY, Topology, and Testbed}
+
+%% ---------------------------------------------------------------------------
+%%  AUTHORS — fill in. Demos are SINGLE-BLIND, so real names belong here.
+%%  acmart's \author/\email/\affiliation are fragile: plain text, no macros.
+%% ---------------------------------------------------------------------------
+\author{First Author}
+\affiliation{%
+  \institution{Institution}
+  \city{City}
+  \country{Country}}
+\email{first@example.edu}
+
+\author{Second Author}
+\affiliation{%
+  \institution{Institution}
+  \city{City}
+  \country{Country}}
+\email{second@example.edu}
+
+\author{Third Author}
+\affiliation{%
+  \institution{Institution}
+  \city{City}
+  \country{Country}}
+\email{third@example.edu}
+
+\begin{abstract}
+Running a wireless learning experiment still means hand-assembling everything
+around the algorithm: a radio stack, the wiring of every node, a testbed's
+containers, and the ports between them. We present UnionLabs, a platform that
+turns each of these into a designed, reusable part. An algorithm declares only
+\emph{what to transmit} and \emph{what to receive}, and moves unchanged
+between an ideal channel, a real single-carrier/OFDM modem on USRP hardware,
+and LoRa. The wiring of a multi-node experiment is a declarative file in which
+every link carries its own medium, per direction---checked when it is read,
+not when it fails on the air. A shared workspace carries one account's
+experiment state across testbeds that cannot reach each other, and an agent
+turns any machine into a managed edge node, exposing hardware to experiment
+containers only by the lab owner's permission. In this demonstration, visitors
+run federated and decentralized learning unchanged across a laptop, a pair of
+USRPs, and a shared testbed, rewiring the running experiment by editing one
+field.
+\end{abstract}
+
+\begin{CCSXML}
+<ccs2012>
+<concept><concept_id>10003033.10003079.10003081</concept_id>
+<concept_desc>Networks~Network experimentation</concept_desc>
+<concept_significance>500</concept_significance></concept>
+<concept><concept_id>10003033.10003079.10011672</concept_id>
+<concept_desc>Networks~Network measurement</concept_desc>
+<concept_significance>300</concept_significance></concept>
+</ccs2012>
+\end{CCSXML}
+\ccsdesc[500]{Networks~Network experimentation}
+\ccsdesc[300]{Networks~Network measurement}
+
+\keywords{software-defined radio, wireless testbeds, federated learning,
+decentralized learning, experiment orchestration, reproducibility}
+
+\maketitle
+
+%% ===========================================================================
+\section{Motivation}
+%% ===========================================================================
+An experiment that places learning inside the radio loop---federated averaging
+over the air~\cite{mcmahan2017fedavg}, decentralized consensus over a
+graph~\cite{lian2017dpsgd}---is easy to state and expensive to run. The
+algorithm is a page of code; what surrounds it is not. Shared platforms have
+removed the hardware barrier~\cite{powder} and open physical-layer stacks the
+waveform barrier~\cite{gnuradio}, but an experiment's \emph{wiring} still
+lives in operators' heads and shell history: it is retyped on every machine
+that takes part, and the retypings disagree---a client dials one port while
+the server serves another, or a node is told to transmit on a radio that is
+receive-only. The failure appears minutes later, from a layer that is not the
+one at fault.
+
+We introduce UnionLabs, a platform that separates \emph{what an algorithm
+does} from \emph{how the experiment is wired}, and makes the second a
+checkable artifact. \emph{The medium of every link---over the air, over
+TCP/IP, or over LoRa---is a property of the link itself, declared per
+direction, so the same unmodified algorithm runs on a laptop, on a pair of
+radios, and across a shared testbed.} A wiring that cannot run is refused when
+it is read, naming the node at fault, rather than after minutes of radio time.
+
+%% ===========================================================================
+\section{UnionLabs Design}
+%% ===========================================================================
+The new features of UnionLabs comprise four parts, each described below with
+its own figure.
+
+\textbf{Algorithm Contract.} An algorithm implements two functions,
+\code{transmit()} and \code{receive(msg)}, plus an optional
+\code{on\_result(ack)}, and declares the shape of its payload; it imports
+nothing from any radio driver (Figure~\ref{fig:overview}). The union layer
+validates each payload, converts it between \code{ndarray} and bytes, and
+maps the algorithm's own role names---client, server, peer---onto the ends of
+a link. That one rule makes an experiment portable: the same unmodified file
+runs the whole network in one process for development, splits into one
+process per node for deployment, and moves between the ideal channel, the
+USRP modem, and LoRa by changing one flag. A single self-test enforces the
+claim over every radio-free physical layer before any radio is touched.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.6\linewidth]{fig-union-api-col}
+\caption{The union API. A uniform path linking the user's algorithm to the
+embedded wireless system.}
+\Description{Four stacked blocks connected by double arrows: the experiment
+file, the union contract, the transport, and the PHY.}
+\label{fig:overview}
+\end{figure}
+
+\textbf{PHY Codes.} Beneath the contract is a C++ modem assembled from parts
+we choose (Figure~\ref{fig:phy}): synchronization, carrier and phase
+correction, equalization, BPSK through 16-QAM with differential variants,
+convolutional, LDPC and turbo coding, CRC-16, and stop-and-wait ARQ, over
+single-carrier or OFDM waveforms on USRP radios. Every choice is therefore an
+experiment variable rather than a constant---modulation, coding, waveform,
+gains, and the carrier are all knobs---and explicit ARQ makes the airtime a
+learning round costs measured rather than modeled. The acknowledgement may
+return over TCP or a second RF path, which lets a receive-only radio hold up
+one end of a link; switching to OFDM replaces only the middle of the chain.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\linewidth]{fig-phy-pipeline-col}
+\caption{The PHY design, with stop-and-wait ARQ applied.}
+\Description{Transmit chain of framing, coding and modulation on the left;
+receive chain of synchronization, equalization and decoding on the right; an
+ACK arrow closes the loop.}
+\label{fig:phy}
+\end{figure}
+
+\textbf{Wiring as a File.} A topology is a declarative document naming each
+node, its role in the algorithm's own vocabulary, the radio it owns, the
+ports it listens on, and the links between nodes; every node is launched with
+the same file and its own identity, and a typed flag still wins. Each link
+states how it is carried, and its two directions may differ---a rig with one
+transmit-capable and one receive-only radio has exactly one RF path, so the
+reply must return over TCP/IP, and a chain may change medium half way
+through. A wiring that cannot run is refused when it is read, naming the node
+at fault; one command walks 44 command-line flags and 82 topology settings
+from the text a user types to the object each configures.
+
+\textbf{Deployment on Shared Testbeds.} The platform image follows the
+testbed's container contract; a session hook materializes the shared
+workspace, publishes what the node is---its radios, addresses, and physical
+layers---as a heartbeated record, and attaches the radio to the session's
+namespace (Figure~\ref{fig:workspace}). The workspace holds two kinds of
+state with two lifecycles: authored wiring, written once and valid until the
+experimenter changes it, and discovered records, republished on a heartbeat
+and expired with their node. That split is what lets one account's wiring
+drive testbeds that cannot reach each other---the mounted file system is the
+only thing they share, and it never carries a fact that can go stale.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.65\linewidth]{fig-shared-workspace-col}
+\caption{The shared workspace across sessions under a single account.}
+\Description{A central workspace box linked to four session boxes on
+different testbeds; wiring flows to each session and records flow back.}
+\label{fig:workspace}
+\end{figure}
+
+\textbf{The UnionLabs Agent.} One agent turns a lab owner's machine---server,
+workstation, or laptop---into a managed edge node (Figure~\ref{fig:agent}).
+It prepares the environment (AWS configuration, Docker, an RKE2 Kubernetes
+server, Helm), registers the node under a unique edge ID, and speaks gRPC
+with the cloud controller: instructions flow down, status and heartbeats flow
+up. The owner uploads the testbed's topology through the visualizer, and the
+reservation engine allocates from exactly that description---only nodes that
+are provably alive are offered. When an experiment is scheduled, the agent
+renders it into a Kubernetes deployment, mounts the shared EFS workspace, and
+exposes only the permitted devices---Ethernet, USB radios, GPUs---into the
+container. Remote access rides the same cloud--edge path, so pods are never
+publicly exposed and the experimenter never configures a device path by hand.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.65\linewidth]{fig-agent-col}
+\caption{The UnionLabs Agent: middleware between the cloud services and the
+physical testbed.}
+\Description{The cloud on top, the agent in the middle connected by a gRPC
+channel, and below it the experiment pod and the edge devices it exposes by
+permission.}
+\label{fig:agent}
+\end{figure}
+
+%% ===========================================================================
+\section{Demonstration}
+%% ===========================================================================
+We run the \emph{same} experiment file under three wirings, using a laptop and a
+pair of USRPs at the table plus a live session on a remote testbed. Each
+scenario takes two to three minutes, and visitors drive the wiring themselves.
+
+\textbf{The Same Algorithm, With and Without Radios.} Federated averaging on
+MNIST runs as three processes on one laptop, wired over TCP/IP; accuracy climbs
+per round with no radio present. We then hand the visitor a second file and the
+identical algorithm transmits each model over a 915\,MHz link from a B210 to an
+N210, which answers over TCP/IP. Visitors watch acknowledgements,
+retransmissions, and the airtime each round costs---the quantity that makes
+communication a measured variable rather than a modeled one.
+
+\textbf{A Chain That Changes Medium.} A three-node chain whose first hop is over
+the air and whose second is Ethernet. The relay reports each leg it opens, and a
+visitor can move the second hop back onto the radio by editing one field and
+restarting a single node.
+
+\textbf{Remote Testbed, and Deliberate Failure.} The same commands run on a
+shared, Kubernetes-managed testbed with a network-attached radio and published
+ports, so a wiring travels unchanged between machines we own and machines we do
+not. Finally, a visitor asks a receive-only radio to transmit: the run refuses
+at load, naming the node and link at fault.
+
+%% Page-limit machinery removed while everything is being assembled: the
+%% references flow naturally. Restore  \balance  +  \clearpage  here when
+%% trimming back to MobiCom's 2-pages-plus-references shape.
+{\small
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{refs}
+}
+
+\end{document}

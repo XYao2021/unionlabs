@@ -16,7 +16,7 @@ For the layout and *why* it is shaped this way, see [`STRUCTURE.md`](STRUCTURE.m
 | `radio.sh` | Raw TX/RX on a USRP (B210 default; `--device n210\|x310`). |
 | `requirements.txt` | Python dependencies for everything that runs without a radio. |
 
-## `experiments/` — everything you run
+## `algorithms/` — everything you run
 
 One folder per experiment, each with an `app.py` (the bridge) plus its own code. This is the
 only folder a user needs to open.

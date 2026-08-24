@@ -1,0 +1,258 @@
+%% ---------------------------------------------------------------------------
+%%  UnionLabs — demo paper.
+%%
+%%  FORMAT: IEEEtran conference, matching the collaborator's CCNC25RT.pdf
+%%  (AirTwinX) — Abstract/Index Terms, Roman-numeral sections, bold run-in
+%%  lead-ins per component, IEEE numeric references.
+%%
+%%  Build:   make        (latexmk -pdf mobicom-demo.tex)
+%%
+%%  PAGES: body is 2 pages; the references are pushed to page 3 by the
+%%  \clearpage before \bibliography, as requested. NOTE that CCNC25RT.pdf fits
+%%  its references at the end of page 2 — delete that \clearpage to do the same.
+%%
+%%  BEFORE SUBMITTING: fill every \TODO{...} (they render in red), then delete
+%%  the \newcommand{\TODO} line. See README.md.
+%% ---------------------------------------------------------------------------
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds,calc}
+\usepackage[labelsep=colon]{caption}   %% "Fig. 1:" as in CCNC25RT.pdf
+\usepackage{url}
+
+\newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+\newcommand{\code}[1]{\texttt{\footnotesize #1}}
+
+\begin{document}
+
+\title{UnionLabs: Write the Wireless Experiment Once,\\
+       Run It Over Any PHY, Topology, and Testbed}
+
+%% ---------------------------------------------------------------------------
+%%  AUTHORS — fill in. Layout mirrors CCNC25RT.pdf: names with superscripts,
+%%  then the affiliations, then one email line.
+%% ---------------------------------------------------------------------------
+\author{\IEEEauthorblockN{First Author$^{1}$, Second Author$^{1}$,
+        Third Author$^{2}$, and Fourth Author$^{1}$}
+\IEEEauthorblockA{$^{1}$\TODO{Department}, \TODO{University}, \TODO{Country};
+                  $^{2}$\TODO{Second affiliation}\\
+Email: \{\TODO{first}, \TODO{second}\}@\TODO{university.edu},
+       \TODO{third@partner.org}}
+\thanks{\TODO{funding acknowledgement — grant numbers, and any distribution
+statement your co-authors' institutions require, as in the reference paper.}}}
+
+\maketitle
+
+\begin{abstract}
+Wireless learning experiments are written twice: once against a simulator, and
+again---differently---against radios, a testbed's container contract, and
+whatever ports that testbed will let through. In this demonstration, we present
+UnionLabs, a software-defined radio platform on which an algorithm declares only
+\emph{what to transmit} and \emph{what to receive}, and the platform carries
+each payload over a real single-carrier/OFDM modem on USRP hardware, over LoRa,
+or over no radio at all, with no change to the algorithm. This demonstration
+introduces the layer added since our earlier physical-layer work: the wiring of
+a multi-node experiment is now a declarative file. One document names the nodes,
+the radio each owns down to the connector and RF channel, the port each node
+listens on, the address others must dial to reach it through a published
+service, and---per link, and per direction---whether that hop is carried over
+the air, over TCP/IP, or over LoRa. Every node reads the same file and asks it
+one question: which node am I. We demonstrate federated and decentralized
+learning running unchanged across a laptop, a lab pair of USRPs, and a shared
+Kubernetes-managed testbed, including a chain whose first hop is over the air
+and whose second is Ethernet.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Software-defined radio, wireless testbeds, federated learning, decentralized
+learning, experiment orchestration, reproducibility.
+\end{IEEEkeywords}
+
+%% ===========================================================================
+\section{Introduction}
+%% ===========================================================================
+An experiment that places learning inside the radio loop---federated averaging
+over the air \cite{mcmahan2017fedavg}, decentralized consensus over a graph
+\cite{lian2017dpsgd}, or over-the-air computation \cite{nazer2007computation}---is
+easy to state and expensive to run. The algorithm itself is a page of code. What
+surrounds it is not: a modem, an acknowledgement path, which radio sits on which
+connector, which node dials which port, and a testbed whose containers cannot
+reach one another until somebody publishes a port.
+
+Shared platforms have removed the hardware barrier \cite{powder, colosseum,
+aerpaw}, and open physical-layer stacks have removed the waveform barrier
+\cite{gnuradio, srslte, oai}. What remains is that an experiment's \emph{wiring}
+lives in operators' heads and in shell history: it is retyped on every machine
+that takes part, and the retypings disagree---a client dials one port while the
+server serves another, or a node is told to transmit on a radio that is
+receive-only. The failure appears minutes later, reported by a layer that is not
+the one at fault.
+
+In this demonstration, we introduce UnionLabs, a platform that separates
+\emph{what an algorithm does} from \emph{how the experiment is wired}, and makes
+the second of those a checkable artifact. \emph{The main contribution of this
+work is that the medium of every link---over the air, over TCP/IP, or over
+LoRa---is a property of the link itself, declared per direction, so that the same
+unmodified algorithm runs on a laptop, on a pair of radios, and across a shared
+testbed whose nodes cannot address one another directly.} A wiring that cannot
+be run is refused when it is read, naming the node at fault, rather than after
+minutes of radio time.
+
+%% ===========================================================================
+\section{UnionLabs Design}
+%% ===========================================================================
+As outlined in Fig.~\ref{fig:overview}, UnionLabs is comprised of three layers:
+the algorithm contract, the wiring and its transports, and the deployment
+substrate.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  layer/.style={draw, rounded corners=1.5pt, minimum height=5.4mm,
+                text width=72mm, align=center, fill=black!3},
+  contract/.style={layer, fill=violet!8, draw=violet!60, thick},
+  node distance=1.6mm,
+  box/.style={draw, rounded corners=1.5pt, minimum height=5mm,
+              minimum width=15mm, align=center, fill=black!3},
+  rf/.style={-{Latex[length=1.6mm]}, densely dashed, thick},
+  ip/.style={-{Latex[length=1.6mm]}, thick},
+]
+%% (a) the layering
+\node[layer] (algo) {\textbf{Algorithm}\ \ \code{produce()} $\cdot$
+                     \code{consume(msg)} $\cdot$ \code{on\_result(ack)}};
+\node[contract, below=of algo] (api)
+  {\textbf{Union API}\ \ payload spec $\cdot$ codec $\cdot$ roles};
+\node[layer, below=of api] (tr)
+  {\textbf{Transports}\ \ RF round trip $\cdot$ TCP star $\cdot$ mixed chain
+   $\cdot$ peer graph};
+\node[layer, below=of tr] (phy)
+  {\textbf{PHY}\ \ C++ modem (USRP) $\cdot$ LoRa $\cdot$ ideal};
+
+\draw[-{Latex[length=1.6mm]}] (algo) -- (api);
+\draw[-{Latex[length=1.6mm]}] (api) -- (tr);
+\draw[-{Latex[length=1.6mm]}] (tr) -- (phy);
+
+%% (b) the wiring the transports are selected by
+\node[box, below=6mm of phy.south west, anchor=north west] (n1)
+  {n1\\[-2pt]\scriptsize client};
+\node[box, right=11mm of n1] (n2) {n2\\[-2pt]\scriptsize relay};
+\node[box, right=11mm of n2] (n3) {n3\\[-2pt]\scriptsize server};
+\draw[rf] (n1) -- node[above=-0.5mm] {wireless} (n2);
+\draw[ip] (n2) -- node[above=-0.5mm] {tcp} (n3);
+\node[right=3mm of n3, text width=16mm, align=left] (lab)
+  {binds:\\ ack, net};
+\node[below=1.2mm of n2, text width=74mm, align=center]
+  {\emph{one wiring file: nodes, radios, connectors, ports, and the medium of
+   each hop}};
+\end{tikzpicture}
+\caption{Overview of the UnionLabs platform. An algorithm speaks only the union
+API; the wiring file selects the transport for each hop, which in turn selects
+the physical layer that carries it.}
+\label{fig:overview}
+\end{figure}
+
+\textbf{Algorithm Contract}. An algorithm implements three methods---
+\code{produce()}, \code{consume(msg)}, and optionally \code{on\_result(ack)}---and
+declares the shape of its payload. It imports nothing from any radio driver.
+That single rule is what allows one unmodified file to run over an ideal
+channel, over the USRP modem, or over LoRa by changing one flag, and it is
+enforced by a self-test that runs every experiment over every radio-free
+physical layer. Beneath it is a C++ modem providing synchronization, carrier and
+phase correction, equalization, BPSK through 16-QAM with differential variants,
+convolutional, LDPC and turbo coding, CRC-16, and stop-and-wait ARQ, over
+single-carrier or OFDM waveforms, on USRP N210/B210/X310 radios.
+
+\textbf{Wiring as a File}. A topology is a declarative document naming each
+node, its role in the algorithm's own vocabulary, the radio it owns, the ports
+it listens on, and the links between nodes. Each node is launched with the same
+file and its own identity; everything else---role, peers, ports, device
+arguments, antenna connector, subdevice, and gains---follows from it. A node's
+plan can be printed without running anything, and a typed flag still wins.
+
+\textbf{Per-Link, Per-Direction Media}. Each link states how it is carried, and
+its two directions may differ. This is not a convenience: a rig with one
+transmit-capable radio and one receive-only radio has exactly one RF path, so
+the reply must return over TCP/IP. A chain may therefore change medium half way
+through, with the middle node receiving over the air and forwarding over
+Ethernet---which is precisely what a receive-only node in the middle can do.
+Wirings that cannot run are refused when read: a wireless direction whose
+transmitter has no transmit chain, two nodes on one host claiming one port, a
+link to a node that does not exist, or a reply asked to travel over the air.
+
+\textbf{Deployment on Shared Testbeds}. The platform image follows the testbed's
+own container contract, staying alive and idle while the platform attaches its
+remote desktop. A session hook materializes the shared workspace, publishes what
+the node is---its radios, addresses and available physical layers---as a
+heartbeated record, and attaches the radio's network into the session's own
+namespace. Because a container never receives traffic addressed to its host,
+each \emph{listener} must be published, while a node that only transmits
+publishes nothing; since publishing renumbers the port, a node declares both
+what it binds and what its peers should dial.
+
+\textbf{\TODO{additional features --- space reserved}}.
+\TODO{Add the remaining features here. About 300 words fit in this subsection
+before the references are pushed off page 3; see README.md. Candidates already
+in the platform, to keep or cut: the slotted-ALOHA multi-agent runner and the
+MARL medium-access experiments; semantic communication over the link;
+space--time-coded over-the-air computation; the jammer and interference
+experiment; per-link airtime accounting; the LoRa driver's simulated, serial and
+SPI backends; the compressed top-$k$ uplink with error feedback; and the
+cross-testbed hierarchical federated learning design. One or two sentences per
+feature, in the same bold run-in style as the components above, is the right
+density for a demonstration paper.}
+
+\textbf{Verification}. The claim that one algorithm runs everywhere is only
+worth making if it is tested. A single command runs every experiment over every
+radio-free physical layer, walks 44 command-line flags and 82 topology settings
+from the text a user types through to the object each one configures, and
+launches multi-node topologies as real processes.
+%% Counts from ./run.sh selftest on 2026-08-21 (test_flags.py / test_topology.py).
+%% Re-run it on submission day and update these two numbers.
+
+%% ===========================================================================
+\section{Demonstration}
+%% ===========================================================================
+We will demonstrate the platform by running the \emph{same} experiment file
+under three different wirings, and letting visitors change the wiring while it
+runs. We consider four scenarios, as follows.
+
+\textbf{Radio-Free Federated Learning}. Federated averaging on MNIST, one server
+and two clients as three processes on one laptop, wired entirely over TCP/IP.
+Accuracy climbs per round with no radio present, establishing that the algorithm
+and the wiring are separable.
+
+\textbf{The Same Algorithm Over the Air}. The identical algorithm is rewired so
+each client transmits its model over a 915\,MHz link to a receiving radio, which
+answers over TCP/IP. Visitors observe acknowledgements, retransmissions, and the
+airtime each round costs---the quantity that makes communication a measured
+experimental variable rather than a modeled one.
+
+\textbf{A Chain That Changes Medium}. A three-node chain whose first hop is over
+the air and whose second is Ethernet. The relay reports each leg it opens, and
+visitors can move the second hop back onto the radio by editing one field.
+
+\textbf{Remote Testbed and Deliberate Failure}. The same commands run in a
+session on a shared, Kubernetes-managed testbed with a network-attached radio
+and published ports, showing that the wiring travels unchanged. Finally, we ask
+a receive-only radio to transmit: the run refuses at load and names the node and
+link at fault, instead of failing later from the wrong layer.
+
+\textbf{Requirements}. \TODO{table space, power, poster board, and whether you
+bring your own network. The reference paper states its support and distribution
+notes in a footnote on page 1; do the same for anything your institution
+requires.}
+
+%% References on page 3, per the two-page body requirement. Delete this
+%% \clearpage to end on page 2 as CCNC25RT.pdf does.
+\clearpage
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+
+\end{document}

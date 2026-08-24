@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-run_algo.py — load an uploaded algorithm from experiments/<name>/app.py and run it
+run_algo.py — load an uploaded algorithm from algorithms/<name>/app.py and run it
 over the PHY through the uniform phy_link contract.
 
   # radio-free round-trip (lossless):
@@ -19,7 +19,7 @@ ROLE NAMES
     An algorithm may name its own roles instead of using the PHY's tx/rx, by declaring
     a module-level map from its name to the end of the link that role drives:
 
-        ROLES = {"client": "tx", "server": "rx"}      # in experiments/<name>/app.py
+        ROLES = {"client": "tx", "server": "rx"}      # in algorithms/<name>/app.py
 
     The experimenter then types the algorithm's own name and the algorithm's make(role)
     receives that same name, so the two always match:
@@ -41,6 +41,28 @@ import topology as tp
 
 def _has_io(c):
     return any(hasattr(c, m) for m in ("transmit", "produce"))
+
+
+# ── where algorithms live. The same rule as topologies: the shared workspace
+#    wins over the repo checkout, so a testbed session runs the algorithms the
+#    account shares, and a laptop with no /workspace runs the repo's own. ──
+def algo_search_path():
+    out = []
+    env = os.environ.get("UNION_ALGO_DIR", "")
+    if env:
+        out.append(env)
+    out.append("/workspace/experiments/algorithms")
+    out.append(os.path.join(REPO, "workspace", "experiments", "algorithms"))
+    return out
+
+
+def algo_path(name):
+    """-> the app.py for this algorithm, or None."""
+    for d in algo_search_path():
+        p = os.path.join(d, name, "app.py")
+        if os.path.isfile(p):
+            return p
+    return None
 
 
 # ── role names: the algorithm's own vocabulary <-> the node types of the PHY ──
@@ -366,7 +388,7 @@ def resolve_role(requested, alias2t, t2alias, algo):
     if r in alias2t:
         transport = alias2t[r]
         return transport, t2alias[transport]
-    sys.exit(f"--role {requested!r} is not a role of experiments/{algo}\n"
+    sys.exit(f"--role {requested!r} is not a role of algorithms/{algo}\n"
              f"  valid roles: {', '.join(GROUP_ROLES)}, {', '.join(sorted(alias2t))}")
 
 
@@ -381,11 +403,21 @@ def load_app_factory(name):
     position in the group. An algorithm that wants it widens its binding to
     make(role, index=..., total=...) — e.g. to take its own data shard — and one that
     does not is called as make(role), exactly as before."""
-    path = os.path.join(REPO, "experiments", name, "app.py")
-    if not os.path.exists(path):
-        sys.exit(f"no algorithm at {path}\n"
-                 f"create experiments/{name}/app.py (copy experiments/_template/app.py)")
+    path = algo_path(name)
+    if path is None:
+        sys.exit(f"no algorithm {name!r} — looked in {', '.join(algo_search_path())}\n"
+                 f"create algorithms/{name}/app.py (copy algorithms/_template/app.py)")
     sys.path.insert(0, os.path.dirname(path))
+    # An algorithm's own sys.path escapes ("..", ..., "drivers") are written
+    # relative to its folder, and a copy running from /workspace/experiments/
+    # algorithms has no drivers/ above it — the escape points at nothing. A
+    # nonexistent sys.path entry is harmless, so make the imports resolve by
+    # APPENDING the repo's driver paths here (append, not insert: an algorithm
+    # that ships its own copy of a module still wins).
+    for d in (os.path.join(REPO, "drivers", "usrp", "python"),
+              os.path.join(REPO, "drivers", "lora", "python")):
+        if d not in sys.path:
+            sys.path.append(d)
     spec = importlib.util.spec_from_file_location(f"algo_{name}", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -762,7 +794,8 @@ def build_parser():
     """The CLI, as its own function so it can be inspected and tested without
     running an experiment. main() is a thin wrapper over it."""
     ap = argparse.ArgumentParser(description="run an uploaded algorithm over the PHY")
-    ap.add_argument("--algo", required=True, help="folder name under experiments/")
+    ap.add_argument("--algo", required=True,
+                help="folder name under workspace/experiments/algorithms/")
     ap.add_argument("--role", default=None,
                     help="loopback | chain | gossip | multi | aircomp | tx | rx | relay | peer, "
                          "or any role the algorithm declares in ROLES (e.g. client / server). "
@@ -977,7 +1010,7 @@ def main():
     factory, how, mod = load_app_factory(a.algo)
     alias2t, t2alias = role_map(mod)
     transport, algo_role = resolve_role(a.role, alias2t, t2alias, a.algo)
-    print(f"[run_algo] loaded experiments/{a.algo} via {how}")
+    print(f"[run_algo] loaded algorithms/{a.algo} via {how}")
     if algo_role is not None and algo_role != transport:
         print(f"[run_algo] role {algo_role!r} -> PHY end {transport!r}")
 
@@ -1033,7 +1066,7 @@ def main():
     elif transport == "aircomp":
         # COMPUTE archetype: N sensors superpose -> AP recovers Σ v_i (the app owns the driver)
         if not callable(getattr(mod, "run", None)) or not callable(getattr(mod, "make", None)):
-            sys.exit(f"experiments/{a.algo} needs make(role) + run(sensors, ...) for --role aircomp")
+            sys.exit(f"algorithms/{a.algo} needs make(role) + run(sensors, ...) for --role aircomp")
         sensors = [mod.make("sensor") for _ in range(a.agents)]
         mod.run(sensors, snr_db=a.snr_db, steps=a.steps)
     elif transport == "peer":

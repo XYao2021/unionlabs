@@ -714,7 +714,7 @@ no decode. The most effective broadband jammer; also a candidate test waveform.
 ./sdr_system --role tx --message-type chirp --chirp-bw 1.6e6 --chirp-sf 8 \
   --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 85 --tx-args serial=30CD424
 #   --chirp-bw = sweep Hz (0 = full band), --chirp-sf = 7-12 (2^SF/BW symbol dur),
-#   --chirp-down = down-chirp.  See experiments/jammer/jammer.py for a full jammer.
+#   --chirp-down = down-chirp.  See algorithms/jammer/jammer.py for a full jammer.
 ```
 
 **2. Decodable LoRa data link** (`--waveform lora`) — CSS modulation that *carries data*:

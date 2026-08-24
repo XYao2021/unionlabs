@@ -40,7 +40,7 @@ Anything you don't specify takes a **default** (`algo=echo role=loopback channel
 
 ## 2. Where things live
 
-- **`experiments/`** — **everything you run**, one folder per experiment, each with an `app.py`.
+- **`algorithms/`** — **everything you run**, one folder per experiment, each with an `app.py`.
   Your own code and the worked examples (FL, decentralized learning, MARL, CLIP semantic comm,
   STC-AirComp, jammer) all live here — one place to look.
 - **`union/`** — the middleware you code against: `run_algo.py` + `phy_link.py` (the uniform API)
@@ -63,7 +63,7 @@ Anything you don't specify takes a **default** (`algo=echo role=loopback channel
 ## 3. Running an algorithm over the PHY
 
 Your algorithm only says **what to transmit** and **what to receive** — no radio code. Drop it in
-`experiments/<name>/app.py` (copy `experiments/_template/`), then run it by name.
+`algorithms/<name>/app.py` (copy `algorithms/_template/`), then run it by name.
 
 ### 3.1 The three independent choices
 
@@ -75,7 +75,7 @@ to understand about this platform:
           └─ WHAT ────┘    └─ WHICH PHY ──┘      └─ WHICH PART am I ─┘
 ```
 
-1. **`--algo`** — what you are running. Any folder in `experiments/` (`./run.sh list`).
+1. **`--algo`** — what you are running. Any folder in `algorithms/` (`./run.sh list`).
 2. **`--channel`** — which physical layer carries the bytes. Your algorithm never knows.
 3. **`--role`** — whether this process is the *whole network* or *one node of it*.
 
@@ -140,7 +140,7 @@ computer per node:
 
 | Option | Default | What it does |
 |---|---|---|
-| `--algo <name>` | `echo` | which folder under `experiments/` to run |
+| `--algo <name>` | `echo` | which folder under `algorithms/` to run |
 | `--channel ideal\|usrp\|lora` | `ideal` | which PHY carries the payloads |
 | `--role <role>` | `loopback` | see §3.3; or any role the algorithm declares |
 | `--steps <n>` | `5` | how many rounds/round-trips to run |
@@ -206,7 +206,7 @@ computer per node:
 ### 3.5 Reading the output
 
 ```
-[run_algo] loaded experiments/fl via make(role) binding
+[run_algo] loaded algorithms/fl via make(role) binding
 [run_algo] role 'client' -> PHY end 'tx'
   step 0: req_ber=0.0000 rep_ber=0.0000 delivered=True
 [run_algo] loopback done: 12/12 round-trips delivered over channel=ideal
@@ -235,13 +235,13 @@ This has a guide of its own, so it stays in one place rather than drifting betwe
 
 It covers, in order:
 
-1. **Where to put it** — `experiments/<name>/app.py`, and `--algo <name>` matches the folder.
+1. **Where to put it** — `algorithms/<name>/app.py`, and `--algo <name>` matches the folder.
 2. **One file or many** — many: `app.py` is only the bridge, and your own modules, sub-packages
    and data sit beside it.
 3. **What `app.py` must provide** — `make(role)` returning an object with `transmit()` /
    `receive(msg)`, plus optional `spec` and `on_result(ack)`.
-4. **Two ways to write it** — inline (copy `experiments/_template/`), or a ~10-line binding onto
-   your existing, untouched code (copy `experiments/plain_echo/`).
+4. **Two ways to write it** — inline (copy `algorithms/_template/`), or a ~10-line binding onto
+   your existing, untouched code (copy `algorithms/plain_echo/`).
 5. **Roles** — the four node types (`tx`, `rx`, `relay`, `peer`), naming your own with `ROLES`,
    and learning which node you are with `make(role, index, total)`.
 6. **Running it** — the same file over every PHY, and as a multi-node network.
@@ -249,7 +249,7 @@ It covers, in order:
 The shortest possible version:
 
 ```python
-# experiments/my_algo/app.py
+# algorithms/my_algo/app.py
 import numpy as np
 
 class MyAlgo:
@@ -399,7 +399,7 @@ Worked flowgraph: `drivers/usrp/python/phy_flow_example.py`.
 
 ## Beyond this guide
 
-For deeper reference (in the repo root / `experiments/`): **`PARAMETERS.md`** (every option — or run
+For deeper reference (in the repo root / `algorithms/`): **`PARAMETERS.md`** (every option — or run
 `sdr_system --help`), **`SYSTEM_REFERENCE.pdf`** (the engine math + every algorithm), **`COMMANDS.md`**
 and **`USRP_CARRIER_MODULATION.txt`** (ready-to-run command recipes per scheme / per device),
-**`HARDWARE.md`** (hardware setup), and **`experiments/EXPERIMENT_GUIDE.pdf`** (running the example apps).
+**`HARDWARE.md`** (hardware setup), and **`algorithms/EXPERIMENT_GUIDE.pdf`** (running the example apps).

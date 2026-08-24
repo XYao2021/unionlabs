@@ -8,7 +8,7 @@ named below is still reachable with `--usrp-set KEY=VALUE` / `--lora-set KEY=VAL
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `--algo` | folder name under experiments/ |  |
+| `--algo` | folder name under algorithms/ |  |
 | `--role` | loopback \| chain \| gossip \| multi \| aircomp \| tx \| rx \| relay \| peer, or any role the algorithm declares in ROLES (e.g. client / server). Case-insensitive. Defaults to loopback, or to peer when --node is given. |  |
 | `--node` | run ONE node of a decentralised network as this process: which node am I (0-based). Implies --role peer; --agents says how many nodes there are and --topology which of them I exchange with. |  |
 | `--peers` | comma-separated host per node, indexed by node id (default: all 127.0.0.1, i.e. several terminals on this machine) | `` |

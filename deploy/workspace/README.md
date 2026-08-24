@@ -11,10 +11,17 @@ there.
 
 ```
 /workspace/experiments/
+  algorithms/      the algorithms themselves (fl, dl, ...)      (seeded from the repo)
   settings/        which devices this account has RESERVED      (schema: OPEN)
   topologies/      the wiring of an experiment                  (schema: v1, in use)
   cross_channel/   carrying a link BETWEEN testbeds             (design: OPEN)
 ```
+
+`algorithms/` holds the runnable experiment code. `init-workspace.sh` seeds each
+algorithm folder from the repo checkout once and never overwrites it, so an
+algorithm the account edits in the shared workspace stays as edited; `run.sh`
+looks here FIRST and falls back to the repo's own copy
+(`workspace/experiments/algorithms/`) when no workspace is mounted.
 
 `topologies/` is live: `./run.sh --algo fl --topology <name> --node <id>` reads it, and
 `./run.sh topology <name>` starts every node of it that lives on the machine you are on.
@@ -27,6 +34,7 @@ lets one settings file compose with many topologies instead of being copied into
 |---|---|---|
 | `settings/` | what is reserved, and what each device is | the reservation changes |
 | `topologies/` | who exchanges with whom, over what, on which port and connector | every experiment |
+| `algorithms/` | what the nodes actually run | when the code changes |
 | `cross_channel/` | how an inter-testbed link is carried | per cross-testbed run |
 
 ## Two constraints that already hold

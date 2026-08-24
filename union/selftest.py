@@ -33,8 +33,8 @@ if not sys.stdout.isatty():
 
 
 def experiments():
-    """Every folder under experiments/ that has an app.py (so not _shared or _template)."""
-    root = os.path.join(REPO, "experiments")
+    """Every algorithm folder that has an app.py (so not _shared or _template)."""
+    root = os.path.join(REPO, "workspace", "experiments", "algorithms")
     return sorted(n for n in os.listdir(root)
                   if not n.startswith("_")
                   and os.path.isfile(os.path.join(root, n, "app.py")))
@@ -169,7 +169,7 @@ def main():
                            ["--algo", "echo", "--channel", ch, "--steps", "2", "--snr-db", "10"]))
     else:
         for e in exps:
-            checks.append(("experiments (ideal PHY)", e,
+            checks.append(("algorithms (ideal PHY)", e,
                            ["--algo", e] + ROLE_OVERRIDE.get(e, ["--steps", "2"])))
         for ch in ("usrp", "lora"):
             for e in ("echo", "fl", "dl"):

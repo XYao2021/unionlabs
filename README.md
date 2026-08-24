@@ -20,7 +20,7 @@ source of confusion, so the flags keep them apart:
 
 | Question | Flag | Choices |
 |---|---|---|
-| **What** am I running? | `--algo` | any folder in `experiments/` (`./run.sh list`) |
+| **What** am I running? | `--algo` | any folder in `workspace/experiments/algorithms/` (`./run.sh list`) |
 | **Which PHY** carries it? | `--channel` | `ideal` · `usrp` · `lora` |
 | **Which part** am I? | `--role` | `loopback` `chain` `gossip` `multi` · `tx` `rx` `relay` `peer` |
 
@@ -53,7 +53,7 @@ Then:
 
 ```bash
 ./run.sh                       # defaults: algo=echo, role=loopback, channel=ideal
-./run.sh --algo marl           # any algorithm from experiments/
+./run.sh --algo marl           # any algorithm from algorithms/
 ./run.sh list                  # what exists, and the roles each accepts
 ./run.sh --help                # every option, grouped
 ./radio.sh rx                  # raw receive on a USRP  (B210 default; --device n210|x310)
@@ -72,7 +72,7 @@ HOW_TO_ADD_ALGORITHM.md   the tutorial: write your own experiment
 run.sh                    run an experiment over a PHY
 radio.sh                  raw TX/RX on a USRP
 
-experiments/   ← THE folder you work in. One subfolder per experiment, each with app.py
+algorithms/   ← THE folder you work in. One subfolder per experiment, each with app.py
 union/           the UnionLabs bridge: one contract for every PHY and testbed
 drivers/         the PHYs: usrp/ (C++ modem + pyphy), lora/ (SX1276), sim/
 docs/            every guide, reference and PDF
@@ -82,7 +82,7 @@ results/         generated output (gitignored)
 
 | Path | What |
 |---|---|
-| `experiments/` | **your** work, one folder each |
+| `algorithms/` | **your** work, one folder each |
 | `union/` | the **middleware** — `phy_link.py`, `run_algo.py`, `driver.py` |
 | `drivers/` | the **driver layer**, one per PHY — `usrp/`, `lora/`, `sim/` |
 | `docs/` | guides, references, PDFs, diagrams, slides |

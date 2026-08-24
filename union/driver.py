@@ -5,15 +5,15 @@ driver.py — the PhyDriver interface: the ONE seam every (PHY × testbed) backe
 This is the boundary between the two UnionLabs layers:
 
     ┌─ ABSTRACTION / MIDDLEWARE (this folder, `union/`) ─ one, shared across all testbeds+PHYs ─┐
-    │   experiments/ + experiments/  ->  phy_link (SdrApp/PayloadSpec/Codec) + run_algo         │
+    │   algorithms/ + algorithms/  ->  phy_link (SdrApp/PayloadSpec/Codec) + run_algo         │
     │   call ↓ this interface only — never a specific PHY or testbed                             │
     ├─ PhyDriver ─────────────────────────────────────────────────────────────────────────────┤
     │   transfer() · broadcast() · superpose()                                                  │
     └─ DRIVER LAYER (`drivers/<name>/`) ─ many, one per (PHY × testbed) ─────────────────────────┘
         drivers/usrp  ·  drivers/sim  ·  drivers/lora  ·  drivers/usrp_powder …
 
-Adding a new PHY or testbed = implementing this class. Nothing in `experiments/` or
-`experiments/` changes — that is the portability UnionLabs provides over POWDER/AERPAW.
+Adding a new PHY or testbed = implementing this class. Nothing in `algorithms/` or
+`algorithms/` changes — that is the portability UnionLabs provides over POWDER/AERPAW.
 
 WHAT IS UNIFORM AND WHAT IS NOT — the line this interface draws
 ---------------------------------------------------------------

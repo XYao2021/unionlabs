@@ -12,7 +12,7 @@ unionlabs/
 ├── run.sh                   run an EXPERIMENT over any PHY (the uniform API)
 ├── radio.sh                 raw TX/RX on a USRP  (B210 default; --device n210|x310)
 │
-├── experiments/         EVERYTHING YOU RUN — one folder per experiment, each with app.py.
+├── algorithms/         EVERYTHING YOU RUN — one folder per experiment, each with app.py.
 │   │                    Algorithms and worked applications live together here, so there is
 │   │                    exactly ONE place to look.
 │   ├── _template/         copy this to start
@@ -61,13 +61,13 @@ unionlabs/
 └── results/             figures / run outputs, regenerable (gitignored)
 ```
 
-**Why this shape.** Four files and five folders. A newcomer opens `experiments/` and finds
+**Why this shape.** Four files and five folders. A newcomer opens `algorithms/` and finds
 everything runnable in one place; `union/` is the bridge; `drivers/` is every PHY; `docs/` is
 every word of documentation. Nothing else competes for attention at the top level.
 
 **Two layers (the UnionLabs model):** `union/` is the **abstraction / middleware** — one
 contract, shared across every testbed and PHY; `drivers/<name>/` is the **driver layer** — one
-per (PHY × testbed). Experiments in `experiments/` and `experiments/` code to `union/` only, so
+per (PHY × testbed). Experiments in `algorithms/` and `algorithms/` code to `union/` only, so
 the same experiment runs on any driver. This middleware is what POWDER / AERPAW don't expose.
 
 ## The two stacks
@@ -75,7 +75,7 @@ the same experiment runs on any driver. This middleware is what POWDER / AERPAW 
 **Uniform algorithm API** (PHY-agnostic contract → the radio):
 
 ```
-experiments/<name>/app.py     your algorithm: transmit() / receive() / on_result()
+algorithms/<name>/app.py     your algorithm: transmit() / receive() / on_result()
         │  make(role[, index, total])   +  optional ROLES = {"client": "tx", ...}
         ▼
 union/run_algo.py            discovers + adapts your algorithm; resolves --algo / --channel /

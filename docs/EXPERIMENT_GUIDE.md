@@ -79,7 +79,7 @@ collision/loss). Single-shot bursts (`--max-attempts 1`); the *policy* owns retr
 
 ### Step 0 — radio-free validation (no hardware)
 ```bash
-cd experiments/marl_ra
+cd algorithms/marl_ra
 python3 ap_multi.py --self-test      # per-agent ACK routing (synthetic id stream)  -> PASS
 python3 ap_multi.py --sim-test       # parser + end-to-end with a fake C++ sink       -> PASS
 python3 slot_sync.py --self-test     # slot clock aligns 3 clients                     -> PASS
@@ -137,7 +137,7 @@ FedAvg-aggregates and broadcasts the aggregate down.
 
 ### Step 0 — radio-free
 ```bash
-cd experiments/_shared
+cd algorithms/_shared
 python3 fl.py --mock --clients 2 --rounds 20                    # compressed (default) -> ~0.71→0.93
 python3 fl.py --mock --clients 2 --rounds 20 --compress-ratio 0 # full model
 
@@ -187,7 +187,7 @@ The base station encodes an image with **CLIP** into a float32 embedding and tra
 embedding**; the user classifies it (zero-shot) with no return link. Data-transfer archetype.
 
 ```bash
-cd experiments/clip_semcom
+cd algorithms/clip_semcom
 ```
 
 ### Step 0 — radio-free (no torch weights needed; uses the mock CLIP)
@@ -244,10 +244,10 @@ sweep in Step 0 (radio-free), or the phase-2 single-shot mode in the INTEGRATION
 
 ```bash
 # ---- radio-free (no hardware) ----
-(cd experiments/marl_ra && python3 ap_multi.py --sim-test)      # MARL routing
-(cd experiments/marl_ra && python3 marl_multi_train.py --mock --agents 4 --steps 800 --coll-penalty 0.5)
-(cd experiments/_shared && python3 fl.py --mock --clients 2 --rounds 20)  # FL
-cd experiments/clip_semcom && python3 semcom.py demo --mock   # CLIP
+(cd algorithms/marl_ra && python3 ap_multi.py --sim-test)      # MARL routing
+(cd algorithms/marl_ra && python3 marl_multi_train.py --mock --agents 4 --steps 800 --coll-penalty 0.5)
+(cd algorithms/_shared && python3 fl.py --mock --clients 2 --rounds 20)  # FL
+cd algorithms/clip_semcom && python3 semcom.py demo --mock   # CLIP
 PYTHONPATH=../../drivers/usrp/bindings arch -x86_64 python3 semcom.py demo --mock --channel pyphy --fec turbo --snr-sweep 0,2,4,6,10
 
 # ---- hardware (RX/AP host first, TX host second) ----
@@ -259,4 +259,4 @@ PYTHONPATH=../../drivers/usrp/bindings arch -x86_64 python3 semcom.py demo --moc
 
 For engine options: `PARAMETERS.md` (auto-generated, complete). For the full PHY reference:
 `../SYSTEM_REFERENCE.pdf`. For per-application design: each folder's `README.md` + `INTEGRATION.md`,
-and `experiments/APPLICATIONS_INTRO.pdf`.
+and `algorithms/APPLICATIONS_INTRO.pdf`.

@@ -14,15 +14,31 @@ ROOT="${ROOT:-/workspace/experiments}"
 [ -d "$(dirname "$ROOT")" ] || { echo "no $(dirname "$ROOT") — is this a session with the workspace mounted?" >&2; exit 1; }
 
 created=0 kept=0
-for d in settings topologies cross_channel; do
+for d in settings topologies cross_channel algorithms; do
   mkdir -p "$ROOT/$d"
   if [ -e "$ROOT/$d/README.md" ]; then
     kept=$((kept + 1))
-  else
+  elif [ -e "$HERE/$d/README.md" ]; then
     cp "$HERE/$d/README.md" "$ROOT/$d/README.md"
     created=$((created + 1))
   fi
 done
+
+# the repo's algorithms — seeded once per folder, never overwritten, so an
+# algorithm the account has edited in the shared workspace stays as edited
+ALGOSRC="$HERE/../../workspace/experiments/algorithms"
+if [ -d "$ALGOSRC" ]; then
+  for a in "$ALGOSRC"/*/; do
+    n="$(basename "$a")"
+    if [ -e "$ROOT/algorithms/$n" ]; then
+      kept=$((kept + 1))
+    else
+      cp -R "$a" "$ROOT/algorithms/$n"
+      rm -rf "$ROOT/algorithms/$n/__pycache__"
+      created=$((created + 1))
+    fi
+  done
+fi
 [ -e "$ROOT/README.md" ] || cp "$HERE/README.md" "$ROOT/README.md"
 
 # the example wirings — these are meant to be copied and edited, so an existing file of
