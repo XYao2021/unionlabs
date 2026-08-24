@@ -33,9 +33,9 @@ phy_outputs/
 **/phy_outputs/
 
 # Training-run artifacts (torch models, plots, reward logs) — regenerable
-workspace/experiments/algorithms/marl_multi/real_run.pt
-workspace/experiments/algorithms/marl_multi/real_run.png
-workspace/experiments/algorithms/marl_multi/real_run_rewards.txt
+deploy/workspace/algorithms/marl_multi/real_run.pt
+deploy/workspace/algorithms/marl_multi/real_run.png
+deploy/workspace/algorithms/marl_multi/real_run_rewards.txt
 results/**/*.pt
 results/**/*.pt.tmp
 

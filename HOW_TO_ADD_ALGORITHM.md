@@ -7,9 +7,9 @@ file** (`app.py`); the framework handles the radio.
 
 ## Step 1 — Where to put it
 
-Create a folder under `workspace/experiments/algorithms/` whose **name is what you'll pass
+Create a folder under `deploy/workspace/algorithms/` whose **name is what you'll pass
 to `run.sh`**, and put an `app.py` inside it. (On a testbed, the same folder is the
-shared `/workspace/experiments/algorithms/` — every session of the account sees it.)
+shared `/deploy/workspace/algorithms/` — every session of the account sees it.)
 
 ```
 unionlabs/

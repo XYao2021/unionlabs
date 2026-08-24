@@ -21,7 +21,7 @@ there.
 algorithm folder from the repo checkout once and never overwrites it, so an
 algorithm the account edits in the shared workspace stays as edited; `run.sh`
 looks here FIRST and falls back to the repo's own copy
-(`workspace/experiments/algorithms/`) when no workspace is mounted.
+(`deploy/workspace/algorithms/`) when no workspace is mounted.
 
 `topologies/` is live: `./run.sh --algo fl --topology <name> --node <id>` reads it, and
 `./run.sh topology <name>` starts every node of it that lives on the machine you are on.

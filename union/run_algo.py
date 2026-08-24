@@ -52,7 +52,7 @@ def algo_search_path():
     if env:
         out.append(env)
     out.append("/workspace/experiments/algorithms")
-    out.append(os.path.join(REPO, "workspace", "experiments", "algorithms"))
+    out.append(os.path.join(REPO, "deploy", "workspace", "algorithms"))
     return out
 
 
@@ -795,7 +795,7 @@ def build_parser():
     running an experiment. main() is a thin wrapper over it."""
     ap = argparse.ArgumentParser(description="run an uploaded algorithm over the PHY")
     ap.add_argument("--algo", required=True,
-                help="folder name under workspace/experiments/algorithms/")
+                help="folder name under deploy/workspace/algorithms/")
     ap.add_argument("--role", default=None,
                     help="loopback | chain | gossip | multi | aircomp | tx | rx | relay | peer, "
                          "or any role the algorithm declares in ROLES (e.g. client / server). "

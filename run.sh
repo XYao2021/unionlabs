@@ -2,7 +2,7 @@
 # run.sh — ONE command to run an algorithm over the SDR PHY.
 #
 #   ./run.sh                                   # defaults: algo=echo role=loopback channel=ideal
-#   ./run.sh --algo marl            # any algorithm in workspace/experiments/algorithms/
+#   ./run.sh --algo marl            # any algorithm in deploy/workspace/algorithms/
 #   ./run.sh --algo marl --channel usrp --sim-snr-db 6       # over the USRP PHY
 #   ./run.sh --algo fl --channel lora --lora-sf 9        # over the LoRa PHY (SX1276)
 #   ./run.sh --algo clip_semcom --steps 45
@@ -74,8 +74,8 @@ if [ "${1:-}" = "topologies" ]; then
   exec python3 "$HERE/union/topology.py" "$@"
 fi
 if [ "${1:-}" = "list" ]; then
-  echo "algorithms in $HERE/workspace/experiments/algorithms/ :"
-  for d in "$HERE"/workspace/experiments/algorithms/*/; do
+  echo "algorithms in $HERE/deploy/workspace/algorithms/ :"
+  for d in "$HERE"/deploy/workspace/algorithms/*/; do
     n="$(basename "$d")"; [ "$n" = "_template" ] && continue
     [ -f "$d/app.py" ] || continue
     # an algorithm may name its own roles; show them so --role can be typed correctly

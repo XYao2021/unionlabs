@@ -34,7 +34,7 @@ if not sys.stdout.isatty():
 
 def experiments():
     """Every algorithm folder that has an app.py (so not _shared or _template)."""
-    root = os.path.join(REPO, "workspace", "experiments", "algorithms")
+    root = os.path.join(REPO, "deploy", "workspace", "algorithms")
     return sorted(n for n in os.listdir(root)
                   if not n.startswith("_")
                   and os.path.isfile(os.path.join(root, n, "app.py")))

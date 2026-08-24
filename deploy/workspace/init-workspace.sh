@@ -26,7 +26,7 @@ done
 
 # the repo's algorithms — seeded once per folder, never overwritten, so an
 # algorithm the account has edited in the shared workspace stays as edited
-ALGOSRC="$HERE/../../workspace/experiments/algorithms"
+ALGOSRC="$HERE/algorithms"
 if [ -d "$ALGOSRC" ]; then
   for a in "$ALGOSRC"/*/; do
     n="$(basename "$a")"

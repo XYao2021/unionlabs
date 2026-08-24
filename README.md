@@ -20,7 +20,7 @@ source of confusion, so the flags keep them apart:
 
 | Question | Flag | Choices |
 |---|---|---|
-| **What** am I running? | `--algo` | any folder in `workspace/experiments/algorithms/` (`./run.sh list`) |
+| **What** am I running? | `--algo` | any folder in `deploy/workspace/algorithms/` (`./run.sh list`) |
 | **Which PHY** carries it? | `--channel` | `ideal` · `usrp` · `lora` |
 | **Which part** am I? | `--role` | `loopback` `chain` `gossip` `multi` · `tx` `rx` `relay` `peer` |
 
