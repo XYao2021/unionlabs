@@ -30,10 +30,12 @@ import time
 from channel_sense import _run_sense                      # the one sensing path
 
 BANDS = {
-    # name: (start_mhz, stop_mhz, why)
+    # name: (start_mhz, stop_mhz, why) — the lab's two antenna types get their
+    # rated ranges; the VERT2450 is DUAL-band, so it has one entry per band.
     "ism915": (902.0, 928.0, "US ISM — what the platform's radios use by default"),
     "vert900": (824.0, 960.0, "VERT900 antenna's rated range (includes ISM 915)"),
-    "ism2450": (2400.0, 2483.5, "2.4 GHz ISM (needs an antenna rated for it)"),
+    "vert2450": (2400.0, 2480.0, "VERT2450 antenna, its 2.4 GHz band"),
+    "vert2450-5g": (4900.0, 5900.0, "VERT2450 antenna, its 4.9-5.9 GHz band"),
 }
 
 

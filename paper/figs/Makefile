@@ -2,7 +2,7 @@
 # make png    -> quick-look PNGs at 130 dpi
 FIGS := fig-union-api fig-phy-pipeline fig-shared-workspace \
         fig-union-api-col fig-phy-pipeline-col fig-shared-workspace-col \
-        fig-agent-col
+        fig-agent-col fig-marl-multi-flow
 PDFS := $(FIGS:=.pdf)
 
 all: $(PDFS)
