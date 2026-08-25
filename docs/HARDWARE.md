@@ -218,3 +218,26 @@ Remaining, quality-not-connectivity: a few residual bit errors survive at modera
 SNR (no FEC yet, and the RX keeps the *last* decoded copy of each chunk rather than
 majority-voting across the `--tx-reps` repetitions). Improve with more link margin
 (gain tuning), wiring in `fec.hpp`, or best-of-N chunk selection.
+
+## FPGA compatibility: when a network radio refuses to enumerate
+
+An X310/N210 boots from its OWN flash, so its FPGA image can mismatch the
+host's UHD — typically after another host with a newer UHD flashed it. The
+symptom is explicit: `Expected FPGA compatibility number 38, but got 39`.
+(A B210 can never hit this: it has no persistent image — the host loads its
+firmware/FPGA at every USB enumeration from `/usr/share/uhd/images`.)
+
+The platform image ships the matching flash images for all three radios, so
+any session can repair this offline:
+
+    uhd_image_loader --args="type=x300,addr=192.168.40.2"     # X310
+    # N210: type=usrp2. Wait for "finished" — never interrupt a flash.
+
+Then **power-cycle the radio** (full off/on — the FPGA loads from flash only
+at power-up) and re-probe:
+
+    uhd_usrp_probe --args addr=192.168.40.2
+
+Coordination: after downgrading to this platform's compat (UHD 4.1 = 38), a
+host running a newer UHD against the same radio hits the mirror-image error.
+One radio, one UHD version — agree before flashing shared hardware.
