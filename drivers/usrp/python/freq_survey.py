@@ -39,11 +39,12 @@ BANDS = {
 }
 
 
-def survey(freqs_mhz, window_ms, gain, args, binary=None):
+def survey(freqs_mhz, window_ms, gain, args, ant, subdev, binary=None):
     rows = []
     t0 = time.time()
     for i, f in enumerate(freqs_mhz):
-        radio = dict(rx_args=args, rx_freq=f * 1e6, rx_gain=gain)
+        radio = dict(rx_args=args, rx_freq=f * 1e6, rx_gain=gain,
+                     rx_ant=ant, rx_subdev=subdev)
         if binary:
             radio["binary"] = binary
         try:
@@ -102,6 +103,15 @@ def main():
                     help="energy-integration window per point (default 10)")
     ap.add_argument("--gain", type=float, default=25.0, help="RX gain, dB")
     ap.add_argument("--args", default="", help="UHD device args (serial=… / addr=…)")
+    ap.add_argument("--device", choices=["b210", "n210", "x310"], default="b210",
+                    help="sets the RF-channel default: b210 -> subdev A:A, "
+                         "n210/x310 -> A:0 (same defaults as radio.sh)")
+    ap.add_argument("--rx-ant", default="RX2", metavar="PORT",
+                    help="the CONNECTOR the antenna is on (default RX2; use "
+                         "TX/RX when that is where it is plugged)")
+    ap.add_argument("--subdev", default=None, metavar="SPEC",
+                    help="RF channel, overriding the --device default "
+                         "(B210: A:A = RF A, A:B = RF B)")
     ap.add_argument("--margin-db", type=float, default=6.0,
                     help="busy threshold = sweep floor + this (default 6)")
     ap.add_argument("--csv", default=None, help="also write freq,power_db,peak_db rows")
@@ -118,14 +128,16 @@ def main():
         sys.exit(f"bad range {start}..{stop} MHz")
     n = int(round((stop - start) / a.step_mhz)) + 1
     freqs = [round(start + i * a.step_mhz, 6) for i in range(n)]
+    subdev = a.subdev or {"b210": "A:A", "n210": "A:0", "x310": "A:0"}[a.device]
 
     print(f"[survey] {start:g}-{stop:g} MHz, {len(freqs)} points @ {a.step_mhz:g} MHz, "
-          f"window {a.window_ms:g} ms, gain {a.gain:g} dB"
+          f"window {a.window_ms:g} ms, gain {a.gain:g} dB, "
+          f"ant {a.rx_ant}, subdev {subdev}"
           + (f", radio {a.args}" if a.args else "")
           + f"  (~{len(freqs) * 2:.0f}s: each point re-inits the radio)")
     if a.dry_run:
         return
-    rows = survey(freqs, a.window_ms, a.gain, a.args, a.binary)
+    rows = survey(freqs, a.window_ms, a.gain, a.args, a.rx_ant, subdev, a.binary)
     report(rows, a.margin_db)
     if a.csv and rows:
         with open(a.csv, "w", newline="") as fh:
