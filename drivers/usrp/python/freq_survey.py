@@ -42,6 +42,7 @@ BANDS = {
 def survey(freqs_mhz, window_ms, gain, args, ant, subdev, binary=None):
     rows = []
     t0 = time.time()
+    consecutive_fail = 0
     for i, f in enumerate(freqs_mhz):
         radio = dict(rx_args=args, rx_freq=f * 1e6, rx_gain=gain,
                      rx_ant=ant, rx_subdev=subdev)
@@ -49,8 +50,17 @@ def survey(freqs_mhz, window_ms, gain, args, ant, subdev, binary=None):
             radio["binary"] = binary
         try:
             r = _run_sense(window_ms, 1, -999.0, **radio)[0]   # nothing flagged busy yet
-        except Exception as e:                                  # a failed tune is data too
+            consecutive_fail = 0
+        except Exception as e:
+            # A tune that fails at a band edge is data; a radio that fails at
+            # EVERY point (wrong address, FPGA compat mismatch, no route) is a
+            # broken sweep — abort with the error instead of printing it 81x.
+            consecutive_fail += 1
             print(f"  {f:9.3f} MHz  FAILED: {e}", file=sys.stderr)
+            if i == 0 or consecutive_fail >= 3:
+                sys.exit("[survey] aborting: the radio is failing on every "
+                         "point — fix the error above, then rerun. (A partial "
+                         "band is swept with --start-mhz/--stop-mhz.)")
             continue
         rows.append(dict(freq_mhz=f, power_db=r["power_db"], peak_db=r["peak_db"]))
         done, total = i + 1, len(freqs_mhz)

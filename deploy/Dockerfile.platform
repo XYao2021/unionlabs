@@ -57,8 +57,13 @@ RUN mkdir -p /root/.vnc /opt/application /workspace
 #    boot from their own flash and never read these. -t b2xx keeps it to ~30 MB
 #    instead of the full multi-hundred-MB set; initialization.sh's --no-images stays,
 #    since this targeted download replaces the indiscriminate one.
-RUN uhd_images_downloader -t b2xx \
- && test -f /usr/share/uhd/images/usrp_b200_fw.hex
+#    x3xx/n2xx are included so a session can REFLASH a mismatched radio (an
+#    X310 flashed by a newer-UHD host arrives with the wrong FPGA compat) —
+#    uhd_image_loader needs the matching images locally, and a pod's internet
+#    is not guaranteed.
+RUN uhd_images_downloader -t b2xx -t x3xx -t n2xx \
+ && test -f /usr/share/uhd/images/usrp_b200_fw.hex \
+ && ls /usr/share/uhd/images/ | grep -q x310
 
 # ── VS Code, the desktop's default editor ──
 #    Direct .deb (no MS apt repo to maintain); apt resolves its libraries. The
