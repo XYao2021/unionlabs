@@ -61,9 +61,15 @@ RUN mkdir -p /root/.vnc /opt/application /workspace
 #    X310 flashed by a newer-UHD host arrives with the wrong FPGA compat) —
 #    uhd_image_loader needs the matching images locally, and a pod's internet
 #    is not guaranteed.
-RUN uhd_images_downloader -t b2xx -t x3xx -t n2xx \
+#    NOTE the downloader ANDs multiple -t patterns (['b2xx','x3xx'] matches
+#    nothing), so each family is its own invocation; the N210 lives under
+#    usrp2_n210, not "n2xx".
+RUN uhd_images_downloader -t b2xx \
+ && uhd_images_downloader -t x3xx \
+ && uhd_images_downloader -t usrp2_n210 \
  && test -f /usr/share/uhd/images/usrp_b200_fw.hex \
- && ls /usr/share/uhd/images/ | grep -q x310
+ && ls /usr/share/uhd/images/ | grep -q x310 \
+ && ls /usr/share/uhd/images/ | grep -q n210
 
 # ── VS Code, the desktop's default editor ──
 #    Direct .deb (no MS apt repo to maintain); apt resolves its libraries. The
