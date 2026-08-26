@@ -108,6 +108,55 @@ def noise_acq(freq_mhz, seconds, radio, binary=None):
     return p95, thr
 
 
+# ── device discovery: the devices are automatic, the antenna is not ─────────
+def find_devices():
+    """Every USRP visible now, as [{type, product?, serial?, addr?}] — the same
+    text-parse discover-node.py uses (uhd_find_devices has no machine mode)."""
+    try:
+        out = subprocess.run(["uhd_find_devices"], capture_output=True,
+                             text=True, timeout=30).stdout
+    except Exception:
+        return []
+    return parse_find_devices(out)
+
+
+def parse_find_devices(out):
+    radios, cur = [], None
+    for line in out.splitlines():
+        if line.startswith("-- UHD Device"):
+            cur = {}
+            radios.append(cur)
+            continue
+        m = re.match(r"\s+(serial|addr|type|name|product|resource):\s*(.*)$", line)
+        if m and cur is not None and m.group(2).strip():
+            cur[m.group(1)] = m.group(2).strip()
+    return [r for r in radios if r]
+
+
+def classify(dev):
+    """-> (device_class, uhd_args, identity) for one discovered radio."""
+    t = (dev.get("type") or "").lower()
+    prod = (dev.get("product") or "").lower()
+    if t == "b200" or "b21" in prod or "b20" in prod:
+        ident = dev.get("serial", "")
+        return "b210", f"serial={ident}", ident
+    if t == "x300" or "x31" in prod or "x30" in prod:
+        ident = dev.get("addr", "")
+        return "x310", f"addr={ident}", ident
+    # usrp2 family (N200/N210) and anything else network-addressed
+    ident = dev.get("addr") or dev.get("serial", "")
+    return "n210", (f"addr={ident}" if dev.get("addr") else f"serial={ident}"), ident
+
+
+def band_for(ident, band_map, default_band):
+    """The antenna is the one fact discovery cannot give: no radio can report
+    what is screwed onto its connector. --band-map carries that knowledge."""
+    for key, band in band_map.items():
+        if key and key in ident:
+            return band, True
+    return default_band, False
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("--band", choices=sorted(BANDS), default="ism915")
@@ -127,7 +176,56 @@ def main():
                     help="publish the profile to /workspace/experiments/settings/")
     ap.add_argument("--binary", default=None)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--all", action="store_true",
+                    help="discover every connected USRP and prepare each in "
+                         "turn (devices are auto-detected; give each its "
+                         "antenna with --band-map)")
+    ap.add_argument("--band-map", default="",
+                    help="--all: which antenna hangs on which radio, e.g. "
+                         "'30CD424:vert900,192.168.40.2:vert2450-5g'. A device "
+                         "not named here falls back to --band, with a warning "
+                         "— the antenna cannot be probed.")
     a = ap.parse_args()
+
+    if a.all:
+        band_map = {}
+        for pair in a.band_map.split(","):
+            if ":" in pair:
+                k, v = pair.split(":", 1)
+                if v.strip() not in BANDS:
+                    sys.exit(f"[prepare] --band-map: unknown band {v.strip()!r} "
+                             f"(use {', '.join(sorted(BANDS))})")
+                band_map[k.strip()] = v.strip()
+        devs = find_devices()
+        if not devs:
+            sys.exit("[prepare] --all: no USRPs visible (uhd_find_devices "
+                     "found nothing)")
+        print(f"[prepare] {len(devs)} device(s) visible:")
+        plans = []
+        for d in devs:
+            cls, args_str, ident = classify(d)
+            band, mapped = band_for(ident, band_map, a.band)
+            note = "" if mapped else "  (no --band-map entry: assuming " + band + ")"
+            print(f"  {cls:>5}  {args_str:<28} -> band {band}{note}")
+            plans.append((cls, args_str, ident, band))
+        if a.dry_run:
+            return
+        for cls, args_str, ident, band in plans:
+            print(f"\n════ preparing {cls} {args_str} ({band}) ════")
+            argv = ["--device", cls, "--args", args_str, "--band", band,
+                    "--gain", str(a.gain), "--rx-ant", a.rx_ant,
+                    "--node", f"{a.node}-{ident.replace('.', '-')}"]
+            if a.subdev:
+                argv += ["--subdev", a.subdev]
+            if a.write:
+                argv += ["--write"]
+            if a.binary:
+                argv += ["--binary", a.binary]
+            r = subprocess.run([sys.executable, os.path.abspath(__file__)] + argv)
+            if r.returncode != 0:
+                print(f"[prepare] {args_str} FAILED (exit {r.returncode}) — "
+                      f"continuing with the rest", file=sys.stderr)
+        return
 
     lo0, hi0, why = BANDS[a.band]
     step = a.step_mhz or (1.0 if hi0 - lo0 <= 200 else 10.0)
