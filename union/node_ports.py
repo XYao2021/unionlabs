@@ -85,6 +85,57 @@ def load(pod=None):
             path, why)
 
 
+def sessions():
+    """Every session that has published ports, newest record last.
+
+    The two testbeds are separate clusters, so neither can reach the other's pod
+    IPs and neither can query the other's API. What they DO share is /workspace,
+    which the platform mounts for every session under the account across
+    testbeds -- so a session publishes the address the outside world must dial,
+    and the other side reads it here. That shared folder is the only thing the
+    two sites have in common, which is exactly why the record lives in it.
+    """
+    out = []
+    for d in dirs():
+        for path in sorted(glob.glob(os.path.join(d, "ports-*.json"))):
+            try:
+                with open(path) as fh:
+                    rec = json.load(fh)
+            except Exception:
+                continue
+            rec["_path"] = path
+            rec.setdefault("pod", os.path.basename(path)[6:-5])
+            out.append(rec)
+    return out
+
+
+def resolve(name, port):
+    """'host:port' to dial to reach `port` on the session called `name`.
+
+    Matches a pod name exactly, else any session whose name contains it, so
+    'gnuradio-0' finds '4-gnuradio-0' without anyone memorising the prefix.
+    Returns (address, note) or (None, why-not).
+    """
+    recs = sessions()
+    if not recs:
+        return None, "no session has published ports into the shared workspace"
+    hit = [r for r in recs if r.get("pod") == name] or \
+          [r for r in recs if name in str(r.get("pod", ""))]
+    if not hit:
+        return None, (f"no published session matches {name!r} — have: "
+                      + ", ".join(sorted(str(r.get("pod")) for r in recs)))
+    if len(hit) > 1:
+        return None, (f"{name!r} matches several: "
+                      + ", ".join(sorted(str(r.get("pod")) for r in hit)))
+    rec = hit[0]
+    np_ = (rec.get("map") or {}).get(str(int(port)))
+    if np_ is None:
+        return None, (f"session {rec.get('pod')} did not publish container port {port} "
+                      f"(it published: " + ", ".join(sorted((rec.get("map") or {}))) + ")")
+    ip = rec.get("node_ip") or "<node-ip>"
+    return f"{ip}:{np_}", f"{rec.get('pod')} via the shared workspace"
+
+
 def external(port, pod=None):
     """'host:port' another machine should dial to reach `port` here, or None."""
     m, _, _ = load(pod)
@@ -98,7 +149,34 @@ def main():
     ap.add_argument("--port", type=int, default=None,
                     help="print just this container port's external address")
     ap.add_argument("--emit", choices=["human", "json"], default="human")
+    ap.add_argument("--list", action="store_true",
+                    help="every session that has published ports, across testbeds")
+    ap.add_argument("--peer", metavar="NAME",
+                    help="address to dial to reach ANOTHER session (with --port)")
     a = ap.parse_args()
+
+    if a.list:
+        recs = sessions()
+        if not recs:
+            print("[ports] no session has published ports into the shared workspace")
+            return 1
+        for r in recs:
+            ports = ", ".join(f"{k}->{v}" for k, v in sorted(
+                (r.get("map") or {}).items(), key=lambda kv: int(kv[0])))
+            print(f"  {r.get('pod')}   {r.get('node_ip')}   {ports}")
+            print(f"      updated {r.get('updated_utc', '?')}   {r.get('_path')}")
+        return 0
+
+    if a.peer:
+        if a.port is None:
+            print("--peer needs --port (which container port do you want?)", file=sys.stderr)
+            return 2
+        addr, note = resolve(a.peer, a.port)
+        if not addr:
+            print(f"[ports] {note}", file=sys.stderr)
+            return 1
+        print(addr)
+        return 0
 
     m, path, why = load(a.pod)
     if a.port is not None:

@@ -557,6 +557,47 @@ def _peer_transport(topo, nd):
              f"two topologies, or give its links a single medium.")
 
 
+def resolve_peer_hosts(a):
+    """Let --ack-host / --net-host name ANOTHER session instead of an address.
+
+        --ack-host @siteB-gnuradio-0
+
+    The two testbeds are separate clusters, so neither can reach the other's pod
+    IPs and neither can query the other's API. Each session publishes the address
+    the outside world must dial into /workspace, which both sites mount, and this
+    reads the peer's record from there.
+
+    Dialling a NodePort changes BOTH halves -- the peer answers on its node's
+    address at a translated port, not on 5599 -- so resolving @name sets the port
+    as well. That pairing is the step people get wrong by hand: they copy the IP
+    and keep the container port, and the connection goes nowhere.
+
+    Only the dialling side should use @name. A listener binds its own container
+    port and has no peer to name.
+    """
+    try:
+        try:
+            import node_ports as npmod
+        except ImportError:
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from union import node_ports as npmod
+    except Exception:
+        return
+    for host_dest, port_dest in (("ack_host", "ack_port"), ("net_host", "net_port")):
+        val = getattr(a, host_dest, None)
+        if not isinstance(val, str) or not val.startswith("@"):
+            continue
+        name = val[1:]
+        port = getattr(a, port_dest, None)
+        addr, note = npmod.resolve(name, port)
+        if not addr:
+            sys.exit(f"--{host_dest.replace('_', '-')} {val}: {note}")
+        ip, np_ = addr.rsplit(":", 1)
+        setattr(a, host_dest, ip)
+        setattr(a, port_dest, int(np_))
+        print(f"[ports] --{host_dest.replace('_', '-')} {val} -> {ip}:{np_}  ({note})")
+
+
 def announce_ports(a):
     """Say what the OTHER machine has to dial to reach the ports this run binds.
 
@@ -1103,7 +1144,9 @@ def main():
 
     topo = apply_topology(ap, a)
 
-    # Once the ports are settled, say how another machine reaches them.
+    # A peer named with @ is resolved through the shared workspace before anything
+    # tries to dial it, then we say how another machine reaches US.
+    resolve_peer_hosts(a)
     announce_ports(a)
 
     if a.node is not None:
