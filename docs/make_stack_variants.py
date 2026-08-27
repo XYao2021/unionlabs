@@ -36,7 +36,7 @@ WHITE    = "#ffffff"
 
 LAYERS = [
     ("Algorithm layer",
-     "OSU policy   ·   MARL agent   ·   FedAvg / SGD   ·   your next algorithm",
+     "MARL agent   ·   FedAvg / SGD   ·   your next algorithm",
      "your code", "app"),
     ("Uniform interface & codec",
      "SdrApp: next_payload · on_payload · on_result      PayloadSpec(dtype, shape)      Codec.pack / unpack",
@@ -205,7 +205,7 @@ def variant_c():
                  fc=APP_S, ec=LINE, lw=1.3, zorder=2))
     ax.text(lx + 11, 78 + 6.2, "Algorithm", ha="center", va="center", fontsize=11.2,
             fontweight="bold", color=INK, zorder=3)
-    ax.text(lx + 11, 78 + 2.6, "OSU · MARL · FL", ha="center", va="center",
+    ax.text(lx + 11, 78 + 2.6, "MARL · FL", ha="center", va="center",
             fontsize=7.8, color=MUTED, zorder=3)
     # contract chip on left
     ax.add_patch(FancyBboxPatch((lx, 62), 22, 8, boxstyle="round,pad=0,rounding_size=1.1",

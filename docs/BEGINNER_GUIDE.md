@@ -446,7 +446,7 @@ Worked flowgraph: `drivers/usrp/python/phy_flow_example.py`.
 Concrete two-host recipes for the applications that ship with the platform. Each
 starts radio-free so you can check the logic before any hardware is involved.
 
-### 9.1 MARL / OSU random access
+### 9.1 MARL random access
 
 RL agents share one channel; the **ACK is the reward** (delivered = success, timeout =
 collision/loss). Single-shot bursts (`--max-attempts 1`); the *policy* owns retransmission.

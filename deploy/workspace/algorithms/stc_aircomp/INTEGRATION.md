@@ -40,7 +40,7 @@ blocks (§1.2 of `../APPLICATIONS_INTRO.pdf`).
 This is the central point. **The reliable link (App 1) spends its whole PHY avoiding what
 this application depends on.**
 
-- **App 1 (MARL/OSU/FL):** two simultaneous transmitters are a **collision** — a failure the
+- **App 1 (MARL/FL):** two simultaneous transmitters are a **collision** — a failure the
   CRC rejects and the policy learns to avoid. The receiver runs the full pipeline (sync, CFO,
   phase, demod, FEC, CRC) to pull *one* device's bytes out cleanly.
 - **STC-AirComp:** N simultaneous transmitters are the **entire point** — their superposition

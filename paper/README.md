@@ -12,7 +12,7 @@ here; elsewhere: `tlmgr install ieeetran`).
 |---|---|
 | `mobicom-demo.tex` | the paper — IEEEtran conference, 2-page body, references on page 3 |
 | `refs.bib` | 9 cited entries + 2 spares for the reserved section |
-| `CCNC25RT.pdf` | the collaborator's AirTwinX demo paper, used as the format reference |
+| `CCNC25RT.pdf` | a reference demo paper, used for its formatting |
 | `Makefile` | build / clean |
 | `figs/` | standalone system figures (TikZ), each in two layouts: the wide `fig-*.pdf` for slides/poster, and the `fig-*-col.pdf` column variants the paper uses — `make` in that folder builds all of them |
 | `mobicom-demo-acmart.tex.bak` | the earlier ACM `acmart` draft — delete when you no longer want it |
@@ -29,10 +29,10 @@ The class line is `\documentclass[sigconf,10pt]{acmart}` — the CFP names that
 size explicitly, and it is denser than acmart's 9pt default, so the page fills
 faster than you would expect.
 
-The *structure* follows the collaborator's `CCNC25RT.pdf` (AirTwinX): motivation
+The *structure* follows the reference paper `CCNC25RT.pdf`: motivation
 → design with bold run-in components → named demonstration scenarios →
 references. No results section and no conclusion; two pages have no room, and a
-demo is not judged on either. `CCNC25RT.pdf` itself is IEEEtran because CCNC is
+demo is not judged on either. That reference is IEEEtran because CCNC is
 an IEEE conference — the *template* follows the venue, the *structure* is what
 transfers. `mobicom-demo-ieeetran.tex.bak` is that version if you ever need an
 IEEE venue.
@@ -61,7 +61,7 @@ When trimming to the submission shape:
    in the PDF. Then delete the `\newcommand{\TODO}` line so the build fails
    loudly if one survives.
 2. **Authors, affiliations, and the funding footnote.** The author block follows
-   AirTwinX's shape: superscript-numbered names, affiliations on one line, a
+   the reference's shape: superscript-numbered names, affiliations on one line, a
    single `Email: {...}@...` line.
 3. **Verify every reference** against its DOI. `refs.bib` was written from
    memory of the literature; entries preceded by `%% CHECK this entry` are the

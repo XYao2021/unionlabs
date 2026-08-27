@@ -48,7 +48,7 @@ Three verbs cover the three experiment archetypes:
 
     transfer(payload)  -> (reply_bytes, info)   round-trip link       fl · clip_semcom · echo
     broadcast(bursts)  -> acks / info           slotted multi-access  marl · marl_multi
-    superpose(coded)   -> combined              over-the-air compute  stc_aircomp (AJOU)
+    superpose(coded)   -> combined              over-the-air compute  stc_aircomp
 
 Reference implementations already exist in `phy_link.py` (this is a formalisation of the seam
 that is already there, not new machinery):
@@ -78,7 +78,7 @@ class PhyDriver:
         Return per-node ack/info (0 tx = idle, 1 = delivered iff decoded, ≥2 = collision)."""
         raise NotImplementedError
 
-    # ── archetype 3: over-the-air computation (stc_aircomp / AJOU) ──
+    # ── archetype 3: over-the-air computation (stc_aircomp) ──
     def superpose(self, coded):
         """Fire N nodes' pre-coded symbols simultaneously; return the AP's combined
         (summed) observation — the medium performs the computation."""

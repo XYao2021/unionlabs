@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 stc_core.py — STLC-based digital over-the-air computation (AirComp), the DSP core of the
-AJOU / STC-AirComp application (Lee–Lee–Jung, IEEE WCL vol. 15, 2026).
+STC-AirComp application (Lee–Lee–Jung, IEEE WCL vol. 15, 2026).
 
 Unlike every other app in this repo, the receiver does NOT decode one device's packet — the
 N sensors transmit *at the same time* and the wireless medium SUMS their signals; that

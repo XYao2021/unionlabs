@@ -28,7 +28,7 @@ the on-air bring-up. See `INTEGRATION.md` for the plan and open questions.
 
 ## How it differs from Application 1 (the reliable link)
 
-| | Reliable Digital Link (MARL / OSU / FL) | **STC-AirComp** |
+| | Reliable Digital Link (MARL / FL) | **STC-AirComp** |
 |---|---|---|
 | Senders active at once | 1 (per slot) | **N simultaneously** |
 | Air combines signals | avoided (collisions are failures) | **exploited** (superposition *is* the compute) |
@@ -64,8 +64,8 @@ STLC is the transmit-side dual of the Alamouti space-time *block* code: the **tr
 uses **local** CSI to precode so the **receiver** gets full diversity from a **simple,
 CSI-free linear combine**. Consequences that suit our hardware:
 
-- **Only local CSI at each transmitter** — no global CSI, low overhead (Bang Chul Jung's
-  group's signature technique).
+- **Only local CSI at each transmitter** — no global CSI, low overhead. This is the
+  defining property of the scheme.
 - **The receiver does almost no data processing** — just CSI sounding + the fixed combine +
   de-quantize. No per-device equalization, FEC, or ARQ.
 - **DBPSK is differential**, so the AP needs no absolute phase reference — which likely

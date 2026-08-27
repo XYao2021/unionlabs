@@ -26,7 +26,7 @@ unionlabs/
 │   ├── marl_multi/        multi-agent random access: the full application (agent_node.py,
 │   │                      ap_multi.py, slot_sync.py, training, INTEGRATION.md)
 │   ├── clip_semcom/       CLIP semantic communication + semcom_core.py
-│   ├── stc_aircomp/       STC over-the-air computation (the AJOU app) + stc_core.py
+│   ├── stc_aircomp/       STC over-the-air computation + stc_core.py
 │   ├── jammer/            configurable RF interferer
 │   └── README.md
 │

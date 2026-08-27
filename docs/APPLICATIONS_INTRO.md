@@ -3,8 +3,8 @@
 A single software-defined-radio physical layer (`sdr_system`, C++/UHD) carries several
 very different **applications**. This document introduces each one in detail: what it
 computes, how it uses the radio, the exact signal chain it exercises, the hardware
-topology it runs on, and its current status. It is written for a collaborator coming to
-the code fresh (OSU experiments / UnionLabs deep-dive).
+topology it runs on, and its current status. It is written for someone coming to the
+code fresh.
 
 Two applications exist today, and they sit at **opposite ends of the design space**:
 
@@ -14,7 +14,7 @@ Two applications exist today, and they sit at **opposite ends of the design spac
 | Transmitters active at once | **1** (per slot) | **N** (simultaneously) |
 | What the receiver produces | the **delivered bytes** + an ACK | an **aggregate** (the sum) of all senders |
 | Receiver work | full sync + demod + FEC decode + CRC | CSI + a fixed linear combine |
-| Hosts | MARL random access, OSU, Federated Learning | STLC digital AirComp (Lee–Lee–Jung, WCL 2026) |
+| Hosts | MARL random access, federated learning | STLC digital AirComp (Lee–Lee–Jung, WCL 2026) |
 | Status | validated over the air | design mapped; new blocks to build |
 
 The rest of the document is: the shared substrate both applications stand on (§1),
@@ -82,7 +82,7 @@ receiver estimation are impossible in the monolithic binary but natural here).
 
 ### 1.3 The abstraction layer (in progress)
 
-For the UnionLabs collaboration we are standardizing how an algorithm plugs into the PHY:
+The platform standardizes how an algorithm plugs into the PHY:
 an `SdrApp` implements three methods — `next_payload() -> float32[]` (PHY grabs it to
 transmit), `on_payload(float32[])` (received data handed back), `on_result(ack)` (delivered
 / collision, i.e. the reward) — and declares one `PayloadSpec(dtype, shape)`. Adding an
@@ -104,7 +104,7 @@ archetypes:
   `next_payload()` + `on_payload()`. Example: **Federated Learning**.
 - **Control / random-access** — the payload is fixed; the *outcome* is the signal. Uses
   `next_payload()` + `on_result(ack)`, where the **ACK boolean is the reinforcement-learning
-  reward**. Examples: **MARL** random access and **OSU**.
+  reward**. Example: **MARL** random access.
 
 The full PHY chain of §1.1 is exercised end-to-end: framing, FEC, modulation, sync,
 demodulation, decoding, CRC, ARQ.
@@ -135,15 +135,7 @@ agents -> 1 receiving access point**.
   *local* and is **not** transported — only the fixed burst crosses the air. This is the clean
   separation the abstraction layer formalizes.
 
-### 2.3 OSU (control archetype)
-
-OSU is the same control loop as MARL with a different policy swapped in. It observes its
-state, decides transmit-or-defer, fires one burst through the adapter, and reads back
-delivered/collision as reward. It is the reference application we are porting onto the
-`SdrApp` contract first; the goal of the deep-dive is to make "bring your own policy" a
-3-methods-and-a-spec exercise.
-
-### 2.4 Federated Learning (data-transfer archetype)
+### 2.3 Federated Learning (data-transfer archetype)
 
 FedAvg of an MNIST classifier over the radio (`fl.py` / `fl_core.py`, numpy-only, torch-free).
 
@@ -161,7 +153,7 @@ FedAvg of an MNIST classifier over the radio (`fl.py` / `fl_core.py`, numpy-only
   uses coherent QPSK, whose per-subcarrier pilots track the free-running CFO — so OFDM-QPSK
   works where single-carrier coherent QPSK would fail.
 
-### 2.5 Hardware topology and operating points
+### 2.4 Hardware topology and operating points
 
 - **Radios:** N210 (`addr=192.168.20.2`, subdev `A:0`, gain 0–31.5 dB, rate 100e6/int) as the
   access point / server; B210s (`serial=30CD424`, `30CD3F7`, subdev `A:A`, gain up to ~89 dB,
@@ -171,7 +163,7 @@ FedAvg of an MNIST classifier over the radio (`fl.py` / `fl_core.py`, numpy-only
 - **Operating envelope:** validated per-scheme B210 gains and EVM ceilings at 915 MHz; dense
   constellations (16-QAM and up) need a cable, coherent QPSK needs the warm regime.
 
-### 2.6 Status
+### 2.5 Status
 
 MARL: per-agent ACK routing, slot sync and logical collision arbitration are built and
 sim-validated; hardware pieces (N210 decoded a DQPSK burst from a B210, `[BURST]` line emits
@@ -232,9 +224,9 @@ CSI-free linear combine** — the channel effects cancel in the combining by con
 Two consequences make this a good fit for massive IoT and for our hardware:
 
 - **Only local CSI at the transmitter** (each sensor its own channel) — no global CSI, low
-  overhead. This is Bang Chul Jung's group's signature technique.
-- **The receiver does almost no work.** As the collaborator confirmed: *in their frame there
-  is no data processing on the receive side except the CSI computation.* The AP estimates CSI
+  overhead. This is the defining property of the scheme.
+- **The receiver does almost no work.** In the source scheme there is no data processing
+  on the receive side beyond the CSI computation. The AP estimates CSI
   (the sounding that feeds the transmit precoding), does the fixed linear combine, and
   de-quantizes. There is **no per-device equalization, no FEC, no ARQ** on this path — the
   diversity is manufactured at the transmitter.
@@ -303,7 +295,7 @@ the 2-channel capture. This is the immediate next application to construct.
 Application 1 fits the existing two archetypes cleanly:
 
 - **Data-transfer** (FL): `next_payload()` + `on_payload()`.
-- **Control / random-access** (MARL, OSU): `next_payload()` + `on_result(ack)`, ACK = reward.
+- **Control / random-access** (MARL): `next_payload()` + `on_result(ack)`, ACK = reward.
 
 Application 2 does **not** fit either — its "output" is neither delivered bytes nor an ACK,
 but a **computed aggregate**, produced by **many senders transmitting at once** into a
@@ -318,7 +310,7 @@ Stated as one seam:
 | Archetype | Senders | Receiver output | Example |
 |---|---|---|---|
 | Data-transfer | 1 | the bytes | Federated Learning |
-| Control / random-access | 1 of N (contending) | ACK bool (reward) | MARL, OSU |
+| Control / random-access | 1 of N (contending) | ACK bool (reward) | MARL |
 | **Compute / aggregation** | **N simultaneous** | **an aggregate** | **STLC AirComp** |
 
 Getting all three behind one interface is the point of the abstraction layer.

@@ -35,7 +35,7 @@ only folder a user needs to open.
 | `marl/app.py` + `marl_env.py` `marl_train.py` `aloha_baseline.py` | Single-agent A2C random access. |
 | `marl_multi/app.py` + `agent_node.py` `ap_multi.py` `slot_sync.py` `marl_multi_*.py` `real_channel.py` `marl_phy.py` `mock_medium.py` `marl_network.py` `marl_ra.py` | The multi-agent random-access application, including its over-the-radio deployment. |
 | `clip_semcom/app.py` + `semcom_core.py` `semcom.py` `phy_port.py` | CLIP semantic communication. |
-| `stc_aircomp/app.py` + `stc_core.py` `stc_aircomp.py` | STC over-the-air computation (the AJOU app). |
+| `stc_aircomp/app.py` + `stc_core.py` `stc_aircomp.py` | STC over-the-air computation. |
 | `jammer/jammer.py` | Configurable RF interferer. |
 
 ## `union/` — the middleware (one, shared by every PHY and testbed)
