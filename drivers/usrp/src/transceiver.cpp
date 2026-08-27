@@ -738,15 +738,19 @@ void receive_thread(uhd::usrp::multi_usrp::sptr usrp,
 
         if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_OVERFLOW) {
             overflow_count++;
-            if (overflow_message) {
-                overflow_message = false;
-                std::cerr << "[USRP RX] OVERFLOW detected!" << std::endl;
-                std::cerr << "  Samples being dropped!" << std::endl;
-                std::cerr << "  Solutions:" << std::endl;
-                std::cerr << "    - Reduce RX rate" << std::endl;
-                std::cerr << "    - Increase buffer size" << std::endl;
-                std::cerr << "    - Process samples faster" << std::endl;
-            }
+            // An overflow DELETES samples from the middle of the stream. The
+            // burst either side of the gap is still perfectly good signal, so
+            // sync locks and the first part decodes -- and everything after the
+            // splice is shifted and decodes to garbage. Reporting this once, on
+            // stderr, buried in a long log, made it easy to miss the one event
+            // that explains the whole failure. Say it every time (rate-limited)
+            // on stdout, where the rest of the receive log lives.
+            if (overflow_count <= 10 || overflow_count % 100 == 0)
+                std::cout << "[USRP RX] OVERFLOW #" << overflow_count
+                          << " — samples DROPPED. Any burst spanning this gap "
+                             "decodes correctly up to the splice and as noise "
+                             "after it. Lower --rx-rate, or reduce host load."
+                          << std::endl;
             continue;
         }
 
@@ -796,6 +800,9 @@ void receive_thread(uhd::usrp::multi_usrp::sptr usrp,
     if (drained > 0) {
         std::cout << "[USRP RX] Drained " << drained << " additional blocks" << std::endl;
     }
+    std::cout << "[USRP RX] Overflows (dropped-sample events): " << overflow_count
+              << (overflow_count ? "  <-- bursts spanning a gap cannot decode"
+                                 : "  (clean)") << std::endl;
 }
 
 void EnergyDetection_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& input_fifo,
