@@ -126,19 +126,40 @@ ignored.
 
 ## Documentation
 
+Read in this order. Everything else is reference you look things up in, not
+material you read front to back.
+
+**Start here**
+
 | Doc | Its one job |
 |---|---|
-| [`docs/BEGINNER_GUIDE.md`](docs/BEGINNER_GUIDE.md) | **start here** — install, first run, every `run.sh` option explained |
+| [`docs/BEGINNER_GUIDE.md`](docs/BEGINNER_GUIDE.md) | **the front door** — install, first run, every `run.sh` option, driving the radio, and the built-in experiments end to end |
 | [`HOW_TO_ADD_ALGORITHM.md`](HOW_TO_ADD_ALGORITHM.md) | write your own `app.py`: the contract, roles, linking existing code |
 | [`docs/STRUCTURE.md`](docs/STRUCTURE.md) | the repo map and how the two layers stack |
+
+**Look it up**
+
+| Doc | Its one job |
+|---|---|
+| [`docs/PARAMETERS.md`](docs/PARAMETERS.md) | every **C++ modem** option — auto-generated on build, so it cannot drift |
+| [`docs/PARAMETERS_ALGO.md`](docs/PARAMETERS_ALGO.md) | every **`run.sh`** and LoRa option — also auto-generated |
+| [`docs/COMMANDS.md`](docs/COMMANDS.md) | ready-to-run commands, and tuned settings per modulation scheme |
+| [`docs/HARDWARE.md`](docs/HARDWARE.md) | radio inventory, wiring, FPGA images, the per-device gotchas |
+| [`docs/USRP_CARRIER_MODULATION.txt`](docs/USRP_CARRIER_MODULATION.txt) | raw `sdr_system` commands per device (B210 / N210 / X310) |
+| [`docs/SYSTEM_REFERENCE.md`](docs/SYSTEM_REFERENCE.md) | the engine: the math and every DSP stage, one section each |
+| [`docs/MANIFEST.md`](docs/MANIFEST.md) | file index and the CLI ↔ `sdr.py` mapping |
 | [`drivers/usrp/GUIDE.md`](drivers/usrp/GUIDE.md) | the USRP PHY: every way to drive it directly |
 | [`drivers/lora/README.md`](drivers/lora/README.md) | the LoRa PHY: firmware, wiring, the three attachments |
-| [`docs/PARAMETERS.md`](docs/PARAMETERS.md) | every **C++ modem** option (auto-generated, always current) |
-| [`docs/COMMANDS.md`](docs/COMMANDS.md) | ready-to-run commands: algorithm-level, then raw TX/RX per modulation scheme |
-| `docs/USRP_CARRIER_MODULATION.txt` | raw commands per device (B210 / N210 / X310) |
-| `docs/SYSTEM_REFERENCE.pdf` | the deep engine reference — the math and every algorithm |
-| `docs/HARDWARE.md` | hardware setup and radio inventory |
-| [`docs/MANIFEST.md`](docs/MANIFEST.md) | file index and the CLI ↔ `sdr.py` mapping |
+
+**Design notes — where things are going, not how to run them**
+
+| Doc | Its one job |
+|---|---|
+| [`docs/APPLICATIONS_INTRO.md`](docs/APPLICATIONS_INTRO.md) | what each application is, what is built, what is still open |
+| [`docs/CROSS_TESTBED_FL.md`](docs/CROSS_TESTBED_FL.md) | federated learning across two testbeds: the plan and the wiring |
+
+PDFs are not kept in the repo — the committed ones had all gone stale against
+their markdown. Render one when you need to send it: `./docs/make-pdf.sh BEGINNER_GUIDE`.
 
 ## Install
 

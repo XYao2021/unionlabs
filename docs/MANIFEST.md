@@ -141,7 +141,7 @@ full option list is in `PARAMETERS.md`. `radio.sh` and `run.sh` wrap these for o
 | `MANIFEST.md` | This file. |
 | `APPLICATIONS_INTRO.md` · `EXPERIMENT_GUIDE.md` · `CROSS_TESTBED_FL.md` | Application intro, operating runbook, cross-testbed FL notes. |
 | `CHANGES.md` | Changelog. |
-| `*.pdf` | Rendered copies, built by `drivers/usrp/tools/build_*_pdf.sh`. |
+| `make-pdf.sh` | Render any doc to PDF on demand. PDFs are not committed: the ones that were had all gone stale against their markdown. |
 | `sdr_stack.*` · `fig1_variant_*` · `framework_marl.*` · `SDR_Stack_slides.*` | Architecture figures and slide decks. |
 | `make_framework_diagram.py` · `make_stack_variants.py` | The scripts that generate those figures. |
 | `.pandoc-header.tex` | LaTeX preamble used by the PDF builds (a source file, not an artifact). |

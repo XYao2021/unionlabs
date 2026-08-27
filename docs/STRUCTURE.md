@@ -56,7 +56,7 @@ unionlabs/
 │
 ├── docs/                ALL documentation: BEGINNER_GUIDE · STRUCTURE (this file) · COMMANDS
 │                        · PARAMETERS (auto-generated) · HARDWARE · MANIFEST · SYSTEM_REFERENCE
-│                        · APPLICATIONS_INTRO · EXPERIMENT_GUIDE · every .pdf · diagrams/slides
+│                        · APPLICATIONS_INTRO · diagrams/slides
 ├── deploy/              Docker + install (initialization.sh, run_sink/source.sh, docker/)
 └── results/             figures / run outputs, regenerable (gitignored)
 ```

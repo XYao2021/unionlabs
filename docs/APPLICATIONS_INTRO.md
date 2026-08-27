@@ -31,7 +31,7 @@ GNU-Radio-style blocks in Python.
 
 ### 1.1 The PHY engine (`sdr_system`, C++)
 
-A complete two-radio digital link. Full detail lives in `../SYSTEM_REFERENCE.pdf`; the parts
+A complete two-radio digital link. Full detail lives in [`SYSTEM_REFERENCE.md`](SYSTEM_REFERENCE.md); the parts
 the applications rely on:
 
 ```
@@ -357,4 +357,4 @@ Build: `drivers/usrp/bindings/build.sh` (DSP only, builds anywhere) or `WITH_UHD
 `sdr_system` (C++ engine, `--help` surface) -> `sdr.py` (auto-generated CLI wrapper) ->
 `marl_phy.py` / `real_channel.py` (WarmSource / AccessPoint adapters) -> `marl_env.py`
 (obs / action / reward around the ACK) -> proposed `phy_link.py` (the `SdrApp` +
-`PayloadSpec` + `Codec` contract). Full engine reference: `../SYSTEM_REFERENCE.pdf`.
+`PayloadSpec` + `Codec` contract). Full engine reference: [`SYSTEM_REFERENCE.md`](SYSTEM_REFERENCE.md).
