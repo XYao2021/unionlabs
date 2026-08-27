@@ -1280,23 +1280,39 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     // characters = bit errors (link margin); readable text but a bad
                     // idx/tot = header corruption; noise = the bit stream is not
                     // framed where sync thinks it is.
+                    // The CRC covers idx and tot as well as the payload, so a
+                    // byte-perfect payload still fails if the 16-bit header is
+                    // wrong. Recompute it here and show it against the CRC that
+                    // actually arrived: equal means the frame is self-consistent
+                    // and the rejection came from the header sanity check;
+                    // different means something in [idx|tot|payload] flipped.
+                    uint16_t rx_crc = 0, calc_crc = 0;
+                    {
+                        std::vector<uint8_t> fb;
+                        fb.push_back(idx);
+                        fb.push_back(tot);
+                        for (unsigned char c : payload) fb.push_back(c);
+                        calc_crc = crc16_ccitt(fb);
+                        const size_t crc_off = 16 + payload.size() * 8;
+                        if (raw.size() >= crc_off + 16)
+                            for (int b = 0; b < 16; ++b)
+                                rx_crc = (uint16_t)((rx_crc << 1) | (raw[crc_off + b] & 1));
+                    }
+                    // Print the WHOLE payload, not a prefix: the first bytes
+                    // looking right says nothing about the other hundred.
                     std::string prev;
-                    for (size_t i = 0; i < payload.size() && i < 48; ++i) {
-                        unsigned char c = (unsigned char)payload[i];
-                        prev += (c >= 0x20 && c < 0x7F) ? (char)c : '.';
-                    }
-                    static const char* HX = "0123456789ABCDEF";
-                    std::string hex;
-                    for (size_t i = 0; i < payload.size() && i < 8; ++i) {
-                        unsigned char c = (unsigned char)payload[i];
-                        hex += HX[c >> 4]; hex += HX[c & 0xF]; hex += ' ';
-                    }
+                    for (unsigned char c : payload)
+                        prev += (c >= 0x20 && c < 0x7F) ? (char)c
+                              : (c == '\n' ? '/' : '.');
                     std::cout << "[RX] burst " << rx_bursts
                               << " REJECTED: crc=" << (crc_ok ? "PASS" : "FAIL")
-                              << " idx=" << idx << " tot=" << tot
+                              << " idx=" << (int)idx << " tot=" << (int)tot
                               << " demod_bits=" << rx.second.size()
                               << " payload_bytes=" << payload.size()
-                              << "\n      hex=" << hex
+                              << std::hex << std::showbase
+                              << "  crc_rx=" << rx_crc << " crc_calc=" << calc_crc
+                              << std::dec << std::noshowbase
+                              << (rx_crc == calc_crc ? " (MATCH)" : " (DIFFER)")
                               << "\n      text=\"" << prev << "\""
                               << std::endl;
                     // Score the raw demodulated bits against every known chunk.
