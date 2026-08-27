@@ -1330,11 +1330,53 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                             double r = (double)e / (double)n;
                             if (r < best) { best = r; best_i = (int)ci; best_e = e; best_n = n; }
                         }
-                        if (best_i >= 0)
+                        if (best_i >= 0) {
                             std::cout << "      pre-FEC BER vs closest chunk ("
                                       << best_i + 1 << "/" << ber_chunks.size() << "): "
                                       << 100.0 * best << "%  (" << best_e << "/"
                                       << best_n << " bits)" << std::endl;
+                            // A uniform BER means noise. A clean prefix followed
+                            // by a region that matches again once you shift by a
+                            // bit or two means samples went MISSING mid-burst --
+                            // a slip, not noise, and no amount of gain fixes it.
+                            // Report where the match breaks and whether the rest
+                            // realigns under a small shift.
+                            auto exp_pkt = build_packet_bits(ber_chunks[best_i],
+                                                             (uint8_t)best_i,
+                                                             (uint8_t)ber_chunks.size());
+                            std::vector<uint8_t> exp_tx =
+                                config.fec ? fec_encode_block(exp_pkt) : exp_pkt;
+                            size_t n = std::min(rx.second.size(), exp_tx.size());
+                            size_t first_bad = n;
+                            for (size_t i = 0; i < n; ++i)
+                                if (rx.second[i] != exp_tx[i]) { first_bad = i; break; }
+                            std::cout << "      first mismatching coded bit: " << first_bad
+                                      << " of " << n;
+                            if (first_bad < n) {
+                                int best_shift = 0; double best_rate = 1.0;
+                                for (int sh = -4; sh <= 4; ++sh) {
+                                    size_t e = 0, cnt = 0;
+                                    for (size_t i = first_bad; i < n; ++i) {
+                                        long j = (long)i + sh;
+                                        if (j < 0 || j >= (long)exp_tx.size()) continue;
+                                        e += (rx.second[i] != exp_tx[j]); ++cnt;
+                                    }
+                                    if (cnt > 32) {
+                                        double r = (double)e / (double)cnt;
+                                        if (r < best_rate) { best_rate = r; best_shift = sh; }
+                                    }
+                                }
+                                std::cout << "  |  tail best match at shift "
+                                          << best_shift << " with "
+                                          << 100.0 * best_rate << "% errors"
+                                          << (best_shift != 0 && best_rate < 0.10
+                                              ? "  <-- SLIP: samples lost mid-burst"
+                                              : (best_rate > 0.35
+                                                 ? "  <-- tail is noise, not the signal"
+                                                 : ""));
+                            }
+                            std::cout << std::endl;
+                        }
                     }
                     continue;
                 }
