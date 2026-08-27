@@ -26,12 +26,23 @@ Four measurements, all receive-only:
   4. The quiet region's WIDTH -> the usable bandwidth -> whether the default
      2 MS/s link fits (it needs ~2 MHz + guard).
 
+Between 2 and 3 it also reads the RECEIVER's own calibrated floor and reports
+it against the survey's. Both measure 10*log10(mean|x|^2), but the detector
+prints its floor linear while channel_sense prints dB, so the two have looked
+incomparable -- a survey floor of -31 dB next to an apparent detect threshold
+near -50 dB reads like a contradiction when it is mostly a difference in RX
+gain. Measured here at one --gain, the remainder is a number in the profile
+(sense_minus_detector_db). det-mult is a RATIO on the detector's own floor and
+so is immune to the offset; an absolute --energy_threshold is not, and must be
+quoted on the detector's scale.
+
 --write publishes the profile to /workspace/experiments/settings/phy-<node>.json
 (the same shared folder the node records live in), and every run prints the
 ready-to-paste run.sh / radio.sh flags and the topology "defaults" snippet.
 """
 import argparse
 import json
+import math
 import os
 import re
 import shlex
@@ -82,6 +93,46 @@ def dwell(freq_mhz, windows, window_ms, radio):
 
 # ── 3 · sync threshold from the noise's own ACQ correlations ─────────────────
 _ACQ = re.compile(r"\[ACQ\]\s+Peak correlation = ([0-9.]+)")
+# The detector reports its own floor in LINEAR units (only its threshold gets a
+# dB line), so it has to be converted before it can be compared with anything.
+_DET_FLOOR = re.compile(r"\[DETECTOR CALIBRATION\][^\n]*\n\s*Noise floor:\s*([0-9.eE+-]+)")
+_DET_THR_DB = re.compile(r"Threshold \(dB\):\s*(-?[0-9.]+)")
+
+def detector_floor(freq_mhz, seconds, radio, binary=None):
+    """The floor the RECEIVER measures for itself, in dB.
+
+    The survey and the dwell both use channel_sense, which reports
+    10*log10(mean|x|^2). The detector computes exactly the same quantity
+    (calculate_window_energy averages |x|^2 over its window) but prints the
+    result LINEAR, so the two were never directly comparable by eye -- which is
+    how a survey floor of -31 dB and an apparent RX detect threshold near
+    -50 dB came to look like a contradiction.
+
+    They are the same scale, but only at the same RX GAIN: gain shifts the
+    floor by a constant number of dB. Measuring both here at --gain makes the
+    remaining difference a real, reportable number instead of a suspicion.
+
+    Returns (floor_db, threshold_db) or None if the receiver printed no
+    calibration block.
+    """
+    import sdr
+    cmd = sdr.SDR(role="rx", rx_freq=freq_mhz * 1e6, viz=False,
+                  binary=binary, **radio).command()
+    try:
+        p = subprocess.run(shlex.split(cmd), capture_output=True, text=True,
+                           timeout=seconds)
+        out = p.stdout
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) \
+              else (e.stdout or "")
+    m = _DET_FLOOR.search(out)
+    if not m:
+        return None
+    lin = float(m.group(1))
+    floor_db = 10.0 * math.log10(lin + 1e-20)
+    t = _DET_THR_DB.search(out)
+    return floor_db, (float(t.group(1)) if t else None)
+
 
 def noise_acq(freq_mhz, seconds, radio, binary=None):
     """Force the energy detector open (det-mult ~1) so noise triggers ACQ, and
@@ -236,8 +287,9 @@ def main():
 
     n_pts = int((hi0 - lo0) / step) + 1
     plan = (f"[prepare] {a.band} ({lo0:g}-{hi0:g} MHz @ {step:g}) -> dwell "
-            f"{a.dwell_windows} windows -> ACQ listen {a.acq_seconds:g}s   "
-            f"(~{n_pts * 2 + 10:.0f}s total, receive-only)")
+            f"{a.dwell_windows} windows -> detector cross-check 6s -> "
+            f"ACQ listen {a.acq_seconds:g}s   "
+            f"(~{n_pts * 2 + a.acq_seconds + 16:.0f}s total, receive-only)")
     print(plan)
     if a.dry_run:
         return
@@ -255,6 +307,25 @@ def main():
     med, p99, det_mult = dwell(carrier, a.dwell_windows, 10.0, radio)
     print(f"[prepare] dwell at {carrier:g}: floor {med:.1f} dB, p99 {p99:.1f} dB "
           f"-> det-mult {det_mult:g}")
+
+    # 2b · the receiver's OWN floor, on the same gain, so the two scales can be
+    #      compared instead of guessed at
+    det = detector_floor(carrier, 6.0, radio, a.binary)
+    if det:
+        det_floor_db, det_thr_db = det
+        offset = med - det_floor_db
+        print(f"[prepare] receiver's own floor {det_floor_db:.1f} dB"
+              + (f" (its threshold {det_thr_db:.1f} dB)" if det_thr_db is not None else "")
+              + f" -> sense is {offset:+.1f} dB from the detector at gain {a.gain:g}")
+        if abs(offset) > 3.0:
+            print(f"           the two disagree by {abs(offset):.1f} dB. det-mult is a "
+                  f"RATIO on the detector's own floor, so it is unaffected; but an "
+                  f"absolute --energy_threshold must be quoted on the detector's scale, "
+                  f"not the survey's.")
+    else:
+        det_floor_db = det_thr_db = offset = None
+        print("[prepare] receiver printed no calibration block — cannot cross-check "
+              "the survey's floor against the detector's")
 
     # 3 · ACQ noise distribution
     acq = noise_acq(carrier, a.acq_seconds, radio, a.binary)
@@ -278,6 +349,9 @@ def main():
         schema=1, node=a.node, band=a.band, gain_db=a.gain,
         device=a.device, rx_ant=a.rx_ant, rx_subdev=subdev,
         usable_mhz=[lo, hi], carrier_mhz=carrier, floor_db=round(med, 1),
+        detector_floor_db=(round(det_floor_db, 1) if det_floor_db is not None else None),
+        detector_threshold_db=(round(det_thr_db, 1) if det_thr_db is not None else None),
+        sense_minus_detector_db=(round(offset, 1) if offset is not None else None),
         det_mult=det_mult, sync_threshold=sync_thr,
         default_link_fits=fits,
         measured_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
