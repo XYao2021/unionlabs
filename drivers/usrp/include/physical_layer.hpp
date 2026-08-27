@@ -14,6 +14,9 @@
 #include <iostream>
 #include <csignal>
 #include <cstdlib>
+#include <sstream>
+#include <stdexcept>
+#include <cmath>
 #include <unistd.h>
 
 #include <uhd/usrp/multi_usrp.hpp>
@@ -177,6 +180,8 @@ struct PHYSICAL_CONFIG {
     int         lora_sf         = 8;       // LoRa/CSS spreading factor (waveform=lora): 2^SF chips/sym
     int         lora_sync_word  = 0x12;    // LoRa network id (2 sync symbols); 0x12 private / 0x34 public
     float       ofdm_tx_peak    = 0.5f;    // TX scaling (OFDM high PAPR → avoid clip)
+    float       tx_scale        = 1.0f;    // single-carrier TX digital back-off
+    bool        allow_rate_coercion = false;  // transmit even on a rate UHD changed
 
     // Timing recovery loop
     float       timing_loop_bw  = 0.015f;
@@ -455,6 +460,33 @@ private:
     MutexFIFO<std::pair<size_t,std::vector<std::complex<float>>>> eq_fifo_;
 
     // ── USRP setup ─────────────────────────────────────────
+
+    // A rate the device cannot synthesise is silently coerced by UHD to the
+    // nearest one it can. On a B210 that is almost always exact; an X310 has a
+    // fixed master clock and an INTEGER-only DUC/DDC, so the achievable rates are
+    // exactly master_clock_rate/N. Even a 0.1% error is invisible to a 31-symbol
+    // preamble but drifts a 2000-symbol payload by ~2 symbols, and the chain
+    // solves timing once per burst with no tracking loop to catch it: sync locks,
+    // the payload decodes to garbage, and nothing says why. Refuse to transmit on
+    // a rate we did not get, and name the rates that would work.
+    void reject_coerced_rate(const char* which, double want, double got, double mcr) {
+        std::ostringstream m;
+        m << "[PHY] " << which << " rate coerced " << want << " -> " << got
+          << " Hz (" << 100.0 * (got - want) / want << "%).";
+        if (mcr > 0.0) {
+            m << " Master clock is " << mcr / 1e6 << " MHz, so this radio can only"
+                 " do master_clock_rate/N. Nearest usable rates: ";
+            const long n0 = std::max(1L, lround(mcr / want));
+            for (long n = std::max(1L, n0 - 2); n <= n0 + 2; ++n)
+                m << mcr / (double)n / 1e6 << " ";
+            m << "Msps.";
+        }
+        m << " Pick one of those, or pass --allow-rate-coercion true to transmit"
+             " anyway (the payload will very likely not decode).";
+        if (!cfg_.allow_rate_coercion) throw std::runtime_error(m.str());
+        std::cout << m.str() << "\n";
+    }
+
     void setup_tx_usrp() {
         if (!cfg_.tx_subdev.empty())
             tx_usrp_->set_tx_subdev_spec(cfg_.tx_subdev);
@@ -475,8 +507,29 @@ private:
             std::cout << "[PHY] TX DC-offset null: (" << cfg_.tx_dc_i << ", "
                       << cfg_.tx_dc_q << ")\n";
         }
-        std::cout << "[PHY] TX: " << cfg_.tx_freq/1e9 << " GHz  "
-                  << cfg_.tx_rate/1e6 << " Msps  gain=" << cfg_.tx_gain << "\n";
+        // Report what the RADIO actually did, not what we asked for. A B210's
+        // AD9361 synthesises almost any rate exactly; an X310 has a fixed master
+        // clock (200 MHz, or 184.32 MHz on some units) and an INTEGER-only DUC,
+        // so UHD silently coerces a rate it cannot hit. A fraction of a percent
+        // is invisible to the 31-symbol preamble but drifts a 2000-symbol payload
+        // by several symbols — sync locks, the payload decodes to garbage, and
+        // nothing in the log says why. Same for a coerced centre frequency or a
+        // gain clipped to the daughterboard's range (UBX tops out at 31.5 dB,
+        // the B210 near 89.8).
+        const double a_rate = tx_usrp_->get_tx_rate();
+        const double a_freq = tx_usrp_->get_tx_freq();
+        const double a_gain = tx_usrp_->get_tx_gain();
+        std::cout << "[PHY] TX: " << a_freq/1e9 << " GHz  "
+                  << a_rate/1e6 << " Msps  gain=" << a_gain << "\n";
+        if (std::abs(a_rate - cfg_.tx_rate) > 1.0)
+            reject_coerced_rate("TX", cfg_.tx_rate, a_rate,
+                                tx_usrp_->get_master_clock_rate());
+        if (std::abs(a_freq - cfg_.tx_freq) > 1.0)
+            std::cout << "[PHY] WARNING: TX freq coerced " << cfg_.tx_freq
+                      << " -> " << a_freq << " Hz\n";
+        if (std::abs(a_gain - cfg_.tx_gain) > 0.01)
+            std::cout << "[PHY] WARNING: TX gain clipped " << cfg_.tx_gain
+                      << " -> " << a_gain << " dB (daughterboard range)\n";
     }
 
     void setup_rx_usrp() {
@@ -490,8 +543,20 @@ private:
         rx_usrp_->set_rx_antenna(cfg_.rx_ant);
         rx_usrp_->set_rx_bandwidth(cfg_.rx_bw);
         rx_usrp_->set_rx_dc_offset(true);
-        std::cout << "[PHY] RX: " << cfg_.rx_freq/1e9 << " GHz  "
-                  << cfg_.rx_rate/1e6 << " Msps  gain=" << cfg_.rx_gain << "\n";
+        const double b_rate = rx_usrp_->get_rx_rate();
+        const double b_freq = rx_usrp_->get_rx_freq();
+        const double b_gain = rx_usrp_->get_rx_gain();
+        std::cout << "[PHY] RX: " << b_freq/1e9 << " GHz  "
+                  << b_rate/1e6 << " Msps  gain=" << b_gain << "\n";
+        if (std::abs(b_rate - cfg_.rx_rate) > 1.0)
+            reject_coerced_rate("RX", cfg_.rx_rate, b_rate,
+                                rx_usrp_->get_master_clock_rate());
+        if (std::abs(b_freq - cfg_.rx_freq) > 1.0)
+            std::cout << "[PHY] WARNING: RX freq coerced " << cfg_.rx_freq
+                      << " -> " << b_freq << " Hz\n";
+        if (std::abs(b_gain - cfg_.rx_gain) > 0.01)
+            std::cout << "[PHY] WARNING: RX gain clipped " << cfg_.rx_gain
+                      << " -> " << b_gain << " dB (daughterboard range)\n";
     }
 
     // ── TX pipeline threads ────────────────────────────────
@@ -507,7 +572,7 @@ private:
             threads_.emplace_back(transmit_thread,
                 tx_usrp_, std::ref(shaped_fifo_),
                 cfg_.tx_rate, tx_ch, cfg_.uhd_timeout / 1000.0,
-                std::ref(stop_flag_));
+                std::ref(stop_flag_), cfg_.tx_scale);
             return;
         }
 
@@ -534,7 +599,7 @@ private:
         threads_.emplace_back(transmit_thread,
             tx_usrp_, std::ref(shaped_fifo_),
             cfg_.tx_rate, tx_ch, cfg_.uhd_timeout / 1000.0,
-            std::ref(stop_flag_));
+            std::ref(stop_flag_), cfg_.tx_scale);
     }
 
     // ── RX pipeline threads ────────────────────────────────

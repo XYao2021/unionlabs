@@ -601,12 +601,18 @@ void match_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
             first_block = true;
         }
 
-        // Proper head management for continuous filtering
-        if (!first_block) {
-            applied_filter->set_head(false);
-        } else {
-            first_block = false;
-        }
+        // Every block arriving here is an INDEPENDENT detected burst, not a
+        // contiguous continuation of the previous one: the energy detector
+        // gates on a rising edge and the bursts are separated in time by an
+        // arbitrary idle gap. Carrying the previous burst's overlap state into
+        // this one (set_head(false)) splices stale samples onto the head of the
+        // new burst and corrupts its first num_taps samples -- which lands
+        // squarely on the preamble. It only bit when two consecutive captures
+        // happened to have the same length (otherwise the filter is rebuilt
+        // below with head=true), so it presented as an intermittent "the first
+        // burst decodes, later ones don't".
+        applied_filter->set_head(true);
+        first_block = false;
 
         int output_length = applied_filter->out_len();
         std::vector<std::complex<float>> filtered(output_length);

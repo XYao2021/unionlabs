@@ -448,7 +448,7 @@ bool validate_tx_samples(const std::vector<std::complex<float>>& samples,
 void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
                      MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& filtered_fifo,
                      double tx_rate, std::vector<unsigned long> channel, double UHD_timeout,
-                     std::atomic<bool>& stop_sign);
+                     std::atomic<bool>& stop_sign, float tx_scale = 1.0f);
 
 void receive_thread(uhd::usrp::multi_usrp::sptr usrp,
                     std::vector<unsigned long> channel, double rx_rate, double setting_time,

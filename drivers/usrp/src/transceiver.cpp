@@ -397,9 +397,13 @@ bool validate_tx_samples(const std::vector<std::complex<float>>& samples,
     std::cout << "  RMS: " << rms << std::endl;
 
     // Sanity checks
-    if (max_mag > 5.0f) {
-        std::cerr << "[TX VALIDATE] WARNING: Very large magnitude (" << max_mag 
-                  << ")! Signal may clip!" << std::endl;
+    // fc32 full scale is 1.0: anything above it is hard-clipped by the DAC, not
+    // merely "large". The old threshold of 5.0 let 25% overshoot pass silently.
+    if (max_mag > 1.0f) {
+        std::cerr << "[TX VALIDATE] WARNING: Block " << block_id << " peaks at "
+                  << max_mag << " (> 1.0 full scale) — the DAC is CLIPPING. "
+                     "Back off with --tx-scale " << (0.9f / max_mag)
+                  << " or lower." << std::endl;
     }
     if (max_mag < 0.001f) {
         std::cerr << "[TX VALIDATE] WARNING: Very small magnitude (" << max_mag 
@@ -413,7 +417,7 @@ bool validate_tx_samples(const std::vector<std::complex<float>>& samples,
 void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
                      MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& filtered_fifo,
                      double tx_rate, std::vector<unsigned long> channel, double UHD_timeout,
-                     std::atomic<bool>& stop_sign)
+                     std::atomic<bool>& stop_sign, float tx_scale)
 {
     uhd::set_thread_priority_safe(1.0, true);
 
@@ -461,6 +465,36 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
 
         idle_count = 0;
         size_t block_id = message.first;
+        // Digital back-off before the DAC. The single-carrier chain has no
+        // amplitude control of its own (unlike --ofdm-tx-peak / --tone-amp), so a
+        // pulse-shaped burst can overshoot full scale and be hard-clipped by the
+        // converter. Clipping distorts the constellation while leaving the strong
+        // preamble correlating perfectly -- sync locks, the payload decodes to
+        // garbage. Default 1.0 keeps the previous behaviour exactly.
+        if (tx_scale != 1.0f) {
+            for (auto& s : message.second) s *= tx_scale;
+        }
+        // Clip guard. fc32 full scale is 1.0; anything beyond it is hard-clipped
+        // by the DAC, which distorts the constellation while leaving the strong
+        // periodic preamble correlating perfectly -- sync locks and the payload
+        // decodes to garbage. This only ever scales a block DOWN, and only when it
+        // would otherwise clip, so a compliant signal passes through untouched.
+        {
+            float peak = 0.0f;
+            for (const auto& s : message.second) peak = std::max(peak, std::abs(s));
+            if (peak > 1.0f) {
+                const float g = 0.9f / peak;
+                for (auto& s : message.second) s *= g;
+                static std::atomic<int> warned{0};
+                if (warned.fetch_add(1) < 3)
+                    std::cout << "[USRP TX] clip guard: block #" << block_id
+                              << " peaked at " << peak
+                              << " (> 1.0 full scale) — scaled by " << g
+                              << " to keep the DAC out of clipping. Set --tx-scale "
+                              << (0.9f / peak) << " to do this up front."
+                              << std::endl;
+            }
+        }
         const std::vector<std::complex<float>>& samples = message.second;
         // save_block_to_txt(samples, 0, "transmit");
 
