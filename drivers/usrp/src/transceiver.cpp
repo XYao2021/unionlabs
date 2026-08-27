@@ -439,6 +439,7 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
     md.has_time_spec = false;  // start based on the device clock if true
 
     std::pair<size_t, std::vector<std::complex<float>>> message;
+    size_t tx_async_errors = 0;   // underflow / sequence / timing, see the drain below
     size_t total_transmitted = 0;
     size_t total_blocks = 0;
     bool first_transmission = true;
@@ -595,6 +596,36 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
         md.end_of_burst = true;
         tx_stream->send("", 0, md, UHD_timeout);
 
+        // Drain the async channel. Nothing here ever looked at it, so a starved
+        // DAC (underflow) was completely silent: the radio keeps transmitting,
+        // but the samples around the starvation point are not the ones we built.
+        // At the receiver that looks like a frame which is mostly right with a
+        // cluster of wrong bytes -- indistinguishable from a weak link unless the
+        // transmitter says it happened.
+        {
+            uhd::async_metadata_t am;
+            while (tx_stream->recv_async_msg(am, 0.0)) {
+                const char* what = nullptr;
+                switch (am.event_code) {
+                    case uhd::async_metadata_t::EVENT_CODE_UNDERFLOW:
+                    case uhd::async_metadata_t::EVENT_CODE_UNDERFLOW_IN_PACKET:
+                        what = "UNDERFLOW (host did not feed the DAC in time)"; break;
+                    case uhd::async_metadata_t::EVENT_CODE_SEQ_ERROR:
+                    case uhd::async_metadata_t::EVENT_CODE_SEQ_ERROR_IN_BURST:
+                        what = "SEQUENCE ERROR (packets lost on the transport)"; break;
+                    case uhd::async_metadata_t::EVENT_CODE_TIME_ERROR:
+                        what = "TIME ERROR (burst scheduled in the past)"; break;
+                    default: break;
+                }
+                if (what) {
+                    ++tx_async_errors;
+                    if (tx_async_errors <= 5)
+                        std::cerr << "[USRP TX] " << what << " on block #"
+                                  << block_id << std::endl;
+                }
+            }
+        }
+
         total_transmitted += samples_sent;
         total_blocks++;
     }
@@ -622,6 +653,9 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
     std::cout << std::string(60, '=') << std::endl;
     std::cout << "Statistics:" << std::endl;
     std::cout << "  Total blocks: " << total_blocks << std::endl;
+    std::cout << "  Async errors (underflow/seq/time): " << tx_async_errors
+              << (tx_async_errors ? "  <-- the transmitted waveform was corrupted"
+                                  : "  (clean)") << std::endl;
     std::cout << "  Total samples: " << total_transmitted << std::endl;
 }
 
