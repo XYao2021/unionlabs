@@ -1,3 +1,27 @@
+// filters.cpp — the two pulse-shaping stages, one per direction.
+//
+//   pulse_shaping_filter_thread : TX. Upsamples symbols by U and shapes them
+//                                 with an RRC pulse, so the burst is band-limited
+//                                 before it reaches the DAC.
+//   match_filter_thread         : RX. Convolves the incoming burst with the SAME
+//                                 pulse, time-reversed and conjugated. This is a
+//                                 matched filter, NOT a resampler: it runs at the
+//                                 real RX oversampling and does not change the
+//                                 sample rate. An earlier version designed the
+//                                 pulse for U/D and then upsampled, so the pulse
+//                                 period did not match the true symbol spacing,
+//                                 the filter was not matched, and the preamble
+//                                 correlation collapsed to about 3 out of 31.
+//
+// The RX side must treat every block as an INDEPENDENT capture. Blocks arrive
+// from the energy detector separated by an arbitrary idle gap, so they are not a
+// contiguous stream; carrying overlap state from one into the next splices stale
+// samples onto the head of the new burst, right where the preamble sits. That
+// only bit when two consecutive captures happened to have the same length --
+// otherwise the filter was rebuilt anyway -- so it surfaced as an intermittent
+// "the first burst decodes, later ones do not". See
+// tests/mf_burst_independence_test.cpp.
+
 #include <iostream>
 #include <thread>
 #include <chrono>

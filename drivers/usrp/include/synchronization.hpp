@@ -1,3 +1,16 @@
+// synchronization.hpp — finding the packet inside a captured burst.
+//
+// ACQSynchronizer correlates the known preamble against every candidate sample
+// offset and reports the best: tau*, its correlation peak, and the aligned burst
+// cut from there. The peak is the honest health indicator for a link -- a real
+// preamble scores near its length (31), noise scores single digits, so a peak
+// far above the threshold means the front end is fine whatever the payload then
+// does.
+//
+// It is an acquisition, not a tracking loop: it runs once per burst and does not
+// follow drift within one. See synchronization.cpp for what that implies when
+// something goes wrong part-way through a packet.
+
 #pragma once
 #include <iostream>
 #include <complex>

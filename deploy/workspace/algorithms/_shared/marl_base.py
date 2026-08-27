@@ -1,3 +1,11 @@
+"""
+Small helpers shared by every MARL variant: seeding, dB/linear conversion,
+complex Gaussian noise, moving averages, directory creation.
+
+Nothing here knows about radios or about learning. It is the bottom of the MARL
+stack, kept separate so marl/ and marl_multi/ share one copy rather than drifting
+apart.
+"""
 #%% Import packages -----------------------------------------------------------
 import os
 import random

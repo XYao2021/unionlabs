@@ -1,3 +1,15 @@
+"""
+Every knob a MARL run takes, as dataclasses rather than loose arguments.
+
+    SimSettings      how long, how many episodes, what to log
+    NetworkSettings  how many devices, how they are connected, traffic
+    LearningSettings the optimiser, the network shape, the reward
+    DPPO_Args        the PPO-specific hyper-parameters
+
+Grouping them this way means a run is described by data that can be printed,
+diffed and saved with its results -- which is what makes an experiment
+reproducible after the fact, when the command line that produced it is gone.
+"""
 #%% Import packages -----------------------------------------------------------
 from typing import Optional
 import dataclasses

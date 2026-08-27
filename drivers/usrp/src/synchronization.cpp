@@ -1,3 +1,17 @@
+// synchronization.cpp — where in a captured burst does the packet actually start?
+//
+// TimeSync_thread correlates the known preamble against every sample offset of a
+// detected burst (a brute-force search, not a tracking loop) and returns the
+// aligned burst: preamble + exactly the expected number of data symbols.
+//
+// Because the search runs once per burst, there is no timing loop to follow drift
+// WITHIN a burst. A sample rate that is even slightly wrong, or samples going
+// missing part-way through, therefore shows up as a clean prefix followed by
+// garbage rather than as a gradual degradation -- the preamble is short enough to
+// correlate regardless, while the payload accumulates the error. Symptoms that
+// look like a weak link but decode perfectly up to a fixed offset belong to this
+// class, and gain will not touch them.
+
 #include <iostream>
 #include <complex>
 #include <vector>

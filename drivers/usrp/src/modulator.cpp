@@ -1,3 +1,21 @@
+// modulator.cpp — bits <-> constellation symbols, and the two threads that do it.
+//
+//   modulation_thread   : packet bits -> symbols (+ preamble), for the shaper.
+//   demodulation_thread : aligned symbols -> bits, for the FEC decoder.
+//
+// Both absolute and differential schemes share one constellation map; what
+// differs is that a differential scheme encodes each symbol against its
+// predecessor, so the receiver needs one extra reference symbol at the front and
+// returns N-1 bits for N symbols. That is why sync hands the demodulator the last
+// preamble symbol along with the data.
+//
+// A differential scheme also carries no absolute phase, which is what makes it
+// usable on radios with free-running local oscillators: there is nothing for a
+// phase tracker to lock, and none is needed. The cost is roughly 3 dB against the
+// coherent version of the same constellation, and no soft-decision LLRs -- so FEC
+// runs hard-decision on these, which is why the coded schemes pair coherent
+// modulation with OFDM and differential modulation with single carrier.
+
 # include "modulator.hpp"
 # include <iostream>  // needed for std::cout
 # include <cmath>

@@ -1,3 +1,13 @@
+// modulator.hpp — the constellation, and mapping bits on and off it.
+//
+// One Modulator serves every scheme (BPSK through 64-QAM, absolute and
+// differential) by holding a constellation table plus the bits-per-symbol that
+// follows from it. Differential variants add an encode/decode pass over the same
+// table rather than a second table.
+//
+// Note the asymmetry that follows: differential_decode returns N-1 symbols for N,
+// because the first symbol is the reference the rest are measured against.
+
 #ifndef MODULATOR_HPP
 #define MODULATOR_HPP
 

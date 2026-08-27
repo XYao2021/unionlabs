@@ -1,3 +1,13 @@
+"""
+The neural machinery behind the MARL agents: actor and critic networks (MLP and
+residual variants), their initialisation, and the PPO update.
+
+Split from the environment on purpose. The agent here only ever sees an
+observation vector and returns an action, so the same policy runs against the
+simulated medium and against a real radio without knowing which it is -- that
+substitution is the whole point of the platform, and it only works if this file
+never learns what a USRP is.
+"""
 #%% Import packages -----------------------------------------------------------
 import os
 import numpy as np

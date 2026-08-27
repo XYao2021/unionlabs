@@ -1,3 +1,16 @@
+"""
+The multi-agent random-access experiment: N devices sharing one channel, each
+learning when to transmit and when to defer, trained with PPO over a consensus
+graph.
+
+This is the training and evaluation driver -- argument parsing, the episode loop,
+logging and checkpoints. The pieces it drives live next door: marl_network.py is
+the medium, ../_shared/marl_learning.py is the policy, ../_shared/marl_setting.py
+is the configuration.
+
+Run it through the platform rather than directly (`./run.sh --algo marl_multi`),
+which is what lets the same policy face a simulated medium or a real one.
+"""
 #%% Import packages -----------------------------------------------------------
 import os
 import time

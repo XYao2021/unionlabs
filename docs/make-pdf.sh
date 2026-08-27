@@ -21,8 +21,21 @@ render() {
   [ -n "$src" ] || { echo "no such doc: $name"; return 1; }
   local hdr=()
   [ -f "$HERE/.pandoc-header.tex" ] && hdr=(-H "$HERE/.pandoc-header.tex")
+
+  # The docs use maths glyphs (superscripts, ×, ≈, box drawing) that the PDF
+  # fonts do not all carry, and xelatex renders a missing glyph as nothing at
+  # all -- silently dropping an exponent out of a formula. md_glyph_fix rewrites
+  # them to safe equivalents first. Preprocess into a temp file so the source
+  # doc is never modified.
+  local fix="$HERE/../drivers/usrp/tools/md_glyph_fix.py" tmp=""
+  if [ -f "$fix" ]; then
+    tmp="$(mktemp -t unionlabs-doc).md"
+    python3 "$fix" "$src" "$tmp" && src="$tmp"
+  fi
+
   pandoc "$src" "${hdr[@]}" -o "$out/$name.pdf" \
       --pdf-engine=xelatex -V geometry:margin=1in -V fontsize=10pt
+  [ -n "$tmp" ] && rm -f "$tmp"
   echo "wrote $out/$name.pdf"
 }
 

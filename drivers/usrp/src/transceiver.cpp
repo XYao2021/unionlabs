@@ -1,3 +1,34 @@
+// transceiver.cpp — the two threads that touch the radio, and nothing else.
+//
+//   transmit_thread : pops a pulse-shaped block off filtered_fifo and hands it to
+//                     UHD. One send() per burst, terminated with end_of_burst.
+//   receive_thread  : pulls samples from UHD and runs the ENERGY DETECTOR over
+//                     them, so what leaves here is not a stream but individual
+//                     detected bursts, each one already trimmed to a packet.
+//
+// Everything above this file works on bursts; everything below it works on
+// samples. That boundary is the reason two whole classes of bug live here:
+//
+//   * A burst must be handed to UHD in ONE send(). get_max_num_samps() is the
+//     largest buffer that fits in a transport packet, not a limit on send() --
+//     the streamer fragments internally, back to back. Fragmenting by hand let
+//     the DAC run dry between calls, and two samples of gap is a whole symbol at
+//     2 samples/symbol: sync still locked on the preamble, the frame decoded
+//     perfectly up to the boundary, and everything after it was displaced by one
+//     bit and failed CRC. It looked exactly like a weak link. --tx-spb forces
+//     the old chunked behaviour, which is how that was proved.
+//
+//   * The radio's own complaints are asynchronous. A starved DAC (underflow) and
+//     dropped receive samples (overflow) are reported on side channels, not by
+//     send() or recv() returning an error, so both are drained and printed here.
+//     Neither was, once, and a corrupted transmission was indistinguishable from
+//     a healthy one.
+//
+// Sample scale: UHD fc32 is full-scale 1.0. Anything beyond that is clipped by
+// the converter, which distorts the constellation while leaving the preamble
+// correlating fine, so the clip guard below scales a block down rather than let
+// it through.
+
 # include "transceiver.hpp"
 # include "FIFO.hpp"
 # include "messages.hpp"

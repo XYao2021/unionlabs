@@ -1,3 +1,19 @@
+// frequency_offset.hpp — measuring and removing carrier frequency offset.
+//
+//   CFOEstimator    : how far apart are the two radios' oscillators, in Hz, from
+//                     the phase ramp across the preamble.
+//   FrequencyShifter: applies a fixed rotation per sample to take it out.
+//   CFOCorrector    : the two together, per burst.
+//
+// Two radios with free-running oscillators are always offset -- a few kHz at
+// 5 GHz is only about one part per million, which is ordinary for a TCXO. Left
+// uncorrected it spins the constellation and a coherent scheme cannot decode at
+// all; a differential scheme survives it, because a constant per-symbol rotation
+// cancels when each symbol is measured against its predecessor.
+//
+// The shifter's phase accumulator is reset whenever the offset is set, so each
+// burst starts from a known phase instead of inheriting the previous one's.
+
 #pragma once
 
 #include <complex>

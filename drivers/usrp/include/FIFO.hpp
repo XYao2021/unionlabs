@@ -1,3 +1,14 @@
+// FIFO.hpp — the queue every pipeline stage is joined by.
+//
+// Each stage of the modem is its own thread, and they are wired together only
+// through MutexFIFO: a stage pops from one, pushes to the next, and shares no
+// other state. That is what lets a stage be reasoned about (and tested) on its
+// own, and why the whole chain can be exercised on a clean channel with no radio
+// present -- see tests/dbpsk_fec_chain_test.cpp, which drives the real threads.
+//
+// Blocks carry a (block_id, samples) pair so a burst stays identifiable as it
+// moves down the chain and a log line can be tied to the packet it came from.
+
 #ifndef FIFO_H
 #define FIFO_H
 

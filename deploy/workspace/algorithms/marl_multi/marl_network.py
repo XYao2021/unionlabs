@@ -1,3 +1,17 @@
+"""
+The simulated network the multi-agent random-access policy trains against:
+devices, the graph that connects them, packet arrivals, and channel occupancy.
+
+    RA_device        one contending node: its queue, its state, its history
+    watts_strogatz   the small-world graph used for consensus between agents
+    consensus        how agents average their parameters over that graph
+    generate_pkt     Poisson traffic
+    update_channel   who transmitted, who collided, who got through
+
+This is the model the agent learns in. On hardware the same decisions are made,
+but occupancy and collisions come from the radio instead of from update_channel,
+which is the substitution the SdrApp contract exists to make.
+"""
 #%% Import packages -----------------------------------------------------------
 import numpy as np
 import torch

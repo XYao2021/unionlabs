@@ -1,3 +1,13 @@
+// filters.hpp — RRC pulse shaping, and the two filter engines behind it.
+//
+//   FilterPolyphase  : the default. Multirate, one polyphase branch per output
+//                      phase, so it upsamples and filters in a single pass.
+//   FilterOverlapSave: the FFT-based alternative, cheaper for very long filters.
+//
+// Both keep state between calls, which is correct for a continuous stream and
+// WRONG for detected bursts -- see the note in filters.cpp about why the receive
+// side must reset per burst.
+
 #include "fft.hpp"
 #include <mutex>
 #include "FIFO.hpp"
