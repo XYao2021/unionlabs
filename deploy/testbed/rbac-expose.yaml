@@ -9,6 +9,10 @@
 # SCOPE, deliberately narrow: services only, only in this namespace, and no other
 # resource. It does let any session open a node port, so it suits a single-tenant lab
 # and should be reconsidered before a shared or untrusted one.
+#
+# This same grant covers expose-my-ports.sh, which publishes a whole block of ports in
+# one Service — a Service with ten ports needs no more permission than one with a single
+# port, so nothing here has to change for it.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
