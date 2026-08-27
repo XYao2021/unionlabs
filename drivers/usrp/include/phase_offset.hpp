@@ -606,6 +606,10 @@ void phase_offset_thread(
         }
 
         auto corrected = corrector.correct(msg.second);
+        // Read the size BEFORE the move: pushing with std::move leaves
+        // `corrected` empty, so logging corrected.size() afterwards always
+        // printed 0 and looked like the stage had dropped every symbol.
+        const size_t n_out = corrected.size();
         output_fifo.push({msg.first, std::move(corrected)});
         ++processed;
 
@@ -613,7 +617,7 @@ void phase_offset_thread(
                   << "  φ_est="
                   << corrector.get_last_phase_estimate() * 180.0f
                      / static_cast<float>(M_PI)
-                  << "°  symbols_out=" << corrected.size() << "\n";
+                  << "°  symbols_out=" << n_out << "\n";
     }
 
     std::cout << "[phase_offset_thread] Stopped. Processed "

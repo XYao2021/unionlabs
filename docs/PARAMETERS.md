@@ -15,7 +15,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 The **Default** column is the value used when you omit the option: flags default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick the device, or use the built-in message); `_(alias)_` marks an option that inherits its primary option's default.
 
-> Auto-generated from `sdr_system --help` — always lists every current option (**108** total). Do not edit by hand.
+> Auto-generated from `sdr_system --help` — always lists every current option (**111** total). Do not edit by hand.
 
 ## Mode, message & transmission
 
@@ -74,6 +74,8 @@ The **Default** column is the value used when you omit the option: flags default
 | `--tx-subdev` | value | `A:A` | TX subdev spec |
 | `--tx-dc-i` | value | `0` | Manual TX LO-leakage null, I component (normalized [-1,1]). Tune with --tx-dc-q to minimize the RX DC spike on a direct cable (dense QAM). |
 | `--tx-dc-q` | value | `0` | Manual TX LO-leakage null, Q component (normalized [-1,1]). |
+| `--tx-spb` | value | `0` | Samples per send() call in the transmit loop (0 = the device's get_max_num_samps()). Diagnostic: if a defect sits at a fixed offset inside every burst, changing this moves it when a chunk boundary is responsible, and leaves it put when one is not. |
+| `--tx-scale` | value | `1` | TX digital back-off for the single-carrier waveform, multiplied into every sample before the DAC (1.0 = unchanged). fc32 full scale is 1.0, so if [TX VALIDATE] reports a peak above that the DAC is clipping — which distorts the payload while the preamble still correlates. Try 0.7, then lower. |
 
 ## RX radio
 
@@ -163,7 +165,7 @@ The **Default** column is the value used when you omit the option: flags default
 | `--bytes-length` | value | `125` | payload bytes per chunk (default 125). Larger chunks amortise the per-burst detect/sync/ACK overhead — higher throughput. MUST match on TX and RX. Total chunks <= 255. |
 | `--payload-file` | value | `(empty)` | TX: send the raw bytes of this file as the payload (binary, e.g. a serialized gradient). Overrides --message / --message-type. |
 | `--out-file` | value | `(empty)` | RX (rx / sink_arq): write the decoded payload as raw bytes to this file (pairs with --payload-file for a binary byte-pipe). |
-| `--ber-expected` | value | `(empty)` | sink_arq: file with the KNOWN transmitted payload; the sink then prints per-burst pre-FEC / post-FEC BER vs this ground truth (even on CRC-failed frames — shows how corrupted they actually are). |
+| `--ber-expected` | value | `(empty)` | rx / sink_arq: file with the KNOWN transmitted message; every rejected burst is then scored against it, printing pre-FEC BER vs the closest chunk. ~50% = the bits are not framed where sync thinks they are; a few % = link margin; ~0% = only the header/CRC disagrees. |
 | `--sense-window` | value | `10` | role sense: energy-integration window in ms (default 10) |
 | `--sense-threshold-db` | value | `-30` | role sense: channel is 'busy' when the window's avg power (dB) exceeds this. Calibrate to your gain/noise floor (channel_sense.py can auto-calibrate). |
 | `--sense-count` | value | `1` | role sense: number of consecutive windows to measure/report (0 = stream forever until Ctrl-C — for a persistent sensing feed) |
@@ -181,6 +183,7 @@ The **Default** column is the value used when you omit the option: flags default
 | `--fec-iters` | value | `0` | Tuning: max decoder iterations (LDPC belief-prop / turbo BCJR). 0 = default (LDPC 50, turbo 6). Raise (e.g. turbo 8-12) if a marginal link won't converge. Decoder-only — need not match the other end. |
 | `--fec-scale` | value | `0` | Tuning: min-sum (LDPC) / extrinsic (turbo) normalization scale, 0.7-0.9 typical. 0 = default 0.75. Decoder-only — need not match the other end. |
 | `--ldpc-col-weight` | value | `3` | Tuning: LDPC variable-node degree (default 3). Higher = denser code, sometimes stronger. CHANGES the parity-check matrix, so BOTH ends must match. Ignored by conv/turbo. |
+| `--allow-rate-coercion` | value | `0` | Transmit/receive even when UHD could not give the exact --tx-rate / --rx-rate you asked for. Off by default: a coerced rate leaves the preamble correlating but drifts the payload's symbol timing, so the link syncs and then decodes garbage. Prefer a rate the device can hit exactly (master_clock_rate / integer). |
 | `--lora-sf` | value | `8` | LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF chips/symbol; higher = more processing gain / range, slower) |
 | `--lora-sync-word` | value | `18` | LoRa network id (2 sync symbols after the preamble); RX rejects frames with a different word. 18=0x12 private, 52=0x34 public. Must match TX & RX |
 | `--cfo_prior_alpha` | value | `1` | Cross-burst CFO estimate smoothing (EMA alpha). 1.0=per-burst (cold LO, default); <1.0 blends history (warm resident LO only, e.g. 0.5) |

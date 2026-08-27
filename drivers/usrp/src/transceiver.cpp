@@ -397,9 +397,13 @@ bool validate_tx_samples(const std::vector<std::complex<float>>& samples,
     std::cout << "  RMS: " << rms << std::endl;
 
     // Sanity checks
-    if (max_mag > 5.0f) {
-        std::cerr << "[TX VALIDATE] WARNING: Very large magnitude (" << max_mag 
-                  << ")! Signal may clip!" << std::endl;
+    // fc32 full scale is 1.0: anything above it is hard-clipped by the DAC, not
+    // merely "large". The old threshold of 5.0 let 25% overshoot pass silently.
+    if (max_mag > 1.0f) {
+        std::cerr << "[TX VALIDATE] WARNING: Block " << block_id << " peaks at "
+                  << max_mag << " (> 1.0 full scale) — the DAC is CLIPPING. "
+                     "Back off with --tx-scale " << (0.9f / max_mag)
+                  << " or lower." << std::endl;
     }
     if (max_mag < 0.001f) {
         std::cerr << "[TX VALIDATE] WARNING: Very small magnitude (" << max_mag 
@@ -413,7 +417,7 @@ bool validate_tx_samples(const std::vector<std::complex<float>>& samples,
 void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
                      MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& filtered_fifo,
                      double tx_rate, std::vector<unsigned long> channel, double UHD_timeout,
-                     std::atomic<bool>& stop_sign)
+                     std::atomic<bool>& stop_sign, float tx_scale, size_t tx_spb)
 {
     uhd::set_thread_priority_safe(1.0, true);
 
@@ -423,7 +427,11 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
     uhd::tx_streamer::sptr tx_stream = usrp->get_tx_stream(stream_args);
 
     // Set stream parameters
-    size_t samps_per_buff = tx_stream->get_max_num_samps();
+    // The send loop hands UHD the burst in chunks of this size. Overridable so a
+    // suspected chunk-boundary artefact can be tested directly: if a defect sits
+    // at a fixed offset in every burst, changing the chunk size moves it, and if
+    // it does not move the boundary is innocent.
+    size_t samps_per_buff = tx_spb ? tx_spb : tx_stream->get_max_num_samps();
 
     std::cout << "[USRP TX] Configuration: " << "TX rate = " << tx_rate/1e6 << " MHz, " 
               << " Sampes per buffer = " << samps_per_buff << std::endl;
@@ -435,6 +443,7 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
     md.has_time_spec = false;  // start based on the device clock if true
 
     std::pair<size_t, std::vector<std::complex<float>>> message;
+    size_t tx_async_errors = 0;   // underflow / sequence / timing, see the drain below
     size_t total_transmitted = 0;
     size_t total_blocks = 0;
     bool first_transmission = true;
@@ -461,6 +470,36 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
 
         idle_count = 0;
         size_t block_id = message.first;
+        // Digital back-off before the DAC. The single-carrier chain has no
+        // amplitude control of its own (unlike --ofdm-tx-peak / --tone-amp), so a
+        // pulse-shaped burst can overshoot full scale and be hard-clipped by the
+        // converter. Clipping distorts the constellation while leaving the strong
+        // preamble correlating perfectly -- sync locks, the payload decodes to
+        // garbage. Default 1.0 keeps the previous behaviour exactly.
+        if (tx_scale != 1.0f) {
+            for (auto& s : message.second) s *= tx_scale;
+        }
+        // Clip guard. fc32 full scale is 1.0; anything beyond it is hard-clipped
+        // by the DAC, which distorts the constellation while leaving the strong
+        // periodic preamble correlating perfectly -- sync locks and the payload
+        // decodes to garbage. This only ever scales a block DOWN, and only when it
+        // would otherwise clip, so a compliant signal passes through untouched.
+        {
+            float peak = 0.0f;
+            for (const auto& s : message.second) peak = std::max(peak, std::abs(s));
+            if (peak > 1.0f) {
+                const float g = 0.9f / peak;
+                for (auto& s : message.second) s *= g;
+                static std::atomic<int> warned{0};
+                if (warned.fetch_add(1) < 3)
+                    std::cout << "[USRP TX] clip guard: block #" << block_id
+                              << " peaked at " << peak
+                              << " (> 1.0 full scale) — scaled by " << g
+                              << " to keep the DAC out of clipping. Set --tx-scale "
+                              << (0.9f / peak) << " to do this up front."
+                              << std::endl;
+            }
+        }
         const std::vector<std::complex<float>>& samples = message.second;
         // save_block_to_txt(samples, 0, "transmit");
 
@@ -517,7 +556,17 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
 
         while (samples_sent < samples.size() && !stop_sign && !transmission_failed){
             size_t samples_remaning = samples.size() - samples_sent;
-            size_t samples_to_send = std::min(samps_per_buff, samples_remaning);
+            // Hand UHD the WHOLE remaining burst. get_max_num_samps() is the most
+            // that fits in one transport packet, not a limit on send(): the
+            // streamer fragments a larger buffer internally, back to back. Doing
+            // that fragmentation here instead, one send() per chunk, let the DAC
+            // run dry for an instant at each hand-off, and a two-sample gap is a
+            // whole symbol at 2 samples/symbol. Everything past the first
+            // boundary then decoded shifted by one bit -- sync fine, payload
+            // garbage, and the position moved when the chunk size moved.
+            // --tx-spb forces manual chunking again, which is how that was shown.
+            size_t samples_to_send = tx_spb ? std::min(samps_per_buff, samples_remaning)
+                                            : samples_remaning;
 
             try{
                 size_t num_sent_samples = tx_stream->send(buff_ptr + samples_sent, 
@@ -561,6 +610,54 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
         md.end_of_burst = true;
         tx_stream->send("", 0, md, UHD_timeout);
 
+        // Drain the async channel. Nothing here ever looked at it, so a starved
+        // DAC (underflow) was completely silent: the radio keeps transmitting,
+        // but the samples around the starvation point are not the ones we built.
+        // At the receiver that looks like a frame which is mostly right with a
+        // cluster of wrong bytes -- indistinguishable from a weak link unless the
+        // transmitter says it happened.
+        {
+            uhd::async_metadata_t am;
+            while (tx_stream->recv_async_msg(am, 0.0)) {
+                const char* what = nullptr;
+                switch (am.event_code) {
+                    case uhd::async_metadata_t::EVENT_CODE_UNDERFLOW:
+                    case uhd::async_metadata_t::EVENT_CODE_UNDERFLOW_IN_PACKET:
+                        what = "UNDERFLOW (host did not feed the DAC in time)"; break;
+                    case uhd::async_metadata_t::EVENT_CODE_SEQ_ERROR:
+                    case uhd::async_metadata_t::EVENT_CODE_SEQ_ERROR_IN_BURST:
+                        what = "SEQUENCE ERROR (packets lost on the transport)"; break;
+                    case uhd::async_metadata_t::EVENT_CODE_TIME_ERROR:
+                        what = "TIME ERROR (burst scheduled in the past)"; break;
+                    default: break;
+                }
+                if (what) {
+                    ++tx_async_errors;
+                    if (tx_async_errors <= 5)
+                        std::cerr << "[USRP TX] " << what << " on block #"
+                                  << block_id << std::endl;
+                }
+            }
+        }
+
+        // Per-burst accounting. The send loop hands UHD the block in chunks of
+        // get_max_num_samps(); if a burst ever leaves with fewer samples than we
+        // built, every receiver downstream sees the remainder shifted and decodes
+        // it as noise. Print the numbers so "the waveform left intact" is an
+        // observation rather than an assumption -- and print the chunk boundaries,
+        // because a symbol lost at a FIXED offset inside every burst points at
+        // one of them rather than at the channel.
+        if (samples_sent != samples.size() || total_blocks < 3)
+            std::cout << "[USRP TX] block #" << block_id
+                      << ": built " << samples.size()
+                      << " samples, sent " << samples_sent
+                      << " in " << chunks_sent << " send() call(s)"
+                      << (tx_spb ? "  [--tx-spb forced chunking]" : "")
+                      << (samples_sent == samples.size()
+                              ? "  (complete)"
+                              : "  <-- SHORT, samples were dropped")
+                      << std::endl;
+
         total_transmitted += samples_sent;
         total_blocks++;
     }
@@ -588,6 +685,9 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
     std::cout << std::string(60, '=') << std::endl;
     std::cout << "Statistics:" << std::endl;
     std::cout << "  Total blocks: " << total_blocks << std::endl;
+    std::cout << "  Async errors (underflow/seq/time): " << tx_async_errors
+              << (tx_async_errors ? "  <-- the transmitted waveform was corrupted"
+                                  : "  (clean)") << std::endl;
     std::cout << "  Total samples: " << total_transmitted << std::endl;
 }
 
@@ -670,15 +770,19 @@ void receive_thread(uhd::usrp::multi_usrp::sptr usrp,
 
         if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_OVERFLOW) {
             overflow_count++;
-            if (overflow_message) {
-                overflow_message = false;
-                std::cerr << "[USRP RX] OVERFLOW detected!" << std::endl;
-                std::cerr << "  Samples being dropped!" << std::endl;
-                std::cerr << "  Solutions:" << std::endl;
-                std::cerr << "    - Reduce RX rate" << std::endl;
-                std::cerr << "    - Increase buffer size" << std::endl;
-                std::cerr << "    - Process samples faster" << std::endl;
-            }
+            // An overflow DELETES samples from the middle of the stream. The
+            // burst either side of the gap is still perfectly good signal, so
+            // sync locks and the first part decodes -- and everything after the
+            // splice is shifted and decodes to garbage. Reporting this once, on
+            // stderr, buried in a long log, made it easy to miss the one event
+            // that explains the whole failure. Say it every time (rate-limited)
+            // on stdout, where the rest of the receive log lives.
+            if (overflow_count <= 10 || overflow_count % 100 == 0)
+                std::cout << "[USRP RX] OVERFLOW #" << overflow_count
+                          << " — samples DROPPED. Any burst spanning this gap "
+                             "decodes correctly up to the splice and as noise "
+                             "after it. Lower --rx-rate, or reduce host load."
+                          << std::endl;
             continue;
         }
 
@@ -728,6 +832,9 @@ void receive_thread(uhd::usrp::multi_usrp::sptr usrp,
     if (drained > 0) {
         std::cout << "[USRP RX] Drained " << drained << " additional blocks" << std::endl;
     }
+    std::cout << "[USRP RX] Overflows (dropped-sample events): " << overflow_count
+              << (overflow_count ? "  <-- bursts spanning a gap cannot decode"
+                                 : "  (clean)") << std::endl;
 }
 
 void EnergyDetection_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& input_fifo,

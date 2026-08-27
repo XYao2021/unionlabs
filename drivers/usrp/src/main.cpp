@@ -166,9 +166,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "RX (rx / sink_arq): write the decoded payload as raw bytes to this "
                      "file (pairs with --payload-file for a binary byte-pipe).")
         ("ber-expected", po::value<std::string>(&ber_expected_file),
-                     "sink_arq: file with the KNOWN transmitted payload; the sink then "
-                     "prints per-burst pre-FEC / post-FEC BER vs this ground truth (even "
-                     "on CRC-failed frames — shows how corrupted they actually are).")
+                     "rx / sink_arq: file with the KNOWN transmitted message; every "
+                     "rejected burst is then scored against it, printing pre-FEC BER vs "
+                     "the closest chunk. ~50% = the bits are not framed where sync thinks "
+                     "they are; a few % = link margin; ~0% = only the header/CRC disagrees.")
         ("sense-window", po::value<double>(&sense_window_ms)->default_value(10.0),
                      "role sense: energy-integration window in ms (default 10)")
         ("sense-threshold-db", po::value<double>(&sense_threshold_db)->default_value(-30.0),
@@ -387,6 +388,23 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("ofdm-cp",
          po::value<int>(&config.ofdm_cp)->default_value(16),
          "OFDM cyclic-prefix length (>= channel delay spread)")
+        ("allow-rate-coercion", po::value<bool>(&config.allow_rate_coercion)->default_value(false),
+                     "Transmit/receive even when UHD could not give the exact --tx-rate / "
+                     "--rx-rate you asked for. Off by default: a coerced rate leaves the "
+                     "preamble correlating but drifts the payload's symbol timing, so the "
+                     "link syncs and then decodes garbage. Prefer a rate the device can "
+                     "hit exactly (master_clock_rate / integer).")
+        ("tx-spb", po::value<size_t>(&config.tx_spb)->default_value(0),
+                     "Samples per send() call in the transmit loop (0 = the device's "
+                     "get_max_num_samps()). Diagnostic: if a defect sits at a fixed "
+                     "offset inside every burst, changing this moves it when a chunk "
+                     "boundary is responsible, and leaves it put when one is not.")
+        ("tx-scale", po::value<float>(&config.tx_scale)->default_value(1.0f),
+                     "TX digital back-off for the single-carrier waveform, multiplied "
+                     "into every sample before the DAC (1.0 = unchanged). fc32 full "
+                     "scale is 1.0, so if [TX VALIDATE] reports a peak above that the "
+                     "DAC is clipping — which distorts the payload while the preamble "
+                     "still correlates. Try 0.7, then lower.")
         ("ofdm-tx-peak",
          po::value<float>(&config.ofdm_tx_peak)->default_value(0.5f),
          "OFDM TX peak scaling (high PAPR — keep the DAC out of clipping)")
@@ -1206,6 +1224,31 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::vector<bool>        got;
         int total = 0;
         long rx_bursts = 0, crc_pass = 0, crc_fail = 0;
+        // --ber-expected in one-way rx: the known transmitted message. We do not
+        // know which chunk a failed burst was meant to be, so on every rejection
+        // we score the demodulated bits against the coded bits of EVERY chunk and
+        // report the closest. That single number is the whole diagnosis:
+        //   ~50% off every chunk -> the bits are not framed where sync thinks
+        //                           they are (sync/length problem, not the link)
+        //   a few % off one chunk -> genuine bit errors, i.e. link margin
+        //   ~0% off one chunk     -> the payload is right and only the CRC or
+        //                           the header disagrees (framing/length)
+        std::vector<std::string> ber_chunks;
+        if (!ber_expected_file.empty()) {
+            std::ifstream bf(ber_expected_file, std::ios::binary);
+            if (bf) {
+                std::string exp((std::istreambuf_iterator<char>(bf)),
+                                 std::istreambuf_iterator<char>());
+                ber_chunks = split_message_into_chunks(exp, bytes_length);
+                for (auto& c : ber_chunks)
+                    if (c.size() < bytes_length) c.resize(bytes_length, ' ');
+                std::cout << "[RX] BER reference loaded: " << ber_chunks.size()
+                          << " chunk(s) of " << bytes_length << " bytes\n";
+            } else {
+                std::cerr << "[RX] cannot open --ber-expected '"
+                          << ber_expected_file << "'\n";
+            }
+        }
         bool got_any = false, announced_complete = false;
         auto last_rx = std::chrono::steady_clock::now();
         while (!global_stop_signal.load()) {
@@ -1232,6 +1275,114 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 // wait for a clean retransmission.
                 if (!crc_ok || tot == 0 || tot > 64 || idx >= tot) {
                     crc_fail++;
+                    // Print every rejection: a silent drop makes a broken link
+                    // indistinguishable from a quiet one. The header fields say
+                    // WHICH failure this is — a plausible idx/tot with CRC=FAIL
+                    // means a few flipped bits, while garbage idx/tot means the
+                    // demodulated bit stream is not framed where we think it is.
+                    // Show what we actually decoded. This one line separates the
+                    // three failure modes on sight: readable text with a few wrong
+                    // characters = bit errors (link margin); readable text but a bad
+                    // idx/tot = header corruption; noise = the bit stream is not
+                    // framed where sync thinks it is.
+                    // The CRC covers idx and tot as well as the payload, so a
+                    // byte-perfect payload still fails if the 16-bit header is
+                    // wrong. Recompute it here and show it against the CRC that
+                    // actually arrived: equal means the frame is self-consistent
+                    // and the rejection came from the header sanity check;
+                    // different means something in [idx|tot|payload] flipped.
+                    uint16_t rx_crc = 0, calc_crc = 0;
+                    {
+                        std::vector<uint8_t> fb;
+                        fb.push_back(idx);
+                        fb.push_back(tot);
+                        for (unsigned char c : payload) fb.push_back(c);
+                        calc_crc = crc16_ccitt(fb);
+                        const size_t crc_off = 16 + payload.size() * 8;
+                        if (raw.size() >= crc_off + 16)
+                            for (int b = 0; b < 16; ++b)
+                                rx_crc = (uint16_t)((rx_crc << 1) | (raw[crc_off + b] & 1));
+                    }
+                    // Print the WHOLE payload, not a prefix: the first bytes
+                    // looking right says nothing about the other hundred.
+                    std::string prev;
+                    for (unsigned char c : payload)
+                        prev += (c >= 0x20 && c < 0x7F) ? (char)c
+                              : (c == '\n' ? '/' : '.');
+                    std::cout << "[RX] burst " << rx_bursts
+                              << " REJECTED: crc=" << (crc_ok ? "PASS" : "FAIL")
+                              << " idx=" << (int)idx << " tot=" << (int)tot
+                              << " demod_bits=" << rx.second.size()
+                              << " payload_bytes=" << payload.size()
+                              << std::hex << std::showbase
+                              << "  crc_rx=" << rx_crc << " crc_calc=" << calc_crc
+                              << std::dec << std::noshowbase
+                              << (rx_crc == calc_crc ? " (MATCH)" : " (DIFFER)")
+                              << "\n      text=\"" << prev << "\""
+                              << std::endl;
+                    // Score the raw demodulated bits against every known chunk.
+                    if (!ber_chunks.empty()) {
+                        double best = 2.0; int best_i = -1; size_t best_e = 0, best_n = 0;
+                        for (size_t ci = 0; ci < ber_chunks.size(); ++ci) {
+                            auto exp_pkt = build_packet_bits(ber_chunks[ci],
+                                                             (uint8_t)ci,
+                                                             (uint8_t)ber_chunks.size());
+                            std::vector<uint8_t> exp_tx =
+                                config.fec ? fec_encode_block(exp_pkt) : exp_pkt;
+                            size_t n = std::min(rx.second.size(), exp_tx.size()), e = 0;
+                            if (!n) continue;
+                            for (size_t i = 0; i < n; ++i) e += (rx.second[i] != exp_tx[i]);
+                            double r = (double)e / (double)n;
+                            if (r < best) { best = r; best_i = (int)ci; best_e = e; best_n = n; }
+                        }
+                        if (best_i >= 0) {
+                            std::cout << "      pre-FEC BER vs closest chunk ("
+                                      << best_i + 1 << "/" << ber_chunks.size() << "): "
+                                      << 100.0 * best << "%  (" << best_e << "/"
+                                      << best_n << " bits)" << std::endl;
+                            // A uniform BER means noise. A clean prefix followed
+                            // by a region that matches again once you shift by a
+                            // bit or two means samples went MISSING mid-burst --
+                            // a slip, not noise, and no amount of gain fixes it.
+                            // Report where the match breaks and whether the rest
+                            // realigns under a small shift.
+                            auto exp_pkt = build_packet_bits(ber_chunks[best_i],
+                                                             (uint8_t)best_i,
+                                                             (uint8_t)ber_chunks.size());
+                            std::vector<uint8_t> exp_tx =
+                                config.fec ? fec_encode_block(exp_pkt) : exp_pkt;
+                            size_t n = std::min(rx.second.size(), exp_tx.size());
+                            size_t first_bad = n;
+                            for (size_t i = 0; i < n; ++i)
+                                if (rx.second[i] != exp_tx[i]) { first_bad = i; break; }
+                            std::cout << "      first mismatching coded bit: " << first_bad
+                                      << " of " << n;
+                            if (first_bad < n) {
+                                int best_shift = 0; double best_rate = 1.0;
+                                for (int sh = -4; sh <= 4; ++sh) {
+                                    size_t e = 0, cnt = 0;
+                                    for (size_t i = first_bad; i < n; ++i) {
+                                        long j = (long)i + sh;
+                                        if (j < 0 || j >= (long)exp_tx.size()) continue;
+                                        e += (rx.second[i] != exp_tx[j]); ++cnt;
+                                    }
+                                    if (cnt > 32) {
+                                        double r = (double)e / (double)cnt;
+                                        if (r < best_rate) { best_rate = r; best_shift = sh; }
+                                    }
+                                }
+                                std::cout << "  |  tail best match at shift "
+                                          << best_shift << " with "
+                                          << 100.0 * best_rate << "% errors"
+                                          << (best_shift != 0 && best_rate < 0.10
+                                              ? "  <-- SLIP: samples lost mid-burst"
+                                              : (best_rate > 0.35
+                                                 ? "  <-- tail is noise, not the signal"
+                                                 : ""));
+                            }
+                            std::cout << std::endl;
+                        }
+                    }
                     continue;
                 }
                 crc_pass++;

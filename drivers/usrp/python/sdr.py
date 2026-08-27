@@ -44,7 +44,7 @@ OPTIONS = {
     "bytes-length": (True, '125', "payload bytes per chunk (default 125). Larger chunks amortise the per-burst detect/sync/ACK overhead — higher throughput. MUST match on TX and RX. Total chunks <= 255."),
     "payload-file": (True, None, "TX: send the raw bytes of this file as the payload (binary, e.g. a serialized gradient). Overrides --message / --message-type."),
     "out-file": (True, None, "RX (rx / sink_arq): write the decoded payload as raw bytes to this file (pairs with --payload-file for a binary byte-pipe)."),
-    "ber-expected": (True, None, "sink_arq: file with the KNOWN transmitted payload; the sink then prints per-burst pre-FEC / post-FEC BER vs this ground truth (even on CRC-failed frames — shows how corrupted they actually are)."),
+    "ber-expected": (True, None, "rx / sink_arq: file with the KNOWN transmitted message; every rejected burst is then scored against it, printing pre-FEC BER vs the closest chunk. ~50% = the bits are not framed where sync thinks they are; a few % = link margin; ~0% = only the header/CRC disagrees."),
     "sense-window": (True, '10', "role sense: energy-integration window in ms (default 10)"),
     "sense-threshold-db": (True, '-30', "role sense: channel is 'busy' when the window's avg power (dB) exceeds this. Calibrate to your gain/noise floor (channel_sense.py can auto-calibrate)."),
     "sense-count": (True, '1', "role sense: number of consecutive windows to measure/report (0 = stream forever until Ctrl-C — for a persistent sensing feed)"),
@@ -113,6 +113,9 @@ OPTIONS = {
     "waveform": (True, 'sc', "Waveform: sc (single-carrier) or ofdm. OFDM handles multipath/CFO natively (per-subcarrier equalization) — best for dense QAM."),
     "ofdm-fft": (True, '64', "OFDM FFT size (number of subcarriers)"),
     "ofdm-cp": (True, '16', "OFDM cyclic-prefix length (>= channel delay spread)"),
+    "allow-rate-coercion": (True, '0', "Transmit/receive even when UHD could not give the exact --tx-rate / --rx-rate you asked for. Off by default: a coerced rate leaves the preamble correlating but drifts the payload's symbol timing, so the link syncs and then decodes garbage. Prefer a rate the device can hit exactly (master_clock_rate / integer)."),
+    "tx-spb": (True, '0', "Samples per send() call in the transmit loop (0 = the device's get_max_num_samps()). Diagnostic: if a defect sits at a fixed offset inside every burst, changing this moves it when a chunk boundary is responsible, and leaves it put when one is not."),
+    "tx-scale": (True, '1', "TX digital back-off for the single-carrier waveform, multiplied into every sample before the DAC (1.0 = unchanged). fc32 full scale is 1.0, so if [TX VALIDATE] reports a peak above that the DAC is clipping — which distorts the payload while the preamble still correlates. Try 0.7, then lower."),
     "ofdm-tx-peak": (True, '0.5', "OFDM TX peak scaling (high PAPR — keep the DAC out of clipping)"),
     "lora-sf": (True, '8', "LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF chips/symbol; higher = more processing gain / range, slower)"),
     "lora-sync-word": (True, '18', "LoRa network id (2 sync symbols after the preamble); RX rejects frames with a different word. 18=0x12 private, 52=0x34 public. Must match TX & RX"),
@@ -224,6 +227,9 @@ PY2CPP = {
     "waveform": "waveform",
     "ofdm_fft": "ofdm-fft",
     "ofdm_cp": "ofdm-cp",
+    "allow_rate_coercion": "allow-rate-coercion",
+    "tx_spb": "tx-spb",
+    "tx_scale": "tx-scale",
     "ofdm_tx_peak": "ofdm-tx-peak",
     "lora_sf": "lora-sf",
     "lora_sync_word": "lora-sync-word",
@@ -280,7 +286,7 @@ class SDR:
                  bytes_length=_UNSET, # =125  payload bytes per chunk (default 125). Larger chunks...
                  payload_file=_UNSET, # TX: send the raw bytes of this file as the payload (binary,...
                  out_file=_UNSET, # RX (rx / sink_arq): write the decoded payload as raw bytes...
-                 ber_expected=_UNSET, # sink_arq: file with the KNOWN transmitted payload; the sink...
+                 ber_expected=_UNSET, # rx / sink_arq: file with the KNOWN transmitted message;...
                  sense_window=_UNSET, # =10  role sense: energy-integration window in ms (default 10)
                  sense_threshold_db=_UNSET, # =-30  role sense: channel is 'busy' when the window's avg power...
                  sense_count=_UNSET, # =1  role sense: number of consecutive windows to measure/report...
@@ -348,6 +354,9 @@ class SDR:
                  waveform=_UNSET, # =sc  Waveform: sc (single-carrier) or ofdm. OFDM handles...
                  ofdm_fft=_UNSET, # =64  OFDM FFT size (number of subcarriers)
                  ofdm_cp=_UNSET, # =16  OFDM cyclic-prefix length (>= channel delay spread)
+                 allow_rate_coercion=_UNSET, # =0  Transmit/receive even when UHD could not give the exact...
+                 tx_spb=_UNSET, # =0  Samples per send() call in the transmit loop (0 = the...
+                 tx_scale=_UNSET, # =1  TX digital back-off for the single-carrier waveform,...
                  ofdm_tx_peak=_UNSET, # =0.5  OFDM TX peak scaling (high PAPR — keep the DAC out of...
                  lora_sf=_UNSET, # =8  LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF...
                  lora_sync_word=_UNSET, # =18  LoRa network id (2 sync symbols after the preamble); RX...
@@ -460,6 +469,9 @@ class SDR:
             waveform=waveform,
             ofdm_fft=ofdm_fft,
             ofdm_cp=ofdm_cp,
+            allow_rate_coercion=allow_rate_coercion,
+            tx_spb=tx_spb,
+            tx_scale=tx_scale,
             ofdm_tx_peak=ofdm_tx_peak,
             lora_sf=lora_sf,
             lora_sync_word=lora_sync_word,
