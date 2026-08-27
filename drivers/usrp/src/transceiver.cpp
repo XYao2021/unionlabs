@@ -626,6 +626,24 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
             }
         }
 
+        // Per-burst accounting. The send loop hands UHD the block in chunks of
+        // get_max_num_samps(); if a burst ever leaves with fewer samples than we
+        // built, every receiver downstream sees the remainder shifted and decodes
+        // it as noise. Print the numbers so "the waveform left intact" is an
+        // observation rather than an assumption -- and print the chunk boundaries,
+        // because a symbol lost at a FIXED offset inside every burst points at
+        // one of them rather than at the channel.
+        if (samples_sent != samples.size() || total_blocks < 3)
+            std::cout << "[USRP TX] block #" << block_id
+                      << ": built " << samples.size()
+                      << " samples, sent " << samples_sent
+                      << " in " << chunks_sent << " chunk(s) of "
+                      << samps_per_buff
+                      << (samples_sent == samples.size()
+                              ? "  (complete)"
+                              : "  <-- SHORT, samples were dropped")
+                      << std::endl;
+
         total_transmitted += samples_sent;
         total_blocks++;
     }
