@@ -557,6 +557,52 @@ def _peer_transport(topo, nd):
              f"two topologies, or give its links a single medium.")
 
 
+def announce_ports(a):
+    """Say what the OTHER machine has to dial to reach the ports this run binds.
+
+    A container's port is not reachable at the host's address by itself -- the
+    node receives the packet and nothing carries it inward. expose-my-ports.sh
+    publishes a NodePort block at session start to fix that; this reads the
+    record and prints the translation, so nobody has to go and derive it from
+    `kubectl get svc` on a machine they may not be able to log into.
+
+    Silent when nothing is published: on a laptop, or a single-box run, there is
+    no translation to report and a warning would just be noise.
+    """
+    try:
+        try:
+            import node_ports as npmod
+        except ImportError:
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from union import node_ports as npmod
+        mapping, path, _ = npmod.load()
+    except Exception:
+        return
+    if not mapping:
+        return
+
+    want = []
+    for dest, label in (("ack_port", "ACK"), ("net_port", "network"),
+                        ("peer_port", "peer")):
+        v = getattr(a, dest, None)
+        if v is None:
+            continue
+        # a peer process binds base+k, not the base itself
+        if dest == "peer_port" and getattr(a, "node", None) is not None:
+            try:
+                v = int(v) + int(a.node)
+            except Exception:
+                pass
+        want.append((int(v), label))
+
+    shown = [(p, label, mapping[p]) for p, label in want if p in mapping]
+    if not shown:
+        return
+    print("[ports] reachable from another machine:")
+    for p, label, (ip, np_) in shown:
+        print(f"          {label:8s} container {p}  ->  dial {ip}:{np_}")
+
+
 def apply_phy_profile(ap, a):
     """Fill freq / gain / detector thresholds from the node's measured PHY profile.
 
@@ -1056,6 +1102,10 @@ def main():
     apply_phy_profile(ap, a)
 
     topo = apply_topology(ap, a)
+
+    # Once the ports are settled, say how another machine reaches them.
+    announce_ports(a)
+
     if a.node is not None:
         a.node = int(a.node)                # a name has been resolved to its index
 

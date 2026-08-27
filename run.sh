@@ -25,6 +25,7 @@
 #   ./run.sh --algo fl --topology fl-star-tcp --node c0      # the first client's
 #   ./run.sh topology fl-star-tcp              # start every node that lives on THIS box
 #   ./run.sh topologies                        # list the wiring files
+#   ./run.sh ports                             # what another machine must dial to reach this session
 #   ./run.sh --algo fl --topology fl-star-tcp --node c0 --print-plan   # resolve, don't run
 # The file says what radio each node owns, which connector (TX/RX, RX2) and RF channel
 # it uses, which port it listens on, and whether each link is carried over the air or
@@ -72,6 +73,12 @@ if [ "${1:-}" = "topologies" ]; then
   # handed the lister an EMPTY NAME to look up, which it correctly failed to find.
   shift
   exec python3 "$HERE/union/topology.py" "$@"
+fi
+if [ "${1:-}" = "ports" ]; then
+  # what another machine must dial to reach THIS session. Published at session
+  # start by deploy/testbed/expose-my-ports.sh; this only reads the record.
+  shift
+  exec python3 "$HERE/union/node_ports.py" "$@"
 fi
 if [ "${1:-}" = "list" ]; then
   echo "algorithms in $HERE/deploy/workspace/algorithms/ :"
