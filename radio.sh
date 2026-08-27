@@ -32,12 +32,13 @@ esac
 
 DEVICE=b210 ARGS="" FREQ=915e6 SCHEME=DQPSK WAVE=sc RATE=2e6 SYM=1e6 GAIN="" FEC=true DRY=0
 ANT="" SUB=""      # empty = the sensible default for this role/device
+FREQ_SET=0 PROFILE=1   # did the caller name a freq? should we consult the PHY profile?
 EXTRA=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --device) DEVICE="$2"; shift 2;;
     --args)   ARGS="$2";   shift 2;;
-    --freq)   FREQ="$2";   shift 2;;
+    --freq)   FREQ="$2"; FREQ_SET=1; shift 2;;
     --scheme) SCHEME="$2"; shift 2;;
     --waveform) WAVE="$2"; shift 2;;
     --gain)   GAIN="$2";   shift 2;;
@@ -47,6 +48,7 @@ while [ $# -gt 0 ]; do
     --ant)    ANT="$2";    shift 2;;
     --subdev) SUB="$2";    shift 2;;
     --dry-run) DRY=1;      shift;;
+    --no-profile) PROFILE=0; shift;;
     *) EXTRA+=("$1");      shift;;
   esac
 done
@@ -67,16 +69,41 @@ case "${ANT:-}" in
   ""|TX/RX|RX2) ;;
   *) echo "note: --ant '$ANT' is not TX/RX or RX2 — passing it through anyway" >&2;;
 esac
+# ── the PHY profile: what prepare_phy measured on THIS testbed ──────────────
+# It fills only what the caller did not name, so an explicit flag always wins,
+# and it says what it applied — a default that arrives from a file silently is
+# worse than no default at all. --no-profile skips it entirely.
+PROF_EXTRA=()
+if [ "$PROFILE" = 1 ] && [ -r "$HERE/union/phy_profile.py" ]; then
+  PHY_PROFILE_PATH=""; PHY_FREQ=""; PHY_GAIN=""; PHY_DET_MULT=""; PHY_SYNC_THRESHOLD=""
+  eval "$(python3 "$HERE/union/phy_profile.py" --emit shell 2>/dev/null || true)"
+  if [ -n "$PHY_PROFILE_PATH" ]; then
+    APPLIED=()
+    if [ "$FREQ_SET" = 0 ] && [ -n "$PHY_FREQ" ]; then
+      FREQ="${PHY_FREQ}e6"; APPLIED+=("freq=${FREQ}")
+    fi
+    if [ -z "$GAIN" ] && [ -n "$PHY_GAIN" ]; then
+      GAIN="$PHY_GAIN"; APPLIED+=("gain=${GAIN}")
+    fi
+    [ -n "$PHY_DET_MULT" ] && { PROF_EXTRA+=(--det-mult "$PHY_DET_MULT"); APPLIED+=("det-mult=$PHY_DET_MULT"); }
+    [ -n "$PHY_SYNC_THRESHOLD" ] && { PROF_EXTRA+=(--sync-threshold "$PHY_SYNC_THRESHOLD"); APPLIED+=("sync-threshold=$PHY_SYNC_THRESHOLD"); }
+    [ ${#APPLIED[@]} -gt 0 ] && \
+      echo "[phy-profile] $(basename "$PHY_PROFILE_PATH"): ${APPLIED[*]}  (anything you typed still wins)" >&2
+  fi
+fi
+
 [ -z "$GAIN" ] && { [ "$ROLE" = tx ] && GAIN="$TXG" || GAIN="$RXG"; }
 
 if [ "$ROLE" = tx ]; then
   CMD=("$BIN" --role tx --tx-args "$ARGS" --tx-subdev "$SUBDEV" --tx-ant "${ANT:-TX/RX}"
        --tx-freq "$FREQ" --tx-rate "$RATE" --rx-rate "$RATE" --symbol_rate "$SYM"
-       --tx-gain "$GAIN" --scheme "$SCHEME" --waveform "$WAVE" --fec "$FEC")
+       --tx-gain "$GAIN" --scheme "$SCHEME" --waveform "$WAVE" --fec "$FEC"
+       ${PROF_EXTRA[@]+"${PROF_EXTRA[@]}"})
 else
   CMD=("$BIN" --role rx --rx-args "$ARGS" --rx-subdev "$SUBDEV" --rx-ant "${ANT:-RX2}"
        --rx-freq "$FREQ" --rx-rate "$RATE" --tx-rate "$RATE" --symbol_rate "$SYM"
-       --rx-gain "$GAIN" --scheme "$SCHEME" --waveform "$WAVE" --fec "$FEC")
+       --rx-gain "$GAIN" --scheme "$SCHEME" --waveform "$WAVE" --fec "$FEC"
+       ${PROF_EXTRA[@]+"${PROF_EXTRA[@]}"})
 fi
 # ── merge: a caller's option REPLACES our default for the same option ──
 # The modem rejects a repeated option ("--tx-ant cannot be specified more than once"),

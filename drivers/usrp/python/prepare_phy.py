@@ -57,24 +57,58 @@ PREAMBLE_PEAK = 31.0            # a real preamble's ACQ correlation after AGC
 DEFAULT_LINK_BW_MHZ = 2.4      # 2 MS/s + RRC roll-off + CFO guard
 
 
-# ── 1 · the usable band: widest contiguous quiet region of the sweep ─────────
-def quiet_region(rows, margin_db=6.0):
-    """-> (lo_mhz, hi_mhz, floor_db). Quiet = within margin of the sweep's
-    lower-quartile floor; the widest contiguous run wins."""
+# ── 1 · the usable bands: EVERY contiguous quiet region of the sweep ─────────
+def quiet_regions(rows, margin_db=6.0):
+    """-> (sweep_floor_db, [region, ...]) ranked best-first.
+
+    Quiet = within margin of the sweep's lower-quartile floor. Every contiguous
+    run is kept, not just the winner: a testbed usually has several usable
+    stretches, and which one is *best* depends on things this measurement cannot
+    see -- a neighbouring experiment, a regulatory limit, an antenna that is
+    only nominally in band. Recording all of them lets a topology choose a
+    different one per node without re-measuring the site.
+
+    Ranked by width first (bandwidth is the scarce resource), then by how quiet
+    the region actually is."""
     if not rows:
         sys.exit("[prepare] survey produced nothing — is the radio reachable?")
     p = sorted(r["power_db"] for r in rows)
     floor = p[len(p) // 4]
     quiet = [r["power_db"] <= floor + margin_db for r in rows]
-    best, cur = (0, -1), None
+
+    runs, cur = [], None
     for i, q in enumerate(quiet + [False]):
         if q and cur is None:
             cur = i
         elif not q and cur is not None:
-            if i - cur > best[1] - best[0]:
-                best = (cur, i - 1)
+            runs.append((cur, i - 1))
             cur = None
-    lo, hi = rows[best[0]]["freq_mhz"], rows[best[1]]["freq_mhz"]
+
+    regions = []
+    for a, b in runs:
+        lo, hi = rows[a]["freq_mhz"], rows[b]["freq_mhz"]
+        band = [r["power_db"] for r in rows[a:b + 1]]
+        regions.append({
+            "usable_mhz": [lo, hi],
+            "width_mhz": round(hi - lo, 3),
+            "carrier_mhz": round((lo + hi) / 2.0, 3),   # plateau centre, not the
+                                                        # literal minimum: the
+                                                        # minimum is measurement
+                                                        # noise, the centre has
+                                                        # margin on both sides
+            "region_floor_db": round(sum(band) / len(band), 1),
+        })
+    regions.sort(key=lambda r: (-r["width_mhz"], r["region_floor_db"]))
+    return floor, regions
+
+
+def quiet_region(rows, margin_db=6.0):
+    """The single best region, as (lo, hi, sweep_floor_db). Kept so existing
+    callers and the older profile schema keep working."""
+    floor, regions = quiet_regions(rows, margin_db)
+    if not regions:
+        sys.exit("[prepare] no quiet region found — the whole band is occupied?")
+    lo, hi = regions[0]["usable_mhz"]
     return lo, hi, floor
 
 
@@ -221,8 +255,12 @@ def main():
                     help="RX gain — use the gain the EXPERIMENT will use")
     ap.add_argument("--dwell-windows", type=int, default=100)
     ap.add_argument("--acq-seconds", type=float, default=8.0)
-    ap.add_argument("--node", default=os.uname().nodename,
-                    help="name for the profile (default: hostname)")
+    ap.add_argument("--node", default=None,
+                    help="name for the profile. Default: this node's stable key "
+                         "-- $UNION_SITE, else the radio's serial, else "
+                         "host-<hostname>. NOT the bare hostname: inside a "
+                         "session that is the pod id and changes every session, "
+                         "so a profile filed under it is lost on the next pod.")
     ap.add_argument("--write", action="store_true",
                     help="publish the profile to /workspace/experiments/settings/")
     ap.add_argument("--binary", default=None)
@@ -237,6 +275,17 @@ def main():
                          "not named here falls back to --band, with a warning "
                          "— the antenna cannot be probed.")
     a = ap.parse_args()
+    if a.node is None:
+        # Same identity rule as discover-node.py and union/phy_profile.py, so
+        # what prepare_phy writes is what radio.sh and run.sh later look for.
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))))))
+        try:
+            from union.phy_profile import node_key
+            a.node = node_key()
+        except Exception:
+            a.node = "host-" + os.uname().nodename
 
     if a.all:
         band_map = {}
@@ -297,7 +346,19 @@ def main():
     # 1 · survey
     freqs = [round(lo0 + i * step, 6) for i in range(n_pts)]
     rows = band_survey(freqs, 10.0, a.gain, a.args, a.rx_ant, subdev, a.binary)
-    lo, hi, floor = quiet_region(rows)
+    sweep_floor, regions = quiet_regions(rows)
+    if not regions:
+        sys.exit("[prepare] no quiet region found — the whole band is occupied?")
+    lo, hi = regions[0]["usable_mhz"]
+    floor = sweep_floor
+    if len(regions) > 1:
+        print(f"[prepare] {len(regions)} quiet regions found; all are saved, the "
+              f"widest is the recommendation:")
+        for i, r in enumerate(regions[:6]):
+            mark = "  <- recommended" if i == 0 else ""
+            print(f"           {i + 1}. {r['usable_mhz'][0]:g}-{r['usable_mhz'][1]:g} MHz "
+                  f"({r['width_mhz']:g} MHz, {r['region_floor_db']:.1f} dB) "
+                  f"carrier {r['carrier_mhz']:g}{mark}")
     carrier = round((lo + hi) / 2.0, 3)
     width = hi - lo
     print(f"\n[prepare] usable band: {lo:g}-{hi:g} MHz ({width:g} MHz wide), "
@@ -345,9 +406,36 @@ def main():
               f"the default 2 MS/s link needs (~{DEFAULT_LINK_BW_MHZ} MHz) — "
               f"lower the rates or find another band")
 
+    # Every candidate is saved, not only the winner. The dwell, the detector
+    # cross-check and the ACQ listen happen at the recommended carrier alone --
+    # repeating them per region would multiply a 4-minute run by the number of
+    # quiet stretches -- so each candidate says whether its numbers were
+    # MEASURED there or inherited from the recommendation. A topology can then
+    # point a node at another region without re-measuring the site, and can see
+    # exactly how much is known about the one it picks.
+    def candidate(r, measured):
+        c = dict(r)
+        c.update(det_mult=det_mult, sync_threshold=sync_thr, measured=measured,
+                 default_link_fits=r["width_mhz"] >= DEFAULT_LINK_BW_MHZ)
+        if measured:
+            c.update(floor_db=round(med, 1), p99_db=round(p99, 1),
+                     detector_floor_db=(round(det_floor_db, 1)
+                                        if det_floor_db is not None else None),
+                     detector_threshold_db=(round(det_thr_db, 1)
+                                            if det_thr_db is not None else None),
+                     sense_minus_detector_db=(round(offset, 1)
+                                              if offset is not None else None),
+                     noise_acq_p95=(round(acq[0], 1) if acq else None))
+        return c
+
+    cands = [candidate(r, i == 0) for i, r in enumerate(regions)]
     profile = dict(
-        schema=1, node=a.node, band=a.band, gain_db=a.gain,
+        schema=2, node=a.node, band=a.band, gain_db=a.gain,
         device=a.device, rx_ant=a.rx_ant, rx_subdev=subdev,
+        sweep_floor_db=round(sweep_floor, 1),
+        recommended=cands[0],
+        candidates=cands,
+        # schema-1 keys kept alongside, so an older reader still works
         usable_mhz=[lo, hi], carrier_mhz=carrier, floor_db=round(med, 1),
         detector_floor_db=(round(det_floor_db, 1) if det_floor_db is not None else None),
         detector_threshold_db=(round(det_thr_db, 1) if det_thr_db is not None else None),

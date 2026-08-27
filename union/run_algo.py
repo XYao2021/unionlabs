@@ -557,6 +557,61 @@ def _peer_transport(topo, nd):
              f"two topologies, or give its links a single medium.")
 
 
+def apply_phy_profile(ap, a):
+    """Fill freq / gain / detector thresholds from the node's measured PHY profile.
+
+    Only what nobody else chose: an explicit flag wins, and so does a topology
+    file, because both are someone stating an intent while the profile is only a
+    measurement of where the radio happens to be standing. --no-phy-profile
+    skips it, and everything applied is printed -- a default that arrives from a
+    file without saying so is worse than no default at all.
+    """
+    if getattr(a, "no_phy_profile", False):
+        return
+    try:
+        # run_algo is executed as a script from inside union/, so sys.path[0] is
+        # union/ and `from union import ...` does not resolve. Import it as a
+        # sibling first, and only then fall back to the package form.
+        try:
+            import phy_profile as pp
+        except ImportError:
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from union import phy_profile as pp
+    except Exception as e:
+        # Never fail a run over this, but never fail it SILENTLY either: a
+        # default that quietly did not arrive is indistinguishable from one that
+        # did, which is the whole reason this layer has to announce itself.
+        print(f"[phy-profile] unavailable ({e.__class__.__name__}: {e}) — "
+              f"using built-in defaults")
+        return
+    vals, path, why = pp.load(getattr(a, "phy_profile_node", None))
+    if not path or not vals:
+        return
+
+    applied = []
+    # --freq is in MHz here, exactly as the profile records the carrier.
+    if vals.get("freq") is not None and _set(ap, a, "freq", float(vals["freq"])):
+        applied.append(f"freq={a.freq:g}MHz")
+
+    # det_mult / sync_threshold reach the modem through --usrp-set, so add them
+    # there only when the experimenter did not name them already.
+    named = set()
+    for kv in getattr(a, "usrp_set", []) or []:
+        if "=" in kv:
+            named.add(kv.split("=", 1)[0].strip())
+    extra = []
+    for key in ("det_mult", "sync_threshold"):
+        if vals.get(key) is not None and key not in named:
+            extra.append(f"{key}={vals[key]}")
+            applied.append(f"{key}={vals[key]}")
+    if extra:
+        a.usrp_set = list(getattr(a, "usrp_set", []) or []) + extra
+
+    if applied:
+        print(f"[phy-profile] {os.path.basename(path)} ({why}): "
+              f"{' '.join(applied)}  — anything you typed still wins")
+
+
 def apply_topology(ap, a):
     """Read the --topology file, if it names one, and fill this run's settings in.
 
@@ -863,6 +918,14 @@ def build_parser():
                          "it uses, which port it listens on and how each link is "
                          "carried. Anything typed on the command line wins over it.")
     # ── the one RF knob both radios genuinely share: where in the band we sit ──
+    ap.add_argument("--no-phy-profile", action="store_true",
+                    help="ignore the PHY profile prepare_phy measured for this "
+                         "node (union/phy_profile.py). By default freq, gain and "
+                         "the detector thresholds are filled from it when neither "
+                         "the command line nor the topology names them.")
+    ap.add_argument("--phy-profile-node", default=None, metavar="KEY",
+                    help="use the profile filed under this key instead of the "
+                         "one for this node (see prepare_phy --node).")
     ap.add_argument("--freq", type=float, default=915.0, metavar="MHz",
                     help="centre frequency in MHz (default 915). Both PHYs use it. The "
                          "US ISM band is 902-928 MHz and a value outside it is flagged.")
@@ -984,6 +1047,14 @@ def main():
 
     # the wiring file, when --topology names one: it fills in everything about THIS node
     # that was not typed on the command line (role, ports, hosts, radio, medium).
+    # What prepare_phy measured on this testbed goes on FIRST, so the topology's
+    # own _set can still overwrite it (that helper only defers to flags the
+    # experimenter actually typed). The resulting order is
+    #     explicit flag  >  topology file  >  phy profile  >  built-in default
+    # which is right: the first two are someone stating an intent, while the
+    # profile is only a measurement of where this radio happens to be standing.
+    apply_phy_profile(ap, a)
+
     topo = apply_topology(ap, a)
     if a.node is not None:
         a.node = int(a.node)                # a name has been resolved to its index
