@@ -556,7 +556,17 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
 
         while (samples_sent < samples.size() && !stop_sign && !transmission_failed){
             size_t samples_remaning = samples.size() - samples_sent;
-            size_t samples_to_send = std::min(samps_per_buff, samples_remaning);
+            // Hand UHD the WHOLE remaining burst. get_max_num_samps() is the most
+            // that fits in one transport packet, not a limit on send(): the
+            // streamer fragments a larger buffer internally, back to back. Doing
+            // that fragmentation here instead, one send() per chunk, let the DAC
+            // run dry for an instant at each hand-off, and a two-sample gap is a
+            // whole symbol at 2 samples/symbol. Everything past the first
+            // boundary then decoded shifted by one bit -- sync fine, payload
+            // garbage, and the position moved when the chunk size moved.
+            // --tx-spb forces manual chunking again, which is how that was shown.
+            size_t samples_to_send = tx_spb ? std::min(samps_per_buff, samples_remaning)
+                                            : samples_remaning;
 
             try{
                 size_t num_sent_samples = tx_stream->send(buff_ptr + samples_sent, 
@@ -641,8 +651,8 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
             std::cout << "[USRP TX] block #" << block_id
                       << ": built " << samples.size()
                       << " samples, sent " << samples_sent
-                      << " in " << chunks_sent << " chunk(s) of "
-                      << samps_per_buff
+                      << " in " << chunks_sent << " send() call(s)"
+                      << (tx_spb ? "  [--tx-spb forced chunking]" : "")
                       << (samples_sent == samples.size()
                               ? "  (complete)"
                               : "  <-- SHORT, samples were dropped")
