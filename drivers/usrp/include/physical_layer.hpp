@@ -182,6 +182,7 @@ struct PHYSICAL_CONFIG {
     float       ofdm_tx_peak    = 0.5f;    // TX scaling (OFDM high PAPR → avoid clip)
     float       tx_scale        = 1.0f;    // single-carrier TX digital back-off
     bool        allow_rate_coercion = false;  // transmit even on a rate UHD changed
+    size_t      tx_spb          = 0;       // send-loop chunk size (0 = device default)
 
     // Timing recovery loop
     float       timing_loop_bw  = 0.015f;
@@ -572,7 +573,7 @@ private:
             threads_.emplace_back(transmit_thread,
                 tx_usrp_, std::ref(shaped_fifo_),
                 cfg_.tx_rate, tx_ch, cfg_.uhd_timeout / 1000.0,
-                std::ref(stop_flag_), cfg_.tx_scale);
+                std::ref(stop_flag_), cfg_.tx_scale, cfg_.tx_spb);
             return;
         }
 
@@ -599,7 +600,7 @@ private:
         threads_.emplace_back(transmit_thread,
             tx_usrp_, std::ref(shaped_fifo_),
             cfg_.tx_rate, tx_ch, cfg_.uhd_timeout / 1000.0,
-            std::ref(stop_flag_), cfg_.tx_scale);
+            std::ref(stop_flag_), cfg_.tx_scale, cfg_.tx_spb);
     }
 
     // ── RX pipeline threads ────────────────────────────────

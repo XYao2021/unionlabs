@@ -417,7 +417,7 @@ bool validate_tx_samples(const std::vector<std::complex<float>>& samples,
 void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
                      MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& filtered_fifo,
                      double tx_rate, std::vector<unsigned long> channel, double UHD_timeout,
-                     std::atomic<bool>& stop_sign, float tx_scale)
+                     std::atomic<bool>& stop_sign, float tx_scale, size_t tx_spb)
 {
     uhd::set_thread_priority_safe(1.0, true);
 
@@ -427,7 +427,11 @@ void transmit_thread(uhd::usrp::multi_usrp::sptr usrp,
     uhd::tx_streamer::sptr tx_stream = usrp->get_tx_stream(stream_args);
 
     // Set stream parameters
-    size_t samps_per_buff = tx_stream->get_max_num_samps();
+    // The send loop hands UHD the burst in chunks of this size. Overridable so a
+    // suspected chunk-boundary artefact can be tested directly: if a defect sits
+    // at a fixed offset in every burst, changing the chunk size moves it, and if
+    // it does not move the boundary is innocent.
+    size_t samps_per_buff = tx_spb ? tx_spb : tx_stream->get_max_num_samps();
 
     std::cout << "[USRP TX] Configuration: " << "TX rate = " << tx_rate/1e6 << " MHz, " 
               << " Sampes per buffer = " << samps_per_buff << std::endl;

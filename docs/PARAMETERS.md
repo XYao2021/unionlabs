@@ -15,7 +15,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 The **Default** column is the value used when you omit the option: flags default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick the device, or use the built-in message); `_(alias)_` marks an option that inherits its primary option's default.
 
-> Auto-generated from `sdr_system --help` — always lists every current option (**110** total). Do not edit by hand.
+> Auto-generated from `sdr_system --help` — always lists every current option (**111** total). Do not edit by hand.
 
 ## Mode, message & transmission
 
@@ -74,6 +74,7 @@ The **Default** column is the value used when you omit the option: flags default
 | `--tx-subdev` | value | `A:A` | TX subdev spec |
 | `--tx-dc-i` | value | `0` | Manual TX LO-leakage null, I component (normalized [-1,1]). Tune with --tx-dc-q to minimize the RX DC spike on a direct cable (dense QAM). |
 | `--tx-dc-q` | value | `0` | Manual TX LO-leakage null, Q component (normalized [-1,1]). |
+| `--tx-spb` | value | `0` | Samples per send() call in the transmit loop (0 = the device's get_max_num_samps()). Diagnostic: if a defect sits at a fixed offset inside every burst, changing this moves it when a chunk boundary is responsible, and leaves it put when one is not. |
 | `--tx-scale` | value | `1` | TX digital back-off for the single-carrier waveform, multiplied into every sample before the DAC (1.0 = unchanged). fc32 full scale is 1.0, so if [TX VALIDATE] reports a peak above that the DAC is clipping — which distorts the payload while the preamble still correlates. Try 0.7, then lower. |
 
 ## RX radio

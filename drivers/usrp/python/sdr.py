@@ -114,6 +114,7 @@ OPTIONS = {
     "ofdm-fft": (True, '64', "OFDM FFT size (number of subcarriers)"),
     "ofdm-cp": (True, '16', "OFDM cyclic-prefix length (>= channel delay spread)"),
     "allow-rate-coercion": (True, '0', "Transmit/receive even when UHD could not give the exact --tx-rate / --rx-rate you asked for. Off by default: a coerced rate leaves the preamble correlating but drifts the payload's symbol timing, so the link syncs and then decodes garbage. Prefer a rate the device can hit exactly (master_clock_rate / integer)."),
+    "tx-spb": (True, '0', "Samples per send() call in the transmit loop (0 = the device's get_max_num_samps()). Diagnostic: if a defect sits at a fixed offset inside every burst, changing this moves it when a chunk boundary is responsible, and leaves it put when one is not."),
     "tx-scale": (True, '1', "TX digital back-off for the single-carrier waveform, multiplied into every sample before the DAC (1.0 = unchanged). fc32 full scale is 1.0, so if [TX VALIDATE] reports a peak above that the DAC is clipping — which distorts the payload while the preamble still correlates. Try 0.7, then lower."),
     "ofdm-tx-peak": (True, '0.5', "OFDM TX peak scaling (high PAPR — keep the DAC out of clipping)"),
     "lora-sf": (True, '8', "LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF chips/symbol; higher = more processing gain / range, slower)"),
@@ -227,6 +228,7 @@ PY2CPP = {
     "ofdm_fft": "ofdm-fft",
     "ofdm_cp": "ofdm-cp",
     "allow_rate_coercion": "allow-rate-coercion",
+    "tx_spb": "tx-spb",
     "tx_scale": "tx-scale",
     "ofdm_tx_peak": "ofdm-tx-peak",
     "lora_sf": "lora-sf",
@@ -353,6 +355,7 @@ class SDR:
                  ofdm_fft=_UNSET, # =64  OFDM FFT size (number of subcarriers)
                  ofdm_cp=_UNSET, # =16  OFDM cyclic-prefix length (>= channel delay spread)
                  allow_rate_coercion=_UNSET, # =0  Transmit/receive even when UHD could not give the exact...
+                 tx_spb=_UNSET, # =0  Samples per send() call in the transmit loop (0 = the...
                  tx_scale=_UNSET, # =1  TX digital back-off for the single-carrier waveform,...
                  ofdm_tx_peak=_UNSET, # =0.5  OFDM TX peak scaling (high PAPR — keep the DAC out of...
                  lora_sf=_UNSET, # =8  LoRa/CSS spreading factor 7-12 for --waveform lora (2^SF...
@@ -467,6 +470,7 @@ class SDR:
             ofdm_fft=ofdm_fft,
             ofdm_cp=ofdm_cp,
             allow_rate_coercion=allow_rate_coercion,
+            tx_spb=tx_spb,
             tx_scale=tx_scale,
             ofdm_tx_peak=ofdm_tx_peak,
             lora_sf=lora_sf,

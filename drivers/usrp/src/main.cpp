@@ -394,6 +394,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "preamble correlating but drifts the payload's symbol timing, so the "
                      "link syncs and then decodes garbage. Prefer a rate the device can "
                      "hit exactly (master_clock_rate / integer).")
+        ("tx-spb", po::value<size_t>(&config.tx_spb)->default_value(0),
+                     "Samples per send() call in the transmit loop (0 = the device's "
+                     "get_max_num_samps()). Diagnostic: if a defect sits at a fixed "
+                     "offset inside every burst, changing this moves it when a chunk "
+                     "boundary is responsible, and leaves it put when one is not.")
         ("tx-scale", po::value<float>(&config.tx_scale)->default_value(1.0f),
                      "TX digital back-off for the single-carrier waveform, multiplied "
                      "into every sample before the DAC (1.0 = unchanged). fc32 full "
