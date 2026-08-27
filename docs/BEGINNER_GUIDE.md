@@ -45,12 +45,12 @@ uhd_find_devices                              # are the radios visible at all?
 uhd_find_devices --args addr=192.168.20.2     # a specific networked one
 
 # measure this testbed once; run.sh and radio.sh then use what it found
-python3 drivers/usrp/python/prepare_phy.py --device x310 --args addr=192.168.40.2 \
-        --band vert2450-5g --write
+./prepare.sh --device x310 --addr 192.168.40.2 --band vert2450-5g
 ```
 
-`prepare_phy` sweeps the band, picks a clean carrier, and derives the detector
-thresholds, then writes a profile that `run.sh` and `radio.sh` read automatically —
+`prepare.sh` sweeps the band, picks a clean carrier, and derives the detector
+thresholds, then publishes a profile that `run.sh` and `radio.sh` read automatically —
+you must say which antenna is on the radio (`--band`), because that cannot be probed —
 so you do not tune `--det-mult` and `--sync-threshold` by hand. Anything you type
 still wins over it.
 

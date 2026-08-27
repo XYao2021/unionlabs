@@ -47,6 +47,7 @@ Python 3.8+ and one install step. No radio, no C++ build:
 ```bash
 pip install -r requirements.txt
 ./run.sh selftest              # confirm it works: every experiment × every radio-free PHY
+./prepare.sh --device x310 --addr 192.168.40.2 --band vert2450-5g   # measure this testbed once
 ```
 
 Then:
