@@ -69,7 +69,14 @@ MISSING_DEP = [
     ("No module named 'torch'",  "torch not installed (pip install torch)"),
     ("No module named 'cv2'",    "opencv not installed (pip install opencv-python-headless)"),
     ("No module named 'networkx'", "networkx not installed"),
-    ("pyphy",                    "pyphy not built for this Python (drivers/usrp/bindings/build.sh)"),
+    # Say only what is known. This fires on any output mentioning pyphy, and for a
+    # long time it asserted the extension was "not built for this Python" when it
+    # was built correctly and simply was not on the path -- sending people to
+    # rebuild something that already worked. phy_link now looks in
+    # drivers/usrp/bindings/ itself, so reaching here means a real absence or a
+    # real mismatch, and phy_link's own message distinguishes them.
+    ("pyphy",                    "pyphy extension unavailable — run --channel usrp "
+                                 "directly for the reason (drivers/usrp/bindings/build.sh)"),
 ]
 
 

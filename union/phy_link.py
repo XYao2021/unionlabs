@@ -188,17 +188,39 @@ class PyphyChannel:
         try:
             import pyphy
         except ImportError:
-            # The commonest first-run failure, and the raw ImportError explains nothing.
-            # pyphy is a compiled extension built for ONE Python version and platform, so
-            # a prebuilt .so in the repo will not match most machines.
+            # build.sh writes the extension next to its source, in
+            # drivers/usrp/bindings/, and nothing puts that directory on the
+            # path. So a correctly built .so sitting right there did not import,
+            # and this told the user to build what they had already built. Look
+            # there before concluding anything.
             import glob
+            bindings = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "..", "drivers", "usrp", "bindings")
+            bindings = os.path.normpath(bindings)
+            if bindings not in sys.path:
+                sys.path.append(bindings)
+            try:
+                import pyphy
+            except ImportError:
+                pass
+
+        if "pyphy" not in sys.modules:
+            import glob, sysconfig
             built = [os.path.basename(p) for p in
                      glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                             "..", "drivers", "usrp", "bindings", "*.so"))]
+            want = sysconfig.get_config_var("EXT_SUFFIX") or ".so"
+            # Say WHICH of the two problems this is: nothing built, or built for a
+            # different Python. They have different fixes and the old message
+            # only ever gave one of them.
+            diagnosis = ("nothing is built here yet"
+                         if not built else
+                         f"what is built does not match this Python (it wants *{want})")
             raise SystemExit(
                 "--channel usrp needs the 'pyphy' extension, which is not importable.\n"
                 f"  Your Python:   {sys.version.split()[0]} on {sys.platform}\n"
                 f"  Built here:    {', '.join(built) if built else '(none)'}\n"
+                f"  Diagnosis:     {diagnosis}\n"
                 "\n"
                 "pyphy is COMPILED, so it only loads in the Python version and platform it\n"
                 "was built for. Build it for yours:\n"
@@ -208,7 +230,7 @@ class PyphyChannel:
                 "    ./run.sh --algo <name>                  # --channel ideal, lossless\n"
                 "    ./run.sh --algo <name> --channel lora   # the LoRa PHY\n"
                 "Check what does work on this machine with:  ./run.sh selftest")
-        self.p = pyphy
+        self.p = sys.modules["pyphy"]
         self.scheme, self.fec, self.k = scheme, (fec or None), k
         self.snr_db, self.soft = snr_db, soft
         self.rng = np.random.RandomState(seed)
