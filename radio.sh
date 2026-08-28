@@ -10,6 +10,8 @@
 #
 # Options (all optional — sensible per-device defaults are applied):
 #   --device b210|n210|x310   --args <uhd args>   --freq <Hz>   --scheme <NAME>
+#   --addr <ip> | --serial <sn>   shorthands for --args; on a host with several
+#                                 radios this also picks that radio's PHY profile
 #   --waveform sc|ofdm        --gain <dB>   --rate <Hz>   --sym <Hz>   --fec true|false
 #   --ant <TX/RX|RX2>         which CONNECTOR to use (default: TX/RX to send, RX2 to receive)
 #   --subdev <A:A|A:B|A:0>    which RF CHANNEL — a B210 has two, RF A (A:A) and RF B (A:B)
@@ -33,11 +35,14 @@ esac
 DEVICE=b210 ARGS="" FREQ=915e6 SCHEME=DQPSK WAVE=sc RATE=2e6 SYM=1e6 GAIN="" FEC=true DRY=0
 ANT="" SUB=""      # empty = the sensible default for this role/device
 FREQ_SET=0 PROFILE=1   # did the caller name a freq? should we consult the PHY profile?
+ADDR="" SERIAL=""      # shorthands for --args, and how a host with several radios says which
 EXTRA=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --device) DEVICE="$2"; shift 2;;
     --args)   ARGS="$2";   shift 2;;
+    --addr)   ADDR="$2";   shift 2;;
+    --serial) SERIAL="$2"; shift 2;;
     --freq)   FREQ="$2"; FREQ_SET=1; shift 2;;
     --scheme) SCHEME="$2"; shift 2;;
     --waveform) WAVE="$2"; shift 2;;
@@ -60,6 +65,9 @@ case "$DEVICE" in
   x310) SUBDEV=A:0; DEF_ARGS="addr=192.168.40.2"; TXG=25; RXG=25;;
   *) echo "unknown --device '$DEVICE' (use b210|n210|x310)"; exit 2;;
 esac
+# --addr / --serial are shorthands for the UHD args string; an explicit --args wins.
+[ -n "$ADDR" ]   && [ -z "$ARGS" ] && ARGS="addr=$ADDR"
+[ -n "$SERIAL" ] && [ -z "$ARGS" ] && ARGS="serial=$SERIAL"
 [ -z "$ARGS" ] && ARGS="$DEF_ARGS"
 # An explicit channel wins over the per-device default. These must REPLACE the values
 # below rather than be appended by the caller: the modem rejects a repeated option
@@ -83,7 +91,10 @@ if [ "$PROFILE" = 1 ] && [ -r "$HERE/union/phy_profile.py" ]; then
   # We already know the RF channel and connector this run will use, so the
   # profile measured through that exact path is the one that applies -- a survey
   # taken on RX2 says nothing about what TX/RX hears.
-  PROF_SEL=(--subdev "$SUBDEV" --ant "${ANT:-$([ "$ROLE" = tx ] && echo TX/RX || echo RX2)}")
+  # --args names WHICH radio: a host can have several, each with its own survey,
+  # and without it whichever enumerates first would win.
+  PROF_SEL=(--args "$ARGS" --subdev "$SUBDEV"
+            --ant "${ANT:-$([ "$ROLE" = tx ] && echo TX/RX || echo RX2)}")
   if [ "$FREQ_SET" = 1 ]; then
     PROF_SEL+=(--near "$(awk -v f="$FREQ" 'BEGIN{printf "%.6g", f/1e6}')")
   fi

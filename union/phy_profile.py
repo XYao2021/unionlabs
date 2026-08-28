@@ -75,6 +75,34 @@ def radio_serials():
             for ln in out.splitlines() if ln.strip().startswith("serial:")]
 
 
+def radio_idents():
+    """How each attached radio identifies itself: a serial, or an IP for the
+    network-addressed ones. A host can have several, and each carries its own
+    survey, so all of them are worth looking a profile up by."""
+    try:
+        p = subprocess.run(["uhd_find_devices"], capture_output=True, text=True,
+                           timeout=15)
+        out = p.stdout + p.stderr
+    except Exception:
+        return []
+    idents, cur = [], {}
+    for ln in out.splitlines():
+        t = ln.strip()
+        if t.startswith("--") or t.startswith("Device Address"):
+            if cur:
+                idents.append(cur.get("addr") or cur.get("serial") or "")
+                cur = {}
+            continue
+        if ":" in t:
+            k, v = t.split(":", 1)
+            k, v = k.strip(), v.strip()
+            if k in ("serial", "addr") and v:
+                cur[k] = v
+    if cur:
+        idents.append(cur.get("addr") or cur.get("serial") or "")
+    return [i for i in idents if i]
+
+
 def node_key():
     """The name a profile for THIS node is filed under."""
     site = os.environ.get("UNION_SITE", "").strip()
@@ -95,7 +123,9 @@ def candidates(node=None):
         site = os.environ.get("UNION_SITE", "").strip()
         if site:
             keys.append(site)
-        keys.extend(s for s in radio_serials() if s)
+        for ident in radio_idents():
+            keys.append(ident)
+            keys.append(ident.replace(".", "-"))   # as prepare_phy files an addr
         keys.append("host-" + socket.gethostname())
     return keys
 
@@ -115,7 +145,9 @@ def _meta(path):
     r = prof.get("radio") or {}
     return {"band":   r.get("band")   or prof.get("band"),
             "subdev": r.get("subdev") or prof.get("rx_subdev"),
-            "ant":    r.get("ant")    or prof.get("rx_ant")}
+            "ant":    r.get("ant")    or prof.get("rx_ant"),
+            "args":   r.get("args")   or prof.get("args"),
+            "node":   prof.get("node")}
 
 
 def _describe(path):
@@ -142,7 +174,19 @@ def _covers(path, mhz):
     return False
 
 
-def find(node=None, band=None, near_mhz=None, ant=None, subdev=None):
+def _ident_of(args):
+    """The identifying value in a UHD args string: serial=X / addr=Y -> X / Y."""
+    if not args:
+        return None
+    for part in str(args).split(","):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            if k.strip() in ("serial", "addr") and v.strip():
+                return v.strip()
+    return str(args).strip() or None
+
+
+def find(node=None, band=None, near_mhz=None, ant=None, subdev=None, args=None):
     """-> (path, why) or (None, why-not). $UNION_PHY_PROFILE wins outright.
 
     A radio is not one measurable thing. It can carry two antennas, on two RF
@@ -158,7 +202,17 @@ def find(node=None, band=None, near_mhz=None, ant=None, subdev=None):
     band = band or os.environ.get("UNION_BAND", "").strip() or None
     searched = dirs()
 
-    for key in candidates(node):
+    # Several radios on one host each carry their own survey, and each is filed
+    # under its own identity. When the run names the radio it is using, look that
+    # one up FIRST -- otherwise whichever radio happens to enumerate first wins,
+    # and a two-radio host silently reads the wrong profile.
+    keys = candidates(node)
+    ident = _ident_of(args)
+    if ident:
+        keys = [ident, ident.replace(".", "-")] + [k for k in keys if k not in
+                                                   (ident, ident.replace(".", "-"))]
+
+    for key in keys:
         hits = []
         for d in searched:
             hits.append(os.path.join(d, f"phy-{key}.json"))       # pre-band layout
@@ -168,10 +222,16 @@ def find(node=None, band=None, near_mhz=None, ant=None, subdev=None):
             continue
 
         narrowed, applied = hits, []
-        for field, value in (("band", band), ("subdev", subdev), ("ant", ant)):
+        for field, value in (("band", band), ("subdev", subdev), ("ant", ant),
+                             ("args", args)):
             if not value:
                 continue
-            sel = [h for h in narrowed if str(_meta(h).get(field)) == str(value)]
+            if field == "args":
+                want = _ident_of(value)
+                sel = [h for h in narrowed
+                       if want and _ident_of(_meta(h).get("args")) == want]
+            else:
+                sel = [h for h in narrowed if str(_meta(h).get(field)) == str(value)]
             if not sel:
                 return None, (f"no profile for {key} with {field}={value} — measured: "
                               + "; ".join(sorted(_describe(h) for h in narrowed)))
@@ -242,14 +302,15 @@ def pick_candidate(prof, pick=None):
     return best, f"carrier nearest {want:g} MHz"
 
 
-def load(node=None, pick=None, band=None, near_mhz=None, ant=None, subdev=None):
+def load(node=None, pick=None, band=None, near_mhz=None, ant=None,
+         subdev=None, args=None):
     """-> (values, path, why). values maps modem option -> value.
 
     A value is looked up in the chosen option first, then in the shared parts of
     the profile: the carrier belongs to the option, while the detector thresholds
     and the receive gain were measured once and apply to all of them.
     """
-    path, why = find(node, band, near_mhz, ant, subdev)
+    path, why = find(node, band, near_mhz, ant, subdev, args)
     if not path:
         return {}, None, why
     try:
@@ -280,6 +341,9 @@ def main():
     ap.add_argument("--band", default=None,
                     help="which antenna's survey (vert900 / ism915 / vert2450 / "
                          "vert2450-5g). Needed when one radio carries two.")
+    ap.add_argument("--args", default=None,
+                    help="the radio this is about, e.g. addr=192.168.40.2 or "
+                         "serial=30CD424 — needed when a host has several")
     ap.add_argument("--ant", default=None,
                     help="which connector the antenna is on (TX/RX, RX2)")
     ap.add_argument("--subdev", default=None,
@@ -294,7 +358,7 @@ def main():
     a = ap.parse_args()
 
     if a.list:
-        path, why = find(a.node, a.band, a.near, a.ant, a.subdev)
+        path, why = find(a.node, a.band, a.near, a.ant, a.subdev, a.args)
         if not path:
             print(f"[phy-profile] none: {why}")
             return 1
@@ -311,7 +375,8 @@ def main():
                   f"{'   <- recommended' if i == 0 else ''}")
         return 0
 
-    vals, path, why = load(a.node, a.pick, a.band, a.near, a.ant, a.subdev)
+    vals, path, why = load(a.node, a.pick, a.band, a.near, a.ant,
+                           a.subdev, a.args)
     if a.emit == "shell":
         # Consumed by `eval` in radio.sh: plain assignments only, no commands,
         # every value shell-quoted. Paths routinely contain spaces, and an

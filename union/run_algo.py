@@ -685,9 +685,10 @@ def apply_phy_profile(ap, a):
         ant = None
     if not _typed(ap, a, f"{role}_subdev"):
         sub = None
+    dev_args = (a.tx_args if role == "tx" else a.rx_args) or None
     vals, path, why = pp.load(getattr(a, "phy_profile_node", None),
                               band=getattr(a, "phy_profile_band", None),
-                              near_mhz=near, ant=ant, subdev=sub)
+                              near_mhz=near, ant=ant, subdev=sub, args=dev_args)
     if not path or not vals:
         return
 

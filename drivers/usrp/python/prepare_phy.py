@@ -328,9 +328,13 @@ def main():
             return
         for cls, args_str, ident, band in plans:
             print(f"\n════ preparing {cls} {args_str} ({band}) ════")
+            # Key each radio by ITS OWN identity, not by the host's. Prefixing
+            # with the host key (which is the FIRST radio's serial) filed the
+            # second radio's survey under a name the second radio would never
+            # look itself up by, so nothing could find it.
             argv = ["--device", cls, "--args", args_str, "--band", band,
                     "--gain", str(a.gain), "--rx-ant", a.rx_ant,
-                    "--node", f"{a.node}-{ident.replace('.', '-')}"]
+                    "--node", ident.replace(".", "-") or a.node]
             if a.subdev:
                 argv += ["--subdev", a.subdev]
             if a.write:
