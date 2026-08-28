@@ -63,7 +63,30 @@ silently truncated.
 Schema 2 files still resolve — a measurement that cost a radio is not thrown away
 over a layout change.
 
+## This is a receive-side calibration
+
+Run `./prepare.sh` on the **receiver**. Everything in the file is a property of
+what that radio hears: the noise floor, which stretches are quiet, the energy
+detector's margin above the floor, the correlator threshold, the receive gain.
+A transmitter's own noise says nothing about the link.
+
+A transmitter needs one number from it — the carrier, and it must be the
+receiver's:
+
+    ./radio.sh tx --device x310 --phy-node <the receiver's key>
+
+which takes the carrier and nothing else. `radio.sh rx` applies the receive-side
+values; `radio.sh tx` never does, because `--det-mult` and `--sync-threshold`
+configure a receive chain and a transmitter has no use for either.
+
 ## Two things a receive-only survey cannot settle
+
+**The transmit gain.** The survey records the gain it *listened* at, and that is
+offered as `rx_gain` only. How hard to transmit depends on the path loss to the
+other radio, which no receive-only measurement sees — and transmit and receive
+gains are different quantities with different ranges anyway (a B210 transmits
+over ~89 dB and receives over ~76; a UBX does both in 31.5). A transmit run keeps
+the per-device default until a link test says otherwise.
 
 **`sync_threshold`.** The survey can only say where the noise is. Where a *real*
 preamble scores is a property of the link, and no receive-only measurement sees

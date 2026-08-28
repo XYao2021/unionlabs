@@ -10,6 +10,20 @@
 # carrier, the noise floor and the detector thresholds. Nothing transmits: the
 # whole run is receive-only, so it is safe with the other radio idle.
 #
+# RUN THIS ON THE RECEIVER. Everything it measures is a property of what THIS
+# radio hears -- the noise floor, which stretches are quiet, the energy
+# detector's margin above that floor, the correlator's threshold, the receive
+# gain. A transmitter's own noise says nothing about the link. What a transmitter
+# needs is one number, the carrier, and it needs the RECEIVER's:
+#
+#   ./radio.sh tx --device x310 --phy-node <the receiver's key>
+#
+# Two things this cannot settle, because no receive-only measurement contains
+# them: the TRANSMIT gain, which depends on the path loss between the radios, and
+# the true sync threshold, which depends on what a real preamble scores. Both
+# want a link test. The saved file marks the threshold as a placeholder when the
+# survey could not measure it.
+#
 # The result is PUBLISHED by default, to the shared workspace, keyed by the
 # radio's serial. That is the point: run.sh and radio.sh read it back, so nobody
 # tunes --det-mult and --sync-threshold by folklore, and a session that starts on

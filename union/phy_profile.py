@@ -45,9 +45,18 @@ SEARCH = ("$UNION_SETTINGS_DIR",
 # Only these reach the modem. Anything else in the file is provenance for a
 # human (when it was measured, on what, how wide the quiet region was) and is
 # deliberately NOT turned into a flag.
+# Only these reach the modem, and the names say which side they belong to.
+#
+# gain_db is the RECEIVE gain the survey ran at, so it is offered as rx_gain and
+# nothing else. It is not a transmit gain: those are different quantities with
+# different ranges (a B210 transmits over ~89 dB and receives over ~76; a UBX
+# does both in 31.5), and the right transmit gain depends on the path loss to
+# the other radio -- which a receive-only survey never sees. Feeding this to
+# --tx-gain, as an earlier version did, set transmit power from a number that
+# had nothing to do with transmitting.
 FLAGS = {
     "carrier_mhz":    "freq",
-    "gain_db":        "gain",
+    "gain_db":        "rx_gain",
     "det_mult":       "det_mult",
     "sync_threshold": "sync_threshold",
 }

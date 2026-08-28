@@ -580,13 +580,16 @@ def warn_unpinned_carrier(a, topo):
         return                      # the wiring file speaks for both ends
     if str(getattr(a, "role", "")) not in _RF_PAIRED:
         return                      # nothing on the other end to disagree with
-    print(f"[phy-profile] NOTE: --freq {a.freq:g} MHz came from THIS node's own "
-          f"survey. The other end picks from its own, and on a different testbed "
-          f"that is a different frequency — they would tune apart and hear "
-          f"nothing.\n"
-          f"              Pin one for both ends: run "
-          f"`python3 union/phy_profile.py --common` for the spectrum every "
-          f"surveyed node can use, then pass --freq, or put it in the topology.")
+    where = ("this transmitter's own survey, which measures what it HEARS and so "
+             "says nothing about the link"
+             if str(getattr(a, "role", "")) == "tx"
+             else "THIS node's own survey")
+    print(f"[phy-profile] NOTE: --freq {a.freq:g} MHz came from {where}. The other "
+          f"end picks from its own, and on a different testbed that is a different "
+          f"frequency — they would tune apart and hear nothing.\n"
+          f"              Use the RECEIVER's carrier (--phy-profile-node <its key>), "
+          f"or pin one for both ends: `python3 union/phy_profile.py --common` shows "
+          f"the spectrum every surveyed node can use.")
 
 
 def resolve_peer_hosts(a):

@@ -12,6 +12,9 @@
 #   --device b210|n210|x310   --args <uhd args>   --freq <Hz>   --scheme <NAME>
 #   --addr <ip> | --serial <sn>   shorthands for --args; on a host with several
 #                                 radios this also picks that radio's PHY profile
+#   --phy-node <key>              take the carrier from THAT node's survey. A
+#                                 survey is receive-side, so a transmitter names
+#                                 its receiver rather than measuring itself.
 #   --waveform sc|ofdm        --gain <dB>   --rate <Hz>   --sym <Hz>   --fec true|false
 #   --ant <TX/RX|RX2>         which CONNECTOR to use (default: TX/RX to send, RX2 to receive)
 #   --subdev <A:A|A:B|A:0>    which RF CHANNEL — a B210 has two, RF A (A:A) and RF B (A:B)
@@ -34,7 +37,7 @@ esac
 
 DEVICE=b210 ARGS="" FREQ=915e6 SCHEME=DQPSK WAVE=sc RATE=2e6 SYM=1e6 GAIN="" FEC=true DRY=0
 ANT="" SUB=""      # empty = the sensible default for this role/device
-FREQ_SET=0 PROFILE=1   # did the caller name a freq? should we consult the PHY profile?
+FREQ_SET=0 PROFILE=1 PHY_NODE=""   # freq typed? consult the profile? whose profile?
 ADDR="" SERIAL=""      # shorthands for --args, and how a host with several radios says which
 EXTRA=()
 while [ $# -gt 0 ]; do
@@ -54,6 +57,7 @@ while [ $# -gt 0 ]; do
     --subdev) SUB="$2";    shift 2;;
     --dry-run) DRY=1;      shift;;
     --no-profile) PROFILE=0; shift;;
+    --phy-node) PHY_NODE="$2"; shift 2;;
     *) EXTRA+=("$1");      shift;;
   esac
 done
@@ -83,7 +87,7 @@ esac
 # worse than no default at all. --no-profile skips it entirely.
 PROF_EXTRA=()
 if [ "$PROFILE" = 1 ] && [ -r "$HERE/union/phy_profile.py" ]; then
-  PHY_PROFILE_PATH=""; PHY_FREQ=""; PHY_GAIN=""; PHY_DET_MULT=""; PHY_SYNC_THRESHOLD=""
+  PHY_PROFILE_PATH=""; PHY_FREQ=""; PHY_RX_GAIN=""; PHY_DET_MULT=""; PHY_SYNC_THRESHOLD=""
   # A radio can carry two antennas, so its serial alone may match two surveys.
   # When the caller named a frequency, that says which band they mean; otherwise
   # $UNION_BAND does, and failing both the resolver reports the ambiguity rather
@@ -93,8 +97,14 @@ if [ "$PROFILE" = 1 ] && [ -r "$HERE/union/phy_profile.py" ]; then
   # taken on RX2 says nothing about what TX/RX hears.
   # --args names WHICH radio: a host can have several, each with its own survey,
   # and without it whichever enumerates first would win.
-  PROF_SEL=(--args "$ARGS" --subdev "$SUBDEV"
-            --ant "${ANT:-$([ "$ROLE" = tx ] && echo TX/RX || echo RX2)}")
+  if [ -n "$PHY_NODE" ]; then
+    # A transmitter has no survey worth using: what it hears is irrelevant to the
+    # link. What it needs is the RECEIVER's carrier, so it can name that node.
+    PROF_SEL=(--node "$PHY_NODE")
+  else
+    PROF_SEL=(--args "$ARGS" --subdev "$SUBDEV"
+              --ant "${ANT:-$([ "$ROLE" = tx ] && echo TX/RX || echo RX2)}")
+  fi
   if [ "$FREQ_SET" = 1 ]; then
     PROF_SEL+=(--near "$(awk -v f="$FREQ" 'BEGIN{printf "%.6g", f/1e6}')")
   fi
@@ -104,11 +114,21 @@ if [ "$PROFILE" = 1 ] && [ -r "$HERE/union/phy_profile.py" ]; then
     if [ "$FREQ_SET" = 0 ] && [ -n "$PHY_FREQ" ]; then
       FREQ="${PHY_FREQ}e6"; APPLIED+=("freq=${FREQ}")
     fi
-    if [ -z "$GAIN" ] && [ -n "$PHY_GAIN" ]; then
-      GAIN="$PHY_GAIN"; APPLIED+=("gain=${GAIN}")
+    # RECEIVE gain only. The profile records the gain its survey listened at,
+    # which says nothing about how hard to transmit: that depends on the path
+    # loss to the other radio, and a receive-only survey never sees it. On a
+    # transmit run the per-device default stands until a link test says better.
+    if [ "$ROLE" = rx ] && [ -z "$GAIN" ] && [ -n "$PHY_RX_GAIN" ]; then
+      GAIN="$PHY_RX_GAIN"; APPLIED+=("rx-gain=${GAIN}")
     fi
-    [ -n "$PHY_DET_MULT" ] && { PROF_EXTRA+=(--det-mult "$PHY_DET_MULT"); APPLIED+=("det-mult=$PHY_DET_MULT"); }
-    [ -n "$PHY_SYNC_THRESHOLD" ] && { PROF_EXTRA+=(--sync-threshold "$PHY_SYNC_THRESHOLD"); APPLIED+=("sync-threshold=$PHY_SYNC_THRESHOLD"); }
+    # det-mult and sync-threshold configure the RECEIVE chain: one gates the
+    # energy detector, the other the preamble correlator. A survey is a
+    # receive-side calibration and they belong to the listener, so a transmit run
+    # takes only the carrier -- which it needs because both ends must agree on it.
+    if [ "$ROLE" = rx ]; then
+      [ -n "$PHY_DET_MULT" ] && { PROF_EXTRA+=(--det-mult "$PHY_DET_MULT"); APPLIED+=("det-mult=$PHY_DET_MULT"); }
+      [ -n "$PHY_SYNC_THRESHOLD" ] && { PROF_EXTRA+=(--sync-threshold "$PHY_SYNC_THRESHOLD"); APPLIED+=("sync-threshold=$PHY_SYNC_THRESHOLD"); }
+    fi
     # Carry the resolver's note through: it says which setup matched, and warns
     # when a value is a placeholder rather than something that was measured.
     [ ${#APPLIED[@]} -gt 0 ] && \
