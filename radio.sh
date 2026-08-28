@@ -109,8 +109,10 @@ if [ "$PROFILE" = 1 ] && [ -r "$HERE/union/phy_profile.py" ]; then
     fi
     [ -n "$PHY_DET_MULT" ] && { PROF_EXTRA+=(--det-mult "$PHY_DET_MULT"); APPLIED+=("det-mult=$PHY_DET_MULT"); }
     [ -n "$PHY_SYNC_THRESHOLD" ] && { PROF_EXTRA+=(--sync-threshold "$PHY_SYNC_THRESHOLD"); APPLIED+=("sync-threshold=$PHY_SYNC_THRESHOLD"); }
+    # Carry the resolver's note through: it says which setup matched, and warns
+    # when a value is a placeholder rather than something that was measured.
     [ ${#APPLIED[@]} -gt 0 ] && \
-      echo "[phy-profile] $(basename "$PHY_PROFILE_PATH"): ${APPLIED[*]}  (anything you typed still wins)" >&2
+      echo "[phy-profile] $(basename "$PHY_PROFILE_PATH")${PHY_PROFILE_WHY:+ ($PHY_PROFILE_WHY)}: ${APPLIED[*]}  (anything you typed still wins)" >&2
   fi
 fi
 

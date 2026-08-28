@@ -416,8 +416,12 @@ def main():
               f"-> sync-threshold {sync_thr:g}")
     else:
         sync_thr = 15.0
-        print("[prepare] band too quiet to trigger noise ACQ — keeping the "
-              "default sync-threshold 15")
+        print("[prepare] band too quiet to trigger noise ACQ — sync-threshold 15 "
+              "is a PLACEHOLDER, not a measurement. It is only a floor: noise "
+              "here never scored high enough to say where the real one is. What "
+              "a genuine preamble scores can only be seen once a link runs, so "
+              "check the [ACQ] peak on the first decode and raise this to sit "
+              "between that and the noise.")
 
     # 4 · does the default link fit?
     fits = width >= DEFAULT_LINK_BW_MHZ
@@ -475,6 +479,9 @@ def main():
                   "acq_p95": (round(acq[0], 1) if acq else None)},
         "det_mult": det_mult,
         "sync_threshold": sync_thr,
+        # False when noise never triggered ACQ: then the threshold is a default,
+        # not something this survey measured, and only a real link can settle it.
+        "sync_threshold_measured": bool(acq),
         "use": 0,
         "options": options,
     }

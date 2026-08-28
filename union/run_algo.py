@@ -557,6 +557,38 @@ def _peer_transport(topo, nd):
              f"two topologies, or give its links a single medium.")
 
 
+# Roles with a partner on the air. Both ends must sit on the same carrier.
+_RF_PAIRED = {"tx", "rx", "source_arq", "sink_arq", "relay", "peer",
+              "client", "server"}
+
+
+def warn_unpinned_carrier(a, topo):
+    """A carrier that came from THIS node's own survey is not agreed with anyone.
+
+    Each profile recommends the widest quiet region that node measured, and on
+    two different testbeds that is two different frequencies. Two ends left to
+    their own profiles tune apart and simply never hear each other -- no error,
+    no failed connection, just silence, which is the most expensive way for this
+    to go wrong.
+
+    A topology pins the frequency for every node and wins over the profile, so a
+    run that has one is fine. Otherwise say it out loud.
+    """
+    if not getattr(a, "_freq_from_profile", False):
+        return                      # typed, or from a topology: someone chose it
+    if topo is not None:
+        return                      # the wiring file speaks for both ends
+    if str(getattr(a, "role", "")) not in _RF_PAIRED:
+        return                      # nothing on the other end to disagree with
+    print(f"[phy-profile] NOTE: --freq {a.freq:g} MHz came from THIS node's own "
+          f"survey. The other end picks from its own, and on a different testbed "
+          f"that is a different frequency — they would tune apart and hear "
+          f"nothing.\n"
+          f"              Pin one for both ends: run "
+          f"`python3 union/phy_profile.py --common` for the spectrum every "
+          f"surveyed node can use, then pass --freq, or put it in the topology.")
+
+
 def resolve_peer_hosts(a):
     """Let --ack-host / --net-host name ANOTHER session instead of an address.
 
@@ -696,6 +728,7 @@ def apply_phy_profile(ap, a):
     # --freq is in MHz here, exactly as the profile records the carrier.
     if vals.get("freq") is not None and _set(ap, a, "freq", float(vals["freq"])):
         applied.append(f"freq={a.freq:g}MHz")
+        a._freq_from_profile = True
 
     # det_mult / sync_threshold reach the modem through --usrp-set, so add them
     # there only when the experimenter did not name them already.
@@ -1168,6 +1201,7 @@ def main():
     # tries to dial it, then we say how another machine reaches US.
     resolve_peer_hosts(a)
     announce_ports(a)
+    warn_unpinned_carrier(a, topo)
 
     if a.node is not None:
         a.node = int(a.node)                # a name has been resolved to its index

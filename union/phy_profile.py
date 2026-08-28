@@ -331,7 +331,68 @@ def load(node=None, pick=None, band=None, near_mhz=None, ant=None,
     opts, _ = _options(prof)
     if len(opts) > 1:
         why = f"{why}, {how} of {len(opts)} saved"
+    # A threshold nothing triggered is a floor, not a measurement. Say so where it
+    # is applied, rather than letting a placeholder read as a measured value.
+    if prof.get("sync_threshold_measured") is False:
+        why = f"{why}; sync_threshold is a placeholder until a link is run"
     return vals, path, why
+
+
+def _spans(path):
+    """The usable frequency ranges a profile reports, as [(lo, hi), ...]."""
+    try:
+        with open(path) as fh:
+            prof = json.load(fh)
+    except Exception:
+        return []
+    out = []
+    for o in (prof.get("options") or prof.get("candidates") or [prof]):
+        b = o.get("band_mhz") or o.get("usable_mhz")
+        if b and len(b) == 2:
+            out.append((float(b[0]), float(b[1])))
+    return sorted(out)
+
+
+def all_profiles():
+    """Every profile published into the shared workspace, from every node."""
+    seen = {}
+    for d in dirs():
+        for path in sorted(glob.glob(os.path.join(d, "phy-*.json"))):
+            seen.setdefault(os.path.basename(path), path)
+    return sorted(seen.values())
+
+
+def common_spectrum(paths=None):
+    """Frequency ranges usable by EVERY surveyed node, widest first.
+
+    Two ends of a link must sit on the same carrier, and each node's profile
+    recommends the widest region *it* measured -- which on different testbeds is
+    a different frequency. Left to their own profiles the two ends tune apart and
+    never hear each other, with nothing in the logs to say why. The shared
+    workspace holds every site's survey, so the overlap can simply be computed.
+    """
+    paths = paths or all_profiles()
+    if not paths:
+        return [], []
+    cur = None
+    used = []
+    for p in paths:
+        sp = _spans(p)
+        if not sp:
+            continue
+        used.append(p)
+        if cur is None:
+            cur = sp
+            continue
+        merged = []
+        for a_lo, a_hi in cur:
+            for b_lo, b_hi in sp:
+                lo, hi = max(a_lo, b_lo), min(a_hi, b_hi)
+                if hi > lo:
+                    merged.append((lo, hi))
+        cur = sorted(merged)
+    cur = cur or []
+    return sorted(cur, key=lambda r: -(r[1] - r[0])), used
 
 
 def main():
@@ -353,9 +414,36 @@ def main():
     ap.add_argument("--pick", default=None, metavar="RANK|MHz",
                     help="use a saved candidate other than the recommended one: "
                          "a 1-based rank, or a carrier in MHz (nearest wins)")
+    ap.add_argument("--common", action="store_true",
+                    help="the spectrum every surveyed node can use — both ends of "
+                         "a link must sit on the same carrier")
     ap.add_argument("--list", action="store_true",
                     help="show every candidate saved for this node")
     a = ap.parse_args()
+
+    if a.common:
+        spans, used = common_spectrum()
+        if not used:
+            print("[phy-profile] no surveys published yet")
+            return 1
+        print(f"[phy-profile] spectrum usable by ALL {len(used)} surveyed setups:")
+        for p in used:
+            print(f"    {os.path.basename(p)}")
+        if not spans:
+            print("\n  NONE — the surveys do not overlap. Both ends of a link must "
+                  "sit on the same carrier, so one of these nodes has to use a band "
+                  "it did not measure, or be re-surveyed on a band the other can "
+                  "reach.")
+            return 1
+        print()
+        for lo, hi in spans:
+            print(f"    {lo:g}-{hi:g} MHz  ({hi - lo:g} MHz wide)  "
+                  f"-> carrier {(lo + hi) / 2:g} MHz")
+        lo, hi = spans[0]
+        print(f"\n  Pin it for BOTH ends, so neither drifts onto its own favourite:")
+        print(f'    topology "defaults": {{ "freq_mhz": {(lo + hi) / 2:g} }}')
+        print(f"    or --freq {(lo + hi) / 2:g}   (run.sh) / --freq {(lo + hi) / 2:g}e6   (radio.sh)")
+        return 0
 
     if a.list:
         path, why = find(a.node, a.band, a.near, a.ant, a.subdev, a.args)

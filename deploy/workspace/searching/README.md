@@ -63,6 +63,26 @@ silently truncated.
 Schema 2 files still resolve — a measurement that cost a radio is not thrown away
 over a layout change.
 
+## Two things a receive-only survey cannot settle
+
+**`sync_threshold`.** The survey can only say where the noise is. Where a *real*
+preamble scores is a property of the link, and no receive-only measurement sees
+one. When noise never triggers ACQ the saved value is a placeholder — the file
+records `sync_threshold_measured: false` and every consumer says so when it
+applies it. Check the `[ACQ] Peak correlation` on your first successful decode and
+set the threshold between that and the noise.
+
+**The carrier both ends use.** Each profile recommends the widest quiet region
+*that node* measured, and on two testbeds that is two different frequencies. Two
+ends left to their own profiles tune apart and hear nothing — no error, just
+silence. Ask for the overlap instead:
+
+    python3 union/phy_profile.py --common
+
+and pin the result for both ends, in the topology or with `--freq`. A run that
+takes its carrier from its own survey in a role that has a partner on the air
+says so rather than letting you find out from a dead link.
+
 ## Precedence
 
     explicit flag  >  topology file  >  this measurement  >  built-in default
