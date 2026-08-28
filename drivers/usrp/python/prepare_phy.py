@@ -276,16 +276,28 @@ def main():
                          "— the antenna cannot be probed.")
     a = ap.parse_args()
     if a.node is None:
-        # Same identity rule as discover-node.py and union/phy_profile.py, so
-        # what prepare_phy writes is what radio.sh and run.sh later look for.
-        sys.path.insert(0, os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(
-                os.path.abspath(__file__))))))
+        # Same identity rule as discover-node.py and union/phy_profile.py, so what
+        # prepare_phy writes is what radio.sh and run.sh later look for.
+        #
+        # This file is drivers/usrp/python/prepare_phy.py, so the repo root is FOUR
+        # levels up, not three. Three landed on drivers/, the import always failed,
+        # and the except below quietly filed every profile under the hostname --
+        # which inside a session is the pod id and changes with the pod. The
+        # profile was written, reported as published, and then orphaned on the next
+        # session: precisely the failure the stable key exists to prevent, hidden
+        # by the fallback that was supposed to be the safety net.
+        repo = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))))
+        sys.path.insert(0, repo)
         try:
             from union.phy_profile import node_key
             a.node = node_key()
-        except Exception:
+        except Exception as e:
             a.node = "host-" + os.uname().nodename
+            print(f"[prepare] could not read this node's stable key "
+                  f"({e.__class__.__name__}: {e}) — filing under {a.node!r}, which "
+                  f"is this session's pod name and will not be found by the next "
+                  f"session. Pass --node, or set $UNION_SITE.", file=sys.stderr)
 
     if a.all:
         band_map = {}
@@ -461,6 +473,34 @@ def main():
         os.replace(tmp, path)
         print(f"\n[prepare] profile published: {path} — visible to every "
               f"session of the account, on every testbed")
+
+        # Read it back the way run.sh and radio.sh will. Writing a file and
+        # announcing success proves only that a write succeeded; it does not
+        # prove the thing that matters, which is that the resolver finds it under
+        # the key it was filed with. Saying "published" without checking is how a
+        # profile came to be written, reported, and then never picked up.
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))))
+            from union import phy_profile as pp
+            vals, found, why = pp.load()
+            if found and os.path.samefile(found, path):
+                print(f"[prepare] verified: run.sh and radio.sh resolve this "
+                      f"profile ({why}) — "
+                      + ", ".join(f"{k}={v}" for k, v in sorted(vals.items())))
+            elif found:
+                print(f"[prepare] WARNING: written, but the resolver picks a "
+                      f"DIFFERENT profile first: {found} ({why}). This one will be "
+                      f"ignored until that is removed or --phy-profile-node names "
+                      f"it.", file=sys.stderr)
+            else:
+                print(f"[prepare] WARNING: written, but nothing resolves it back "
+                      f"({why}). It will not be used. Check that $UNION_SETTINGS_DIR "
+                      f"or /workspace/experiments/settings is the same path both "
+                      f"sides see.", file=sys.stderr)
+        except Exception as e:
+            print(f"[prepare] could not verify the profile is readable "
+                  f"({e.__class__.__name__}: {e})", file=sys.stderr)
     else:
         print("\n[prepare] add --write to publish this profile to the shared workspace")
 
