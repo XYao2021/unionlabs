@@ -671,7 +671,12 @@ def apply_phy_profile(ap, a):
         print(f"[phy-profile] unavailable ({e.__class__.__name__}: {e}) — "
               f"using built-in defaults")
         return
-    vals, path, why = pp.load(getattr(a, "phy_profile_node", None))
+    # If the experimenter typed a frequency, it says which antenna's survey they
+    # mean when a radio carries two; --phy-profile-band names it outright.
+    near = a.freq if _typed(ap, a, "freq") else None
+    vals, path, why = pp.load(getattr(a, "phy_profile_node", None),
+                              band=getattr(a, "phy_profile_band", None),
+                              near_mhz=near)
     if not path or not vals:
         return
 
@@ -1010,6 +1015,9 @@ def build_parser():
                          "node (union/phy_profile.py). By default freq, gain and "
                          "the detector thresholds are filled from it when neither "
                          "the command line nor the topology names them.")
+    ap.add_argument("--phy-profile-band", default=None, metavar="BAND",
+                    help="which antenna's survey to use when one radio carries "
+                         "two (vert900 / ism915 / vert2450 / vert2450-5g)")
     ap.add_argument("--phy-profile-node", default=None, metavar="KEY",
                     help="use the profile filed under this key instead of the "
                          "one for this node (see prepare_phy --node).")

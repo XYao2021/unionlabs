@@ -4,8 +4,16 @@ One file per radio, written by `./prepare.sh` (which runs
 `drivers/usrp/python/prepare_phy.py`) and read back automatically by `run.sh` and
 `radio.sh`:
 
-    phy-<key>.json      the usable bands, the carrier, the noise floor,
-                        and the detector thresholds measured there
+    phy-<key>-<band>.json   the usable carriers, the noise floor, and the
+                            detector thresholds measured through that antenna
+
+`<band>` is there because one radio can carry two antennas — a VERT900 on one
+port and a VERT2450 on another — and each needs its own survey. Keyed on the
+serial alone, the second measurement silently replaced the first and the survivor
+was whichever ran last. When a radio has more than one, name it with `--band` /
+`$UNION_BAND`, or just type a `--freq` inside the band you mean and the right
+survey is chosen; with no way to tell, the resolver reports the ambiguity instead
+of picking one.
 
 `<key>` is the radio's **serial** — stable and physical. Not the hostname: inside
 a session that is the pod id and changes every session, so a profile filed under

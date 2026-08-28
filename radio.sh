@@ -76,7 +76,15 @@ esac
 PROF_EXTRA=()
 if [ "$PROFILE" = 1 ] && [ -r "$HERE/union/phy_profile.py" ]; then
   PHY_PROFILE_PATH=""; PHY_FREQ=""; PHY_GAIN=""; PHY_DET_MULT=""; PHY_SYNC_THRESHOLD=""
-  eval "$(python3 "$HERE/union/phy_profile.py" --emit shell 2>/dev/null || true)"
+  # A radio can carry two antennas, so its serial alone may match two surveys.
+  # When the caller named a frequency, that says which band they mean; otherwise
+  # $UNION_BAND does, and failing both the resolver reports the ambiguity rather
+  # than picking one.
+  PROF_SEL=()
+  if [ "$FREQ_SET" = 1 ]; then
+    PROF_SEL=(--near "$(awk -v f="$FREQ" 'BEGIN{printf "%.6g", f/1e6}')")
+  fi
+  eval "$(python3 "$HERE/union/phy_profile.py" --emit shell "${PROF_SEL[@]+"${PROF_SEL[@]}"}" 2>/dev/null || true)"
   if [ -n "$PHY_PROFILE_PATH" ]; then
     APPLIED=()
     if [ "$FREQ_SET" = 0 ] && [ -n "$PHY_FREQ" ]; then

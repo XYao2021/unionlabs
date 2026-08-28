@@ -36,7 +36,7 @@ gain. Measured here at one --gain, the remainder is a number in the profile
 so is immune to the offset; an absolute --energy_threshold is not, and must be
 quoted on the detector's scale.
 
---write publishes the profile to /workspace/experiments/searching/phy-<key>.json
+--write publishes the profile to /workspace/experiments/searching/phy-<key>-<band>.json
 (the same shared folder the node records live in), and every run prints the
 ready-to-paste run.sh / radio.sh flags and the topology "defaults" snippet.
 """
@@ -490,7 +490,11 @@ def main():
         # contents are expected to churn.
         d = os.environ.get("UNION_SETTINGS_DIR") or "/workspace/experiments/searching"
         os.makedirs(d, exist_ok=True)
-        path = os.path.join(d, f"phy-{a.node}.json")
+        # The band is part of the name: one radio can carry two antennas -- a
+        # VERT900 on one port and a VERT2450 on another -- and each needs its own
+        # survey. Keyed on the serial alone, the second measurement silently
+        # replaced the first, and the survivor was whichever ran last.
+        path = os.path.join(d, f"phy-{a.node}-{a.band}.json")
         tmp = path + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(profile, fh, indent=2)
