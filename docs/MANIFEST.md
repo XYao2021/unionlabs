@@ -11,7 +11,7 @@ For the layout and *why* it is shaped this way, see [`STRUCTURE.md`](STRUCTURE.m
 | File | Description |
 |---|---|
 | `README.md` | Overview: the three questions every run answers, the PHYs, the doc index. |
-| `HOW_TO_ADD_ALGORITHM.md` | The tutorial: write your own `app.py`, name your roles, link existing code. |
+| `docs/HOW_TO_ADD_ALGORITHM.md` | The tutorial: write your own `app.py`, name your roles, link existing code. |
 | `run.sh` | Run an experiment over any PHY. Also `run.sh list` and `run.sh selftest`. |
 | `radio.sh` | Raw TX/RX on a USRP (B210 default; `--device n210\|x310`). |
 | `requirements.txt` | Python dependencies for everything that runs without a radio. |

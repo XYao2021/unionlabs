@@ -255,8 +255,7 @@ To write your own `app.py`, see **§4**.
 
 This has a guide of its own, so it stays in one place rather than drifting between two:
 
-> **→ [`HOW_TO_ADD_ALGORITHM.md`](../HOW_TO_ADD_ALGORITHM.md)** (repo root, also as
-> [`HOW_TO_ADD_ALGORITHM.md`](../HOW_TO_ADD_ALGORITHM.md))
+> **→ [`HOW_TO_ADD_ALGORITHM.md`](HOW_TO_ADD_ALGORITHM.md)**
 
 It covers, in order:
 

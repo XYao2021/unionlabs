@@ -69,7 +69,7 @@ Four files and five folders at the top level — everything you write lives in *
 
 ```
 README.md                 what this is (you are here)
-HOW_TO_ADD_ALGORITHM.md   the tutorial: write your own experiment
+docs/HOW_TO_ADD_ALGORITHM.md  the tutorial: write your own experiment
 run.sh                    run an experiment over a PHY
 radio.sh                  raw TX/RX on a USRP
 
@@ -135,7 +135,7 @@ material you read front to back.
 | Doc | Its one job |
 |---|---|
 | [`docs/BEGINNER_GUIDE.md`](docs/BEGINNER_GUIDE.md) | **the front door** — install, first run, every `run.sh` option, driving the radio, and the built-in experiments end to end |
-| [`HOW_TO_ADD_ALGORITHM.md`](HOW_TO_ADD_ALGORITHM.md) | write your own `app.py`: the contract, roles, linking existing code |
+| [`docs/HOW_TO_ADD_ALGORITHM.md`](docs/HOW_TO_ADD_ALGORITHM.md) | write your own `app.py`: the contract, roles, linking existing code |
 | [`docs/STRUCTURE.md`](docs/STRUCTURE.md) | the repo map and how the two layers stack |
 
 **Look it up**
