@@ -14,6 +14,7 @@ there.
   algorithms/      the algorithms themselves (fl, dl, ...)      (seeded from the repo)
   env/             the account's libraries: requirements.txt -> a persistent venv
   settings/        which devices this account has RESERVED      (schema: OPEN)
+  searching/       what each radio MEASURED about its band       (schema: v2)
   topologies/      the wiring of an experiment                  (schema: v1, in use)
   cross_channel/   carrying a link BETWEEN testbeds             (design: OPEN)
 ```

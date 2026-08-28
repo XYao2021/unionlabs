@@ -33,7 +33,13 @@ import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SEARCH = ("$UNION_SETTINGS_DIR", "/workspace/experiments/settings",
+# searching/ first: that is where a measurement belongs and where prepare_phy
+# writes. settings/ stays in the list because profiles written before the split
+# are still perfectly good, and a measurement that costs minutes on a radio
+# should not be thrown away over a folder rename.
+SEARCH = ("$UNION_SETTINGS_DIR",
+          "/workspace/experiments/searching", "/workspace/experiments/settings",
+          os.path.join(REPO, "deploy", "workspace", "searching"),
           os.path.join(REPO, "deploy", "workspace", "settings"))
 
 # Only these reach the modem. Anything else in the file is provenance for a

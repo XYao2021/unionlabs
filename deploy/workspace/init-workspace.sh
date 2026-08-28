@@ -14,7 +14,7 @@ ROOT="${ROOT:-/workspace/experiments}"
 [ -d "$(dirname "$ROOT")" ] || { echo "no $(dirname "$ROOT") — is this a session with the workspace mounted?" >&2; exit 1; }
 
 created=0 kept=0
-for d in settings topologies cross_channel algorithms env; do
+for d in settings searching topologies cross_channel algorithms env; do
   mkdir -p "$ROOT/$d"
   if [ -e "$ROOT/$d/README.md" ]; then
     kept=$((kept + 1))

@@ -36,7 +36,7 @@ gain. Measured here at one --gain, the remainder is a number in the profile
 so is immune to the offset; an absolute --energy_threshold is not, and must be
 quoted on the detector's scale.
 
---write publishes the profile to /workspace/experiments/settings/phy-<node>.json
+--write publishes the profile to /workspace/experiments/searching/phy-<key>.json
 (the same shared folder the node records live in), and every run prints the
 ready-to-paste run.sh / radio.sh flags and the topology "defaults" snippet.
 """
@@ -262,7 +262,8 @@ def main():
                          "session that is the pod id and changes every session, "
                          "so a profile filed under it is lost on the next pod.")
     ap.add_argument("--write", action="store_true",
-                    help="publish the profile to /workspace/experiments/settings/")
+                    help="publish the profile to /workspace/experiments/searching/ "
+                         "(override the directory with $UNION_SETTINGS_DIR)")
     ap.add_argument("--binary", default=None)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--all", action="store_true",
@@ -464,13 +465,36 @@ def main():
     print(f'  topology:  "defaults": {{ "freq_mhz": {carrier:g} }}')
 
     if a.write:
-        d = "/workspace/experiments/settings"
+        # searching/, not settings/: settings holds per-session records that are
+        # rewritten every session start and reaped when the pod goes. A band
+        # survey costs minutes and a radio and stays true for as long as the
+        # antenna and the room do, so it does not belong in a folder whose
+        # contents are expected to churn.
+        d = os.environ.get("UNION_SETTINGS_DIR") or "/workspace/experiments/searching"
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"phy-{a.node}.json")
         tmp = path + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(profile, fh, indent=2)
+            fh.flush()
+            os.fsync(fh.fileno())     # a network share can lose a buffered write
         os.replace(tmp, path)
+
+        # Prove it landed. os.replace returning is not evidence the bytes are on
+        # the share: report what is actually readable at the path, and where that
+        # path really is, because "published" against a directory that is not the
+        # mount everyone else sees looks identical to success.
+        try:
+            size = os.path.getsize(path)
+            import subprocess as _sp
+            mnt = _sp.run(["df", "-h", d], capture_output=True, text=True).stdout
+            mnt = (mnt.strip().splitlines() or [""])[-1]
+            print(f"[prepare] on disk: {size} bytes at {path}")
+            print(f"[prepare] that path lives on: {mnt}")
+        except Exception as e:
+            print(f"[prepare] WARNING: wrote {path} but cannot stat it back "
+                  f"({e.__class__.__name__}: {e}) — it may not have persisted",
+                  file=sys.stderr)
         print(f"\n[prepare] profile published: {path} — visible to every "
               f"session of the account, on every testbed")
 
