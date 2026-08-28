@@ -107,7 +107,21 @@ static bool run(const char* scheme, bool use_fec, size_t bytes_length) {
     return crc_ok;
 }
 
-int main() {
+int main(int argc, char** argv) {
+    // `sweep` walks the payload size up until the chain stops decoding. That is
+    // the only honest way to answer "how large can a chunk be": the framing sets
+    // no limit of its own -- the receiver derives the payload length from the bit
+    // count -- so the ceiling is wherever sync, the filters or the detector give
+    // out, which is a measurement rather than a constant.
+    if (argc > 1 && std::string(argv[1]) == "sweep") {
+        printf("=== payload sweep, CLEAN channel (no noise, no CFO, no phase) ===\n");
+        for (const char* s : {"DBPSK", "DQPSK"}) {
+            printf("\n-- %s, FEC on --\n", s);
+            for (size_t n : {64u, 125u, 250u, 500u, 1000u, 2000u, 4000u, 8000u})
+                run(s, true, n);
+        }
+        return 0;
+    }
     printf("=== CLEAN channel: no noise, no CFO, no phase error ===\n");
     for (bool fec : {false, true})
         for (const char* s : {"BPSK", "DBPSK", "QPSK", "DQPSK"})

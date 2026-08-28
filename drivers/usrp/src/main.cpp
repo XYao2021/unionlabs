@@ -158,7 +158,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("bytes-length", po::value<size_t>(&bytes_length)->default_value(125),
                      "payload bytes per chunk (default 125). Larger chunks amortise the "
                      "per-burst detect/sync/ACK overhead — higher throughput. MUST match "
-                     "on TX and RX. Total chunks <= 255.")
+                     "on TX and RX. The receiver accepts at most 64 chunks per message "
+                     "(a sanity guard on the header, not a field limit — idx and tot are "
+                     "8-bit), so the largest message is 64 x this value.")
         ("payload-file", po::value<std::string>(&payload_file),
                      "TX: send the raw bytes of this file as the payload (binary, e.g. a "
                      "serialized gradient). Overrides --message / --message-type.")
