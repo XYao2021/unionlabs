@@ -36,7 +36,7 @@ gain. Measured here at one --gain, the remainder is a number in the profile
 so is immune to the offset; an absolute --energy_threshold is not, and must be
 quoted on the detector's scale.
 
---write publishes the profile to /workspace/experiments/searching/phy-<key>-<band>.json
+--write publishes the profile to searching/phy-<key>-<band>-<subdev>-<ant>.json
 (the same shared folder the node records live in), and every run prints the
 ready-to-paste run.sh / radio.sh flags and the topology "defaults" snippet.
 """
@@ -490,11 +490,15 @@ def main():
         # contents are expected to churn.
         d = os.environ.get("UNION_SETTINGS_DIR") or "/workspace/experiments/searching"
         os.makedirs(d, exist_ok=True)
-        # The band is part of the name: one radio can carry two antennas -- a
-        # VERT900 on one port and a VERT2450 on another -- and each needs its own
-        # survey. Keyed on the serial alone, the second measurement silently
-        # replaced the first, and the survivor was whichever ran last.
-        path = os.path.join(d, f"phy-{a.node}-{a.band}.json")
+        # The name identifies the physical thing that was measured: this radio,
+        # through this RF channel, on this connector, with this antenna. Keyed on
+        # the serial alone, a second survey silently replaced the first; keyed on
+        # serial+band, two same-band antennas on different ports still collided.
+        # Selection reads the record itself -- the name only has to be unique.
+        def _tag(x):
+            return re.sub(r"[^A-Za-z0-9]+", "", str(x)) or "x"
+        path = os.path.join(
+            d, f"phy-{a.node}-{a.band}-{_tag(subdev)}-{_tag(a.rx_ant)}.json")
         tmp = path + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(profile, fh, indent=2)

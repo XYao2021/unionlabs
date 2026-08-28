@@ -100,13 +100,31 @@ def candidates(node=None):
     return keys
 
 
-def _band_of(path):
-    """The band a profile file is for, from its name: phy-<key>-<band>.json."""
-    base = os.path.basename(path)[4:-5] if os.path.basename(path).startswith("phy-") else ""
-    for b in ("vert2450-5g", "vert2450", "vert900", "ism915"):
-        if base.endswith("-" + b):
-            return b
-    return None
+def _meta(path):
+    """What physical setup a profile was measured with: band, RF channel, connector.
+
+    Read from the record, not parsed out of the filename. The name only has to be
+    unique; the file already states what it measured, so a profile written under
+    an older naming scheme still answers correctly.
+    """
+    try:
+        with open(path) as fh:
+            prof = json.load(fh)
+    except Exception:
+        return {}
+    r = prof.get("radio") or {}
+    return {"band":   r.get("band")   or prof.get("band"),
+            "subdev": r.get("subdev") or prof.get("rx_subdev"),
+            "ant":    r.get("ant")    or prof.get("rx_ant")}
+
+
+def _describe(path):
+    m = _meta(path)
+    bits = [m.get("band") or "unlabelled"]
+    for k in ("subdev", "ant"):
+        if m.get(k):
+            bits.append(str(m[k]))
+    return " ".join(bits)
 
 
 def _covers(path, mhz):
@@ -124,14 +142,14 @@ def _covers(path, mhz):
     return False
 
 
-def find(node=None, band=None, near_mhz=None):
+def find(node=None, band=None, near_mhz=None, ant=None, subdev=None):
     """-> (path, why) or (None, why-not). $UNION_PHY_PROFILE wins outright.
 
-    One radio can carry two antennas -- a VERT900 on one port and a VERT2450 on
-    another -- and each needs its own survey, so a profile is filed as
-    phy-<key>-<band>.json and the serial alone no longer identifies one. When
-    several exist for this radio, the band names which, or a frequency picks the
-    profile whose measured spectrum covers it.
+    A radio is not one measurable thing. It can carry two antennas, on two RF
+    channels and two connectors, and each combination has its own noise floor and
+    its own usable spectrum -- so a profile identifies the whole setup, and any
+    part of it can narrow the search. When what is given still matches more than
+    one, the ambiguity is reported rather than resolved by guessing.
     """
     env = os.environ.get("UNION_PHY_PROFILE", "").strip()
     if env:
@@ -143,30 +161,35 @@ def find(node=None, band=None, near_mhz=None):
     for key in candidates(node):
         hits = []
         for d in searched:
-            if band:                                  # exactly this antenna
-                p = os.path.join(d, f"phy-{key}-{band}.json")
-                if os.path.exists(p):
-                    return p, f"matched {key} on {band}"
-            p = os.path.join(d, f"phy-{key}.json")     # pre-band layout
-            if os.path.exists(p):
-                hits.append(p)
+            hits.append(os.path.join(d, f"phy-{key}.json"))       # pre-band layout
             hits += sorted(glob.glob(os.path.join(d, f"phy-{key}-*.json")))
-        hits = list(dict.fromkeys(hits))
-        if band and hits:
-            return None, (f"no profile for {key} on {band} — measured bands: "
-                          + ", ".join(sorted(str(_band_of(h) or "unlabelled") for h in hits)))
-        if len(hits) == 1:
-            return hits[0], f"matched {key}"
-        if hits:
-            if near_mhz is not None:
-                covering = [h for h in hits if _covers(h, near_mhz)]
-                if len(covering) == 1:
-                    return covering[0], (f"matched {key}, the only band measured "
-                                         f"that covers {float(near_mhz):g} MHz")
-            return None, (f"{key} has {len(hits)} profiles (bands: "
-                          + ", ".join(sorted(str(_band_of(h) or "unlabelled") for h in hits))
-                          + ") — name one with --band, $UNION_BAND, or a --freq "
-                            "inside the band you want")
+        hits = [h for h in dict.fromkeys(hits) if os.path.exists(h)]
+        if not hits:
+            continue
+
+        narrowed, applied = hits, []
+        for field, value in (("band", band), ("subdev", subdev), ("ant", ant)):
+            if not value:
+                continue
+            sel = [h for h in narrowed if str(_meta(h).get(field)) == str(value)]
+            if not sel:
+                return None, (f"no profile for {key} with {field}={value} — measured: "
+                              + "; ".join(sorted(_describe(h) for h in narrowed)))
+            narrowed = sel
+            applied.append(f"{field}={value}")
+
+        if len(narrowed) == 1:
+            return narrowed[0], (f"matched {key}"
+                                 + (f" ({', '.join(applied)})" if applied else ""))
+        if near_mhz is not None:
+            covering = [h for h in narrowed if _covers(h, near_mhz)]
+            if len(covering) == 1:
+                return covering[0], (f"matched {key}, the only setup measured that "
+                                     f"covers {float(near_mhz):g} MHz")
+        return None, (f"{key} has {len(narrowed)} profiles ("
+                      + "; ".join(sorted(_describe(h) for h in narrowed))
+                      + ") — narrow it with --band / --ant / --subdev, or a --freq "
+                        "inside the band you want")
 
     found = [p for d in searched for p in sorted(glob.glob(os.path.join(d, "phy-*.json")))]
     if len(found) == 1:
@@ -219,14 +242,14 @@ def pick_candidate(prof, pick=None):
     return best, f"carrier nearest {want:g} MHz"
 
 
-def load(node=None, pick=None, band=None, near_mhz=None):
+def load(node=None, pick=None, band=None, near_mhz=None, ant=None, subdev=None):
     """-> (values, path, why). values maps modem option -> value.
 
     A value is looked up in the chosen option first, then in the shared parts of
     the profile: the carrier belongs to the option, while the detector thresholds
     and the receive gain were measured once and apply to all of them.
     """
-    path, why = find(node, band, near_mhz)
+    path, why = find(node, band, near_mhz, ant, subdev)
     if not path:
         return {}, None, why
     try:
@@ -257,6 +280,10 @@ def main():
     ap.add_argument("--band", default=None,
                     help="which antenna's survey (vert900 / ism915 / vert2450 / "
                          "vert2450-5g). Needed when one radio carries two.")
+    ap.add_argument("--ant", default=None,
+                    help="which connector the antenna is on (TX/RX, RX2)")
+    ap.add_argument("--subdev", default=None,
+                    help="which RF channel (A:0, A:A, A:B)")
     ap.add_argument("--near", type=float, default=None, metavar="MHz",
                     help="pick the band whose measured spectrum covers this")
     ap.add_argument("--pick", default=None, metavar="RANK|MHz",
@@ -267,7 +294,7 @@ def main():
     a = ap.parse_args()
 
     if a.list:
-        path, why = find(a.node, a.band, a.near)
+        path, why = find(a.node, a.band, a.near, a.ant, a.subdev)
         if not path:
             print(f"[phy-profile] none: {why}")
             return 1
@@ -284,7 +311,7 @@ def main():
                   f"{'   <- recommended' if i == 0 else ''}")
         return 0
 
-    vals, path, why = load(a.node, a.pick, a.band, a.near)
+    vals, path, why = load(a.node, a.pick, a.band, a.near, a.ant, a.subdev)
     if a.emit == "shell":
         # Consumed by `eval` in radio.sh: plain assignments only, no commands,
         # every value shell-quoted. Paths routinely contain spaces, and an

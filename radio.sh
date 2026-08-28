@@ -80,9 +80,12 @@ if [ "$PROFILE" = 1 ] && [ -r "$HERE/union/phy_profile.py" ]; then
   # When the caller named a frequency, that says which band they mean; otherwise
   # $UNION_BAND does, and failing both the resolver reports the ambiguity rather
   # than picking one.
-  PROF_SEL=()
+  # We already know the RF channel and connector this run will use, so the
+  # profile measured through that exact path is the one that applies -- a survey
+  # taken on RX2 says nothing about what TX/RX hears.
+  PROF_SEL=(--subdev "$SUBDEV" --ant "${ANT:-$([ "$ROLE" = tx ] && echo TX/RX || echo RX2)}")
   if [ "$FREQ_SET" = 1 ]; then
-    PROF_SEL=(--near "$(awk -v f="$FREQ" 'BEGIN{printf "%.6g", f/1e6}')")
+    PROF_SEL+=(--near "$(awk -v f="$FREQ" 'BEGIN{printf "%.6g", f/1e6}')")
   fi
   eval "$(python3 "$HERE/union/phy_profile.py" --emit shell "${PROF_SEL[@]+"${PROF_SEL[@]}"}" 2>/dev/null || true)"
   if [ -n "$PHY_PROFILE_PATH" ]; then

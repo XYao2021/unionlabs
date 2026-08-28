@@ -4,16 +4,23 @@ One file per radio, written by `./prepare.sh` (which runs
 `drivers/usrp/python/prepare_phy.py`) and read back automatically by `run.sh` and
 `radio.sh`:
 
-    phy-<key>-<band>.json   the usable carriers, the noise floor, and the
-                            detector thresholds measured through that antenna
+    phy-<key>-<band>-<subdev>-<ant>.json
+                        the usable carriers, the noise floor, and the detector
+                        thresholds measured through that one signal path
 
-`<band>` is there because one radio can carry two antennas — a VERT900 on one
-port and a VERT2450 on another — and each needs its own survey. Keyed on the
-serial alone, the second measurement silently replaced the first and the survivor
-was whichever ran last. When a radio has more than one, name it with `--band` /
-`$UNION_BAND`, or just type a `--freq` inside the band you mean and the right
-survey is chosen; with no way to tell, the resolver reports the ambiguity instead
-of picking one.
+The name identifies a **signal path**, not a radio. One X310 can carry a VERT900
+on one port and a VERT2450 on another, or two antennas of the same band on
+different connectors — and each hears a different noise floor over a different
+usable span. Keyed on the serial alone, each new survey silently replaced the
+last, and the survivor was whichever ran most recently.
+
+Selection reads the record, not the filename, so profiles written under older
+names still resolve. `run.sh` and `radio.sh` narrow by the RF channel and
+connector they are about to use, which is usually enough on its own: `radio.sh
+rx` finds the RX2 survey and `radio.sh tx` the TX/RX one without being told.
+Otherwise name it with `--band` / `--ant` / `--subdev` / `$UNION_BAND`, or type a
+`--freq` inside the band you mean. With no way to tell, the ambiguity is reported
+and the candidates listed, rather than one being picked and right half the time.
 
 `<key>` is the radio's **serial** — stable and physical. Not the hostname: inside
 a session that is the pod id and changes every session, so a profile filed under

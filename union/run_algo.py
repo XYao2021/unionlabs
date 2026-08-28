@@ -674,9 +674,20 @@ def apply_phy_profile(ap, a):
     # If the experimenter typed a frequency, it says which antenna's survey they
     # mean when a radio carries two; --phy-profile-band names it outright.
     near = a.freq if _typed(ap, a, "freq") else None
+    # A survey taken on one connector says nothing about what the other hears, so
+    # narrow by the RF channel and port this run will actually use -- but only
+    # when they were named, since the parser's defaults are a guess about the
+    # hardware, not a statement about it.
+    role = "tx" if getattr(a, "role", None) == "tx" else "rx"
+    ant = a.tx_ant if role == "tx" else a.rx_ant
+    sub = a.tx_subdev if role == "tx" else a.rx_subdev
+    if not _typed(ap, a, f"{role}_ant"):
+        ant = None
+    if not _typed(ap, a, f"{role}_subdev"):
+        sub = None
     vals, path, why = pp.load(getattr(a, "phy_profile_node", None),
                               band=getattr(a, "phy_profile_band", None),
-                              near_mhz=near)
+                              near_mhz=near, ant=ant, subdev=sub)
     if not path or not vals:
         return
 
