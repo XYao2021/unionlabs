@@ -115,10 +115,17 @@ int main(int argc, char** argv) {
     // out, which is a measurement rather than a constant.
     if (argc > 1 && std::string(argv[1]) == "sweep") {
         printf("=== payload sweep, CLEAN channel (no noise, no CFO, no phase) ===\n");
-        for (const char* s : {"DBPSK", "DQPSK"}) {
+        // Sizes may be given on the command line, so the ceiling can be pushed
+        // until something actually breaks rather than assumed from whatever the
+        // last person happened to try:
+        //   dbpsk_fec_chain_test sweep 8000 16000 32000
+        std::vector<size_t> sizes;
+        for (int i = 2; i < argc; ++i) sizes.push_back((size_t)std::stoul(argv[i]));
+        if (sizes.empty()) sizes = {64, 125, 250, 500, 1000, 2000, 4000, 8000};
+        const char* schemes[] = {"DBPSK", "DQPSK", "QPSK"};
+        for (const char* s : schemes) {
             printf("\n-- %s, FEC on --\n", s);
-            for (size_t n : {64u, 125u, 250u, 500u, 1000u, 2000u, 4000u, 8000u})
-                run(s, true, n);
+            for (size_t n : sizes) run(s, true, n);
         }
         return 0;
     }

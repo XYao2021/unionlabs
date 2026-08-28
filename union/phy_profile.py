@@ -230,22 +230,31 @@ def find(node=None, band=None, near_mhz=None, ant=None, subdev=None, args=None):
         if not hits:
             continue
 
+        # A record that does not MENTION a field cannot contradict it. Profiles
+        # written before a field existed simply say nothing about it, and
+        # treating silence as a mismatch made every one of them unreadable the
+        # moment radio.sh started passing --args: the profile was found by key
+        # and then thrown away for not answering a question it predates.
+        def keeps(h, field, value):
+            have = _meta(h).get(field)
+            if have is None:
+                return True
+            if field == "args":
+                return _ident_of(have) == _ident_of(value)
+            return str(have) == str(value)
+
         narrowed, applied = hits, []
         for field, value in (("band", band), ("subdev", subdev), ("ant", ant),
                              ("args", args)):
             if not value:
                 continue
-            if field == "args":
-                want = _ident_of(value)
-                sel = [h for h in narrowed
-                       if want and _ident_of(_meta(h).get("args")) == want]
-            else:
-                sel = [h for h in narrowed if str(_meta(h).get(field)) == str(value)]
+            sel = [h for h in narrowed if keeps(h, field, value)]
             if not sel:
                 return None, (f"no profile for {key} with {field}={value} — measured: "
                               + "; ".join(sorted(_describe(h) for h in narrowed)))
+            if len(sel) < len(narrowed):
+                applied.append(f"{field}={value}")
             narrowed = sel
-            applied.append(f"{field}={value}")
 
         if len(narrowed) == 1:
             return narrowed[0], (f"matched {key}"
