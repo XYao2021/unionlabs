@@ -24,17 +24,29 @@ puts a months-lived measurement in the same folder as records that are expected
 to be reaped, where it is one cleanup away from being deleted and one glance away
 from being mistaken for something temporary.
 
-## What is in a file
+## What is in a file (schema 3)
 
-    recommended     the region prepare_phy suggests: carrier, usable band,
-                    det_mult, sync_threshold
-    candidates      EVERY quiet region it found, ranked, so a topology can point
-                    a node at another one without re-measuring the site. Each says
-                    whether its numbers were `measured` there or inherited from
-                    the recommendation.
+Every value appears **once**. What was measured once sits at the top; the
+carriers you can choose between sit in `options`.
 
-Read it with `python3 union/phy_profile.py --list`, or pick a different candidate
-with `--pick 2` / `--pick 5190`.
+    radio           what was measured with: device, antenna, subdev, gain, band
+    noise           the floor, its burstiness, and the receiver's own floor
+                    beside it -- measured once, at the recommended carrier
+    det_mult        derived from that noise. A RATIO above the floor, so it does
+    sync_threshold  not change with gain or distance
+    options[]       each one a complete parameter combination: a carrier, the
+                    quiet band around it, its width, and whether the default
+                    2 MS/s link fits. Only the recommended one is marked
+                    `measured_here`; the rest inherit the thresholds
+    use             which option is recommended (an index into `options`)
+
+Read it with `python3 union/phy_profile.py --list`, or choose another option with
+`--pick 2` (rank) or `--pick 5725` (carrier in MHz). `--max-options` on
+`prepare.sh` changes how many are kept; anything dropped is named, never
+silently truncated.
+
+Schema 2 files still resolve — a measurement that cost a radio is not thrown away
+over a layout change.
 
 ## Precedence
 

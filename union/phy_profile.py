@@ -125,36 +125,54 @@ def find(node=None):
     return None, "no profile measured yet (run prepare_phy --write)"
 
 
-def pick_candidate(prof, pick=None):
-    """Which of the saved recommendations to use.
+def _options(prof):
+    """The usable carriers, whatever schema the file is in.
 
-    prepare_phy stores every quiet region it found, ranked, with the widest as
-    `recommended`. That is the default because bandwidth is the scarce resource,
-    but which region is genuinely best depends on things the sweep cannot see --
-    a neighbouring experiment, a regulatory limit, an antenna only nominally in
-    band -- so any of them can be named instead: by 1-based rank, or by a
-    carrier in MHz (nearest wins).
+    schema 3 : {"options": [...], "use": i}   -- one place per value
+    schema 2 : {"candidates": [...], "recommended": {...}}
+    schema 1 : the file itself is the single choice
     """
-    cands = prof.get("candidates") or []
-    if not cands:                                  # schema 1: the file IS the choice
-        return prof, "schema-1 profile"
+    if prof.get("options"):
+        return prof["options"], int(prof.get("use", 0) or 0)
+    if prof.get("candidates"):
+        return prof["candidates"], 0
+    return [prof], 0
+
+
+def pick_candidate(prof, pick=None):
+    """Which saved option to use.
+
+    The widest is recommended, because bandwidth is the scarce resource, but
+    which one is genuinely best depends on things a sweep cannot see -- a
+    neighbouring experiment, a regulatory limit, an antenna only nominally in
+    band -- so any of them can be named: by 1-based rank, or by a carrier in MHz
+    (nearest wins).
+    """
+    opts, use = _options(prof)
+    if not opts:
+        return None, "the profile lists no usable carrier"
     if pick in (None, "", "best"):
-        return prof.get("recommended") or cands[0], "recommended"
+        return opts[min(use, len(opts) - 1)], "recommended"
     txt = str(pick).strip()
-    # A rank and a carrier are both digits, so size decides: 1..N is a rank,
-    # anything larger can only be MHz (no testbed has 5680 candidates).
-    if txt.isdigit() and 1 <= int(txt) <= len(cands):
-        return cands[int(txt) - 1], f"candidate {txt}"
+    # a rank and a carrier are both digits, so size decides: 1..N is a rank,
+    # anything larger can only be MHz
+    if txt.isdigit() and 1 <= int(txt) <= len(opts):
+        return opts[int(txt) - 1], f"option {txt}"
     try:
         want = float(txt)
     except ValueError:
-        return None, f"--pick {txt!r}: give a rank (1..{len(cands)}) or a carrier in MHz"
-    best = min(cands, key=lambda c: abs(float(c.get("carrier_mhz", 1e12)) - want))
+        return None, f"--pick {txt!r}: give a rank (1..{len(opts)}) or a carrier in MHz"
+    best = min(opts, key=lambda c: abs(float(c.get("carrier_mhz", 1e12)) - want))
     return best, f"carrier nearest {want:g} MHz"
 
 
 def load(node=None, pick=None):
-    """-> (values, path, why). values maps modem option -> value."""
+    """-> (values, path, why). values maps modem option -> value.
+
+    A value is looked up in the chosen option first, then in the shared parts of
+    the profile: the carrier belongs to the option, while the detector thresholds
+    and the receive gain were measured once and apply to all of them.
+    """
     path, why = find(node)
     if not path:
         return {}, None, why
@@ -166,16 +184,16 @@ def load(node=None, pick=None):
     chosen, how = pick_candidate(prof, pick)
     if chosen is None:
         return {}, None, how
+    shared = dict(prof)
+    shared.update(prof.get("radio") or {})       # gain_db lives here in schema 3
     vals = {}
     for src, dst in FLAGS.items():
-        # a candidate carries its own carrier/thresholds; anything it does not
-        # carry (gain is a property of the whole measurement) comes from the top
-        v = chosen.get(src, prof.get(src))
+        v = chosen.get(src, shared.get(src))
         if v is not None:
             vals[dst] = v
-    n = len(prof.get("candidates") or [])
-    if n > 1:
-        why = f"{why}, {how} of {n} saved"
+    opts, _ = _options(prof)
+    if len(opts) > 1:
+        why = f"{why}, {how} of {len(opts)} saved"
     return vals, path, why
 
 
@@ -197,14 +215,14 @@ def main():
             return 1
         with open(path) as fh:
             prof = json.load(fh)
-        cands = prof.get("candidates") or [prof]
+        cands, _use = _options(prof)
         print(f"[phy-profile] {path}  ({why})")
         for i, c in enumerate(cands):
-            band = c.get("usable_mhz") or ["?", "?"]
+            band = c.get("band_mhz") or c.get("usable_mhz") or ["?", "?"]
             print(f"  {i + 1}. carrier {c.get('carrier_mhz', '?')} MHz  "
                   f"band {band[0]}-{band[1]} ({c.get('width_mhz', '?')} MHz)  "
-                  f"floor {c.get('region_floor_db', c.get('floor_db', '?'))} dB"
-                  f"{'   [measured here]' if c.get('measured') else ''}"
+                  f"floor {c.get('floor_db', c.get('region_floor_db', '?'))} dB"
+                  f"{'   [measured here]' if c.get('measured_here') or c.get('measured') else ''}"
                   f"{'   <- recommended' if i == 0 else ''}")
         return 0
 

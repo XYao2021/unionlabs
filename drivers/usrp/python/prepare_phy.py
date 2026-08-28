@@ -253,6 +253,9 @@ def main():
     ap.add_argument("--subdev", default=None)
     ap.add_argument("--gain", type=float, default=25.0,
                     help="RX gain — use the gain the EXPERIMENT will use")
+    ap.add_argument("--max-options", type=int, default=3, metavar="N",
+                    help="how many usable carriers to save (default 3). Each is a "
+                         "complete parameter combination; the widest is recommended.")
     ap.add_argument("--dwell-windows", type=int, default=100)
     ap.add_argument("--acq-seconds", type=float, default=8.0)
     ap.add_argument("--node", default=None,
@@ -419,43 +422,58 @@ def main():
               f"the default 2 MS/s link needs (~{DEFAULT_LINK_BW_MHZ} MHz) — "
               f"lower the rates or find another band")
 
-    # Every candidate is saved, not only the winner. The dwell, the detector
-    # cross-check and the ACQ listen happen at the recommended carrier alone --
-    # repeating them per region would multiply a 4-minute run by the number of
-    # quiet stretches -- so each candidate says whether its numbers were
-    # MEASURED there or inherited from the recommendation. A topology can then
-    # point a node at another region without re-measuring the site, and can see
-    # exactly how much is known about the one it picks.
-    def candidate(r, measured):
-        c = dict(r)
-        c.update(det_mult=det_mult, sync_threshold=sync_thr, measured=measured,
-                 default_link_fits=r["width_mhz"] >= DEFAULT_LINK_BW_MHZ)
+    # ONE place per value. The previous layout stored `recommended` as a full
+    # copy of candidates[0] and then repeated the whole lot again as flat keys
+    # for an older reader, so a four-region survey wrote 102 lines in which every
+    # number appeared five or six times -- long enough that nobody read it, and
+    # ambiguous about which copy was authoritative.
+    #
+    # Here: what was measured once (the noise, the thresholds derived from it)
+    # sits once at the top. `options` holds the usable carriers, each a complete
+    # parameter combination on its own, and `use` says which one is recommended.
+    def option(r, measured):
+        o = {"carrier_mhz": r["carrier_mhz"],
+             "band_mhz":    r["usable_mhz"],
+             "width_mhz":   r["width_mhz"],
+             "floor_db":    r["region_floor_db"],
+             "fits_default_link": r["width_mhz"] >= DEFAULT_LINK_BW_MHZ}
         if measured:
-            c.update(floor_db=round(med, 1), p99_db=round(p99, 1),
-                     detector_floor_db=(round(det_floor_db, 1)
-                                        if det_floor_db is not None else None),
-                     detector_threshold_db=(round(det_thr_db, 1)
-                                            if det_thr_db is not None else None),
-                     sense_minus_detector_db=(round(offset, 1)
-                                              if offset is not None else None),
-                     noise_acq_p95=(round(acq[0], 1) if acq else None))
-        return c
+            # only the recommended carrier is dwelt on; the rest inherit the
+            # thresholds, and this says so rather than implying every option was
+            # measured with equal care
+            o["measured_here"] = True
+        return o
 
-    cands = [candidate(r, i == 0) for i, r in enumerate(regions)]
-    profile = dict(
-        schema=2, node=a.node, band=a.band, gain_db=a.gain,
-        device=a.device, rx_ant=a.rx_ant, rx_subdev=subdev,
-        sweep_floor_db=round(sweep_floor, 1),
-        recommended=cands[0],
-        candidates=cands,
-        # schema-1 keys kept alongside, so an older reader still works
-        usable_mhz=[lo, hi], carrier_mhz=carrier, floor_db=round(med, 1),
-        detector_floor_db=(round(det_floor_db, 1) if det_floor_db is not None else None),
-        detector_threshold_db=(round(det_thr_db, 1) if det_thr_db is not None else None),
-        sense_minus_detector_db=(round(offset, 1) if offset is not None else None),
-        det_mult=det_mult, sync_threshold=sync_thr,
-        default_link_fits=fits,
-        measured_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    keep = regions[:a.max_options]
+    dropped = len(regions) - len(keep)
+    options = [option(r, i == 0) for i, r in enumerate(keep)]
+    if dropped:
+        print(f"[prepare] saving the top {len(keep)} of {len(regions)} regions "
+              f"(--max-options to keep more); dropped: "
+              + ", ".join(f"{r['carrier_mhz']:g} MHz" for r in regions[len(keep):]))
+
+    profile = {
+        "schema": 3,
+        "node": a.node,
+        "measured_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "radio": {"device": a.device, "args": a.args, "ant": a.rx_ant,
+                  "subdev": subdev, "gain_db": a.gain, "band": a.band},
+        # measured once, at the recommended carrier, and shared by every option
+        "noise": {"sweep_floor_db": round(sweep_floor, 1),
+                  "floor_db": round(med, 1),
+                  "p99_db": round(p99, 1),
+                  "detector_floor_db": (round(det_floor_db, 1)
+                                        if det_floor_db is not None else None),
+                  "detector_threshold_db": (round(det_thr_db, 1)
+                                            if det_thr_db is not None else None),
+                  "sense_minus_detector_db": (round(offset, 1)
+                                              if offset is not None else None),
+                  "acq_p95": (round(acq[0], 1) if acq else None)},
+        "det_mult": det_mult,
+        "sync_threshold": sync_thr,
+        "use": 0,
+        "options": options,
+    }
 
     print("\n── the hands-free settings ──────────────────────────────────")
     print(f"  radio.sh:  --freq {carrier:g}e6 --gain {a.gain:g} "
