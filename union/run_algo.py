@@ -637,10 +637,12 @@ def announce_ports(a):
     """Say what the OTHER machine has to dial to reach the ports this run binds.
 
     A container's port is not reachable at the host's address by itself -- the
-    node receives the packet and nothing carries it inward. expose-my-ports.sh
-    publishes a NodePort block at session start to fix that; this reads the
-    record and prints the translation, so nobody has to go and derive it from
-    `kubectl get svc` on a machine they may not be able to log into.
+    node receives the packet and nothing carries it inward. The node-side
+    publisher (deploy/testbed/expose-session-ports.sh) opens a NodePort block for
+    each session to fix that; this reads the record and prints the translation as
+    a site NAME and a port, so nobody has to go and derive it from
+    `kubectl get svc` on a machine they may not be able to log into -- and nobody
+    is handed the lab's addressing to do it.
 
     Silent when nothing is published: on a laptop, or a single-box run, there is
     no translation to report and a warning would just be noise.

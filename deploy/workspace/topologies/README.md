@@ -173,22 +173,24 @@ Experiment-wide knobs, applied to every node unless typed on the command line:
 ## Across machines: what a node BINDS vs what others DIAL
 
 A container never receives traffic sent to its host's IP, so a cross-machine run needs
-each listener published — `deploy/testbed/expose-my-port.sh 5599 35999` asks Kubernetes
-for a NodePort Service pointing at this pod. **That renumbers the port**: the node listens
-on 5599 inside its pod and callers must dial 35999 on the node's IP. One number per port
-cannot say both, so a node may carry an `advertise` block:
+each listener published. The node does that for you: `deploy/testbed/expose-session-ports.sh`
+runs on a timer and opens a NodePort Service pointing at each session pod. **That renumbers
+the port**: the node listens on 5599 inside its pod and callers must dial 35999 at the
+node — named `siteA`, an alias the same publisher puts in every session's `/etc/hosts` so
+it resolves like any hostname. One number per port cannot say both, so a node may carry an
+`advertise` block:
 
 ```json
 { "id": "srv", "host": "10.42.0.107",
   "ports":     { "net": 5700,  "ack": 5599  },
-  "advertise": { "host": "10.10.1.23", "ports": { "net": 35700, "ack": 35999 } } }
+  "advertise": { "host": "siteA", "ports": { "net": 35700, "ack": 35999 } } }
 ```
 
 `ports` is what this node listens on; `advertise` is what everyone else dials. Without an
-`advertise` block the two are the same, which is the ordinary same-network case. Pin the
-nodePorts (`expose-my-port.sh 5599 35999`) so the file stays true across sessions; the
-node's IP is not authored state and usually still arrives as `--net-host` / `--ack-host`
-at launch.
+`advertise` block the two are the same, which is the ordinary same-network case. Read the
+block this session won with `./run.sh ports`; it moves when a session is recreated, so a
+file that must survive is better written against the site name plus `@name` resolution
+(`--ack-host @gnuradio-0`) than against numbers copied once.
 
 Decentralised peers normally work out each other's ports as `base + k`. A NodePort is
 whatever the cluster handed out, so when peers are published the dial ports travel as a

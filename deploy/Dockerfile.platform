@@ -132,14 +132,12 @@ grep -q 'experiments/env/venv' /root/.bashrc 2>/dev/null || \
 setsid python3 /opt/unionlabs/deploy/workspace/discover-node.py --daemon \
   >/tmp/discover-node.log 2>&1 < /dev/null &
 
-# Make this session reachable from another machine without anyone logging into the
-# host: one NodePort Service covering the ports the platform listens on (ACK,
-# algorithm network, peer links). --quiet so a cluster without the one-time RBAC
-# grant costs a log line and nothing else; the block it won is written to
-# /workspace/experiments/settings/ports-<pod>.json and printed by re-running the
-# script by hand.
-setsid bash /opt/unionlabs/deploy/testbed/expose-my-ports.sh --quiet \
-  >/tmp/expose-my-ports.log 2>&1 < /dev/null &
+# NOTE: nothing here publishes ports any more. That used to run in this session
+# and needed a Kubernetes API grant to do it, which meant handing the container --
+# and so the experimenter at its terminal -- the node's own address. It now runs on
+# the node instead (deploy/testbed/expose-session-ports.sh, armed by a systemd
+# timer), which pushes in a NodePort block and the site aliases within ~15s. The
+# session ServiceAccount needs no API access at all.
 
 # Hand off to TurboVNC's own session script — the one that has always actually run.
 exec /opt/TurboVNC/bin/xstartup.turbovnc "$@"

@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """
 node_ports — which of this session's ports are reachable from another machine,
-and on what address.
+and under what NAME.
 
-expose-my-ports.sh publishes a block of NodePorts at session start and records
-the mapping in /workspace/experiments/settings/ports-<pod>.json. This reads it
-back, so a run can TELL you what the other machine must dial instead of leaving
-you to work it out from `kubectl get svc`.
+deploy/testbed/expose-session-ports.sh runs on the node, publishes each session's
+NodePort block, and records the mapping in
+/workspace/experiments/settings/ports-<pod>.json. This reads it back, so a run can
+TELL you what the other machine must dial instead of leaving you to work it out
+from `kubectl get svc` on a host you cannot log into.
+
+WHAT YOU GET IS A SITE NAME, NOT AN ADDRESS. The record says "siteA", and the same
+publisher puts "siteA" in this pod's /etc/hosts, so the name resolves through libc
+wherever a host is accepted -- `--ack-host siteA` needs no special handling from
+anything downstream. The lab's addressing therefore never reaches an experimenter's
+screen, and never enters the shared workspace, which both testbeds mount and which
+keeps whatever it is given. Names are cheap to leak; addresses are not.
 
 Deliberately NOT part of the PHY profile. That file is keyed by radio serial and
 survives every pod; this one is keyed by pod name and dies with it. Folding the
@@ -17,7 +25,7 @@ you would trust.
 
     python3 union/node_ports.py              # what is reachable, and where
     python3 union/node_ports.py --emit json
-    python3 union/node_ports.py --port 5599  # just this one, as host:port
+    python3 union/node_ports.py --port 5599  # just this one, as site:port
 """
 import argparse
 import glob
@@ -65,13 +73,14 @@ def find(pod=None):
     if found:
         return None, (f"{len(found)} sessions have published ports, none named {pod} — "
                       f"name one with --pod")
-    return None, ("no ports published — expose-my-ports.sh runs at session start, "
-                  "so either this is not a session container or the cluster is "
-                  "missing the one-time RBAC grant (see /tmp/expose-my-ports.log)")
+    return None, ("no ports published — the node publishes these within ~15s of a "
+                  "session starting, so either this is not a session container or "
+                  "the node timer is not armed (deploy/testbed/install-expose-ports.sh; "
+                  "`journalctl -t expose-session-ports` on the node says which)")
 
 
 def load(pod=None):
-    """-> (mapping, path, why). mapping: container port -> (node_ip, node_port)."""
+    """-> (mapping, path, why). mapping: container port -> (site, node_port)."""
     path, why = find(pod)
     if not path:
         return {}, None, why
@@ -80,8 +89,8 @@ def load(pod=None):
             rec = json.load(fh)
     except Exception as e:
         return {}, None, f"{path}: {e}"
-    ip = rec.get("node_ip") or "<node-ip>"
-    return ({int(k): (ip, int(v)) for k, v in (rec.get("map") or {}).items()},
+    site = rec.get("site") or "<site>"
+    return ({int(k): (site, int(v)) for k, v in (rec.get("map") or {}).items()},
             path, why)
 
 
@@ -91,9 +100,11 @@ def sessions():
     The two testbeds are separate clusters, so neither can reach the other's pod
     IPs and neither can query the other's API. What they DO share is /workspace,
     which the platform mounts for every session under the account across
-    testbeds -- so a session publishes the address the outside world must dial,
-    and the other side reads it here. That shared folder is the only thing the
-    two sites have in common, which is exactly why the record lives in it.
+    testbeds -- so a session publishes the NAME and the port block the outside
+    world must dial, and the other side reads it here. That shared folder is the
+    only thing the two sites have in common, which is exactly why the record
+    lives in it -- and exactly why it holds no address: it is readable by every
+    session on both testbeds, and it outlives all of them.
     """
     out = []
     for d in dirs():
@@ -110,7 +121,7 @@ def sessions():
 
 
 def resolve(name, port):
-    """'host:port' to dial to reach `port` on the session called `name`.
+    """'site:port' to dial to reach `port` on the session called `name`.
 
     Matches a pod name exactly, else any session whose name contains it, so
     'gnuradio-0' finds '4-gnuradio-0' without anyone memorising the prefix.
@@ -128,16 +139,18 @@ def resolve(name, port):
         return None, (f"{name!r} matches several: "
                       + ", ".join(sorted(str(r.get("pod")) for r in hit)))
     rec = hit[0]
+    if not rec.get("site"):
+        return None, (f"session {rec.get('pod')} has a record from before site "
+                      f"aliases; re-run the node publisher to replace it")
     np_ = (rec.get("map") or {}).get(str(int(port)))
     if np_ is None:
         return None, (f"session {rec.get('pod')} did not publish container port {port} "
                       f"(it published: " + ", ".join(sorted((rec.get("map") or {}))) + ")")
-    ip = rec.get("node_ip") or "<node-ip>"
-    return f"{ip}:{np_}", f"{rec.get('pod')} via the shared workspace"
+    return f"{rec['site']}:{np_}", f"{rec.get('pod')} via the shared workspace"
 
 
 def external(port, pod=None):
-    """'host:port' another machine should dial to reach `port` here, or None."""
+    """'site:port' another machine should dial to reach `port` here, or None."""
     m, _, _ = load(pod)
     hit = m.get(int(port))
     return f"{hit[0]}:{hit[1]}" if hit else None
@@ -147,7 +160,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("--pod", default=None)
     ap.add_argument("--port", type=int, default=None,
-                    help="print just this container port's external address")
+                    help="print just this container port's external site:port")
     ap.add_argument("--emit", choices=["human", "json"], default="human")
     ap.add_argument("--list", action="store_true",
                     help="every session that has published ports, across testbeds")
@@ -163,7 +176,7 @@ def main():
         for r in recs:
             ports = ", ".join(f"{k}->{v}" for k, v in sorted(
                 (r.get("map") or {}).items(), key=lambda kv: int(kv[0])))
-            print(f"  {r.get('pod')}   {r.get('node_ip')}   {ports}")
+            print(f"  {r.get('pod')}   {r.get('site') or '<site>'}   {ports}")
             print(f"      updated {r.get('updated_utc', '?')}   {r.get('_path')}")
         return 0
 
@@ -197,8 +210,8 @@ def main():
     print(f"[ports] {path}  ({why})")
     print("        another machine reaches this session at:")
     for p in sorted(m):
-        ip, np_ = m[p]
-        print(f"          {ip}:{np_}   ->  container {p}   {_role(p)}")
+        site, np_ = m[p]
+        print(f"          {site}:{np_}   ->  container {p}   {_role(p)}")
     return 0
 
 

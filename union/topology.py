@@ -111,11 +111,11 @@ class Node:
         _known(ports, self.PORTS, f"node {self.id}: ports")
         self.ports = {k: int(v) for k, v in ports.items()}
         # ── what this node BINDS vs what everyone else DIALS ──
-        # A NodePort (deploy/testbed/expose-my-port.sh) publishes container port 5599 on
-        # the node's IP as, say, 35999 — so the number a peer must dial is NOT the number
-        # this node listens on, and the address is the node's, not the pod's. `advertise`
-        # is that outside view; without it the two are the same, which is the ordinary
-        # same-network case.
+        # A NodePort (deploy/testbed/expose-session-ports.sh) publishes container port
+        # 5599 on the node as, say, 35999 — so the number a peer must dial is NOT the
+        # number this node listens on, and the host is the node's site name, not the pod.
+        # `advertise` is that outside view; without it the two are the same, which is the
+        # ordinary same-network case.
         adv = _dict(raw.get("advertise"), f"node {self.id}: advertise")
         _known(adv, ("host", "ports", "note"), f"node {self.id}: advertise")
         adv_ports = _dict(adv.get("ports"), f"node {self.id}: advertise.ports")

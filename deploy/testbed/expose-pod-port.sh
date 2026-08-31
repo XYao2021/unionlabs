@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# expose-pod-port.sh — make a port INSIDE a session pod reachable at the node's own IP.
+# expose-pod-port.sh — make ONE port inside ONE session pod reachable from outside.
 #
 #   ./expose-pod-port.sh 2-gnuradio-0 5599              # ACK socket, auto node port
 #   ./expose-pod-port.sh 2-gnuradio-0 5599 30599        # ...pinned, so it never moves
 #   ./expose-pod-port.sh --list                         # what is exposed now
 #   ./expose-pod-port.sh --remove 2-gnuradio-0 5599
+#
+# For the normal case use expose-session-ports.sh, which the systemd timer runs: it
+# publishes every session's whole block and injects the site aliases. This is the
+# by-hand tool for one odd port, and it runs on the node for the same reason that one
+# does — a session container is never given the cluster API or the node's address.
 #
 # WHY THIS EXISTS
 # A container never receives traffic sent to its host's IP: the node gets the packet and
@@ -62,11 +67,23 @@ k get pod "$POD" >/dev/null   # fail early and clearly if the pod is not there
 } | k apply -f - >/dev/null
 
 ASSIGNED=$(k get svc "$SVC" -o jsonpath='{.spec.ports[0].nodePort}')
-NODEIP=$(k get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-echo "exposed ${POD}:${PORT}  ->  ${NODEIP}:${ASSIGNED}"
+
+# Report the SITE NAME where there is one. The alias is already in every session's
+# /etc/hosts (expose-session-ports.sh puts it there), so it is what an experimenter
+# can type — and unlike the address, it is safe to appear on their screen.
+SITE=$(sed -n 's/^[[:space:]]*self[[:space:]]*=[[:space:]]*//p' /etc/unionlabs/sites.conf 2>/dev/null | tr -d '[:space:]')
+if [ -n "$SITE" ]; then
+  WHERE="$SITE"
+else
+  WHERE=$(k get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+  echo "note: /etc/unionlabs/sites.conf has no 'self' name, so this reports an address."
+  echo "      run expose-session-ports.sh once to write the default and name this site."
+fi
+
+echo "exposed ${POD}:${PORT}  ->  ${WHERE}:${ASSIGNED}"
 echo
 echo "  the other machine's source should use:"
-echo "    --ack-host ${NODEIP} --ack-port ${ASSIGNED}"
+echo "    --ack-host ${WHERE} --ack-port ${ASSIGNED}"
 echo
 echo "  check it from there first:"
-echo "    python3 -c \"import socket;socket.create_connection(('${NODEIP}',${ASSIGNED}),timeout=5);print('open')\""
+echo "    python3 -c \"import socket;socket.create_connection(('${WHERE}',${ASSIGNED}),timeout=5);print('open')\""

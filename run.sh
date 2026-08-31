@@ -75,8 +75,9 @@ if [ "${1:-}" = "topologies" ]; then
   exec python3 "$HERE/union/topology.py" "$@"
 fi
 if [ "${1:-}" = "ports" ]; then
-  # what another machine must dial to reach THIS session. Published at session
-  # start by deploy/testbed/expose-my-ports.sh; this only reads the record.
+  # what another machine must dial to reach THIS session: a site NAME and a port,
+  # never an address. Published from the node by deploy/testbed/expose-session-ports.sh
+  # within ~15s of the session starting; this only reads the record.
   shift
   exec python3 "$HERE/union/node_ports.py" "$@"
 fi
