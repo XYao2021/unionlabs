@@ -8,8 +8,14 @@
 # NodePort block plus the site aliases, so a session is reachable from the other
 # testbed without any experimenter ever handling — or seeing — a host address.
 #
-# Withdraw the old in-pod grant while you are here; nothing needs it any more:
-#     kubectl delete -f rbac-expose.yaml --ignore-not-found
+# Withdraw the old in-pod grant while you are here; nothing needs it any more. By
+# NAME, not by file: the commit that made this script redundant deleted
+# rbac-expose.yaml too, so `delete -f` has nothing to read.
+#
+#     kubectl -n default delete role,rolebinding unionlabs-expose-port --ignore-not-found
+#
+# Check it is gone -- a session should now be refused, which is the point:
+#     kubectl -n default auth can-i create services --as=system:serviceaccount:default:default
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 install -m 755 "$HERE/expose-session-ports.sh" /usr/local/sbin/expose-session-ports.sh
