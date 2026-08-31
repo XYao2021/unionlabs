@@ -57,7 +57,9 @@ unionlabs/
 ├── docs/                ALL documentation: BEGINNER_GUIDE · STRUCTURE (this file) · COMMANDS
 │                        · PARAMETERS (auto-generated) · HARDWARE · MANIFEST · SYSTEM_REFERENCE
 │                        · APPLICATIONS_INTRO · diagrams/slides
-├── deploy/              Docker + install (initialization.sh, run_sink/source.sh, docker/)
+├── deploy/              install + workspace (initialization.sh, run_sink/source.sh, workspace/)
+│                        docker/ and testbed/ exist in the repo but are pruned from
+│                        the session image: they run on a build host or the node.
 └── results/             figures / run outputs, regenerable (gitignored)
 ```
 

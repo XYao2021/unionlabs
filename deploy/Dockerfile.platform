@@ -165,6 +165,25 @@ RUN cd /opt/unionlabs && chmod +x deploy/initialization.sh \
  && ./deploy/initialization.sh ${INIT_ARGS} \
  && rm -rf /root/.cache /tmp/* /var/lib/apt/lists/*
 
+# ── take the operator's half back out ──────────────────────────────────────────
+# What is left here is what a SESSION needs. Node administration and host-side
+# builds are not that, and leaving them in puts steps an experimenter must not run
+# -- and cannot run, having no host -- directly on their desktop, next to the ones
+# they must. The node works from its own git checkout, so nothing here is lost.
+#
+# Note what this is NOT: the repo is public, and .git is still in this image, so
+# `git checkout deploy/testbed` brings it all back. This buys a clean session and
+# no misleading instructions, not secrecy. Secrecy would mean moving the ops
+# scripts to a private repo, which is a decision about the repo, not the image.
+#
+# initialization.sh STAYS: a session that edits the C++ rebuilds with
+# `deploy/initialization.sh --build`, and the docs cite it throughout. Only the
+# operator's half goes. This runs after it, since it lives in the pruned folder.
+RUN cd /opt/unionlabs \
+ && rm -rf deploy/testbed deploy/docker deploy/Dockerfile* deploy/DOCKER.md \
+           deploy/PLATFORM_RADIO_REQUEST.md \
+ && ls deploy/
+
 # Build identity lives INSIDE the repo folder (not /workspace — see above), so it is
 # visible right where the user works: ~/Desktop/unionlabs/BUILD_INFO.txt.
 RUN { echo "unionlabs-platform"; git -C /opt/unionlabs log -1 --format='commit %H%nauthored %cI'; \

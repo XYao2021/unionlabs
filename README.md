@@ -176,6 +176,9 @@ everything, and serves a desktop in your browser with no password:
 ```bash
 deploy/docker/build-unionlabs.sh     # clones the repo inside the image
 deploy/docker/run-unionlabs.sh       # prints a http://<host>:6080/vnc.html link
+# ^ these run on a BUILD HOST, from a git checkout. They are pruned from the
+#   session image along with deploy/testbed/, which is node administration:
+#   inside a session there is no host to run them against.
 ```
 
 See [`deploy/DOCKER.md`](deploy/DOCKER.md) for the options and the other two images.

@@ -3,8 +3,8 @@
 node_ports — which of this session's ports are reachable from another machine,
 and under what NAME.
 
-deploy/testbed/expose-session-ports.sh runs on the node, publishes each session's
-NodePort block, and records the mapping in
+A publisher on the NODE (not in this container, and not runnable from it) opens
+each session's NodePort block and records the mapping in
 /workspace/experiments/settings/ports-<pod>.json. This reads it back, so a run can
 TELL you what the other machine must dial instead of leaving you to work it out
 from `kubectl get svc` on a host you cannot log into.
@@ -75,8 +75,8 @@ def find(pod=None):
                       f"name one with --pod")
     return None, ("no ports published — the node publishes these within ~15s of a "
                   "session starting, so either this is not a session container or "
-                  "the node timer is not armed (deploy/testbed/install-expose-ports.sh; "
-                  "`journalctl -t expose-session-ports` on the node says which)")
+                  "the node is not set up to publish them. That is not something a "
+                  "session can fix from in here; ask whoever runs the testbed.")
 
 
 def load(pod=None):

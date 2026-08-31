@@ -124,7 +124,7 @@ full option list is in `PARAMETERS.md`. `radio.sh` and `run.sh` wrap these for o
 | Path | Description |
 |---|---|
 | `initialization.sh` | Installs the toolchain; `--build` also compiles `sdr_system` + `pyphy`. |
-| `Dockerfile` · `Dockerfile.novnc` · `docker/` | Container images and the reservation-driven launcher. |
+| `Dockerfile` · `Dockerfile.novnc` · `docker/` · `testbed/` | Container images, the reservation-driven launcher, and node administration. **Not shipped inside the session image** — these run on a build host or on the testbed node, from a git checkout. |
 | `DOCKER.md` | How to build and run the containers. |
 | `run_sink.sh` · `run_source.sh` | Two-host raw radio helpers. |
 

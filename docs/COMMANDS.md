@@ -328,9 +328,8 @@ the same file, saying only which node it is. The examples live in
 ./run.sh topology fl-chain-tcp             # the same chain with no radio at all
 ```
 
-Across machines, listeners are published for you: the node runs
-`deploy/testbed/expose-session-ports.sh` on a timer and opens a NodePort block for every
-session. Put what it reports — a site name and the translated port — in the node's
+Across machines, listeners are published for you: the node opens a NodePort block for
+every session, on a timer, with nothing to run and nothing to install from in here. Put what it reports — a site name and the translated port — in the node's
 `advertise` block, because a NodePort renumbers the port, so what a node binds (5599) is
 not what callers dial (35999). `./run.sh ports` prints the block for this session. Count listeners to know how many to
 publish: a node receiving over the air binds two (the ARQ ack and the TCP reply), a node
