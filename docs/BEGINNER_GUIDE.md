@@ -60,7 +60,7 @@ still wins over it.
 - **N210 rates are exact:** `--rx-rate 2e6 --symbol-rate 1e6` (1.6e6 does not snap onto its 100 MHz clock).
 - **X310 rates** must be `master_clock_rate / integer`; the modem now refuses a rate it cannot hit rather than transmitting a payload that will not decode.
 - **Two-host ACK:** each side's `--ack-host` is the *other* host's IP.
-- **Free-running LOs:** use **DQPSK** (single-carrier) or **OFDM** (coherent QPSK, pilots track the offset). Coherent single-carrier without a shared 10 MHz reference delivers poorly.
+- **Free-running LOs:** the default coherent **QPSK** relies on the modem's CFO/phase correction; if delivery still collapses without a shared 10 MHz reference, fall back to **DQPSK** (single-carrier) or **OFDM** (pilots track the offset). Verify with `./calibration_rx.sh` + `./calibration_tx.sh`.
 - **Receiver won't stop on Ctrl-C?** Press it again; the handler escalates.
 
 ## 2. Where things live
@@ -342,9 +342,9 @@ print(tx(scheme="QPSK").command())                    # just print the command (
 | `--viz` / `--viz-dir` | `true` / `phy_outputs` | capture TX/RX signals + auto-plot to `phy_outputs/<scheme>/` |
 | `--config <file>` | `phy.cfg` | load all options from a file (CLI still overrides) |
 
-Two rules that save hours: **start the receiver before the transmitter**, and on free-running
-radios use **`DQPSK`** (single-carrier) or **`OFDM`** — plain coherent `QPSK` delivers poorly
-without a shared clock.
+Two rules that save hours: **start the receiver before the transmitter**, and if the default
+coherent `QPSK` delivers poorly on your link (free-running clocks are the usual cause), fall
+back to **`DQPSK`** (single-carrier) or **`OFDM`**.
 
 ### From a JSON file (`drivers/usrp/python/run.py`)
 
@@ -414,10 +414,10 @@ Worked flowgraph: `drivers/usrp/python/phy_flow_example.py`.
 |---|---|
 | `pyphy` import / `Python.h` / arch error (macOS) | run via `./run.sh` (it sets `PYTHONPATH` + `arch -x86_64`), or build with `drivers/usrp/bindings/build.sh` |
 | `Exec format error` on `sdr_system` | rebuild on that machine: `cd drivers/usrp && cmake -S . -B build && cmake --build build` |
-| receiver gets nothing / no ACK | start the **receiver first**; keep both radios on; use `DQPSK` or `OFDM` |
+| receiver gets nothing / no ACK | start the **receiver first**; keep both radios on; if it persists try `DQPSK` or `OFDM` |
 | startup "rate check" fails | N210 needs `--rx-rate 2e6 --symbol-rate 1e6`; set `--tx-rate = --rx-rate` |
 | a stuck receiver won't stop | press Ctrl-C again; last resort `Ctrl-\` or `kill -9` |
-| coherent `QPSK` ~17% delivered | free-running clocks — use `DQPSK` (single-carrier) or `OFDM` |
+| coherent `QPSK` delivers poorly | free-running clocks overwhelming the CFO correction — fall back to `DQPSK` (single-carrier) or `OFDM` |
 
 ---
 
@@ -429,8 +429,8 @@ Worked flowgraph: `drivers/usrp/python/phy_flow_example.py`.
 | `<frozen getpath>` Python crash | Stale shell CWD → `cd` out and back in. |
 | Sink fails the **rate check** at startup | The receive-only sink still checks the full chain → set `tx_rate = rx_rate` on it; N210 needs `--rx-rate 2e6 --symbol-rate 1e6`. |
 | `ACQ ERROR / Filtered vector too short` (works at small `k`, fails at large) | Long frame's energy dips below the detector → raise TX power/gain, add `--det-mult`, `--energy_packet_size`, or use smaller `--ldpc-k`. |
-| Single-shot burst gets **no ACK** (MARL) | Cold LO / free-running CFO → keep the AP **warm**, use **DQPSK**, ideally a shared 10 MHz clock; "no ACK" is then ≈ collision. |
-| Coherent **QPSK ~17% delivery** | Free-running LO → use **DQPSK** (SC) or **OFDM** (coherent, pilots track CFO). |
+| Single-shot burst gets **no ACK** (MARL) | Cold LO / free-running CFO → keep the AP **warm**, fall back to **DQPSK**, ideally a shared 10 MHz clock; "no ACK" is then ≈ collision. |
+| Coherent **QPSK delivers poorly** | Free-running LO overwhelming the CFO correction → fall back to **DQPSK** (SC) or **OFDM** (coherent, pilots track CFO). |
 | CLIP accuracy ~0 even at high SNR (uncoded) | Any bit error wrecks the 512-float payload → add FEC (`--fec turbo`), use soft decode. |
 | RX won't stop on Ctrl-C | Press Ctrl-C again (escalating handler); emergency = `Ctrl-\` or `kill -9`. |
 | Two processes on one host clash | Give distinct ports: ARQ `--ack-port`, FL downlink `--net-port`, slot clock `--port 5600`. |

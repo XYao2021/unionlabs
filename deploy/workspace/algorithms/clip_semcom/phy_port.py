@@ -118,7 +118,7 @@ class RadioPhyLink:
     name = "radio"
 
     def __init__(self, tx_args="", rx_args="", ack_host="127.0.0.1", ack_port=5599,
-                 scheme="DQPSK", waveform="sc", tx_gain=70, rx_gain=30,
+                 scheme="QPSK", waveform="sc", tx_gain=70, rx_gain=30,
                  rx_subdev="A:0", tx_subdev="A:A", chunk=125, timeout=8.0, max_attempts=50):
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                         "..", "..", "..", "..", "drivers", "usrp", "python"))

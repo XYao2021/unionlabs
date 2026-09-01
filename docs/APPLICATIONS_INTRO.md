@@ -149,9 +149,10 @@ FedAvg of an MNIST classifier over the radio (`fl.py` / `fl_core.py`, numpy-only
   lets uplink go over RF while the model broadcast returns over plain TCP (the N210 never has
   to transmit). All-TCP mode runs the whole protocol radio-free and was validated end-to-end:
   MNIST 0.92 in 12 rounds.
-- **Waveform choice.** `--waveform sc` uses differential DQPSK (default); `--waveform ofdm`
-  uses coherent QPSK, whose per-subcarrier pilots track the free-running CFO — so OFDM-QPSK
-  works where single-carrier coherent QPSK would fail.
+- **Waveform choice.** `--waveform sc` uses coherent QPSK by default, relying on the
+  modem's CFO/phase correction; `--scheme DQPSK` is the differential fallback for links
+  where coherent delivery still collapses. `--waveform ofdm` is coherent by design — its
+  per-subcarrier pilots track the free-running CFO.
 
 ### 2.4 Hardware topology and operating points
 

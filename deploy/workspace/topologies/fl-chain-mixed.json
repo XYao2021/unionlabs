@@ -3,7 +3,7 @@
   "name": "fl-chain-mixed",
   "algo": "fl",
   "description": "One hop over the air, the next over Ethernet: n1 transmits to n2 by radio, n2 forwards to n3 over TCP/IP. The medium is a property of each LINK, not of the experiment.",
-  "defaults": { "steps": 20, "scheme": "DQPSK", "fec": "turbo", "freq_mhz": 915 },
+  "defaults": { "steps": 20, "scheme": "QPSK", "fec": "turbo", "freq_mhz": 915 },
   "nodes": [
     { "id": "n1", "role": "client", "host": "10.0.0.1",
       "radio": {

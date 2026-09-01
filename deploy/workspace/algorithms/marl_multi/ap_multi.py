@@ -326,7 +326,7 @@ class AgentAckClient:
     loop; a warm 'role tx --on-demand' (a C++ addition) would make fires ~100-300 ms."""
 
     def __init__(self, agent_id, tx_args, ap_host="127.0.0.1", ap_port=5599,
-                 tx_gain=85, scheme="DQPSK", ack_timeout=3.0, binary=None,
+                 tx_gain=85, scheme="QPSK", ack_timeout=3.0, binary=None,
                  warmup_s=6.0, launch_tx=True, announce_intent=False, **opts):
         import sys as _sys
         import tempfile

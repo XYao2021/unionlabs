@@ -270,7 +270,7 @@ _BER_LINE = re.compile(
 
 
 def ber_probe(n=10, payload=None, tx_args="serial=30CD424", rx_args="serial=30CD3F7",
-              tx_gain=85, rx_gain=40, scheme="DQPSK", period_s=2.0,
+              tx_gain=85, rx_gain=40, scheme="QPSK", period_s=2.0,
               ap_log="/tmp/marl_ap_sink.log", binary=None, **opts):
     """Measure per-burst BER over the link. Runs a warm AP with a KNOWN payload as
     ground truth (--ber-expected), fires `n` copies of it, and parses the sink's
@@ -378,7 +378,7 @@ def main(argv):
     a.add_argument("--tx-gain", type=float, default=85)
     a.add_argument("--rx-gain", type=float, default=20)
     a.add_argument("--attempts", type=int, default=5, help="agent/ber: number of fires")
-    a.add_argument("--scheme", default="DQPSK", help="modulation (must match both ends)")
+    a.add_argument("--scheme", default="QPSK", help="modulation (must match both ends)")
     a.add_argument("--seconds", type=float, default=None, help="ap: run for N s (else Ctrl-C)")
     a.add_argument("--warm", action="store_true",
                    help="agent: keep the TX radio warm (WarmSource, fire on command)")

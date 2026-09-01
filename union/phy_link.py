@@ -572,7 +572,7 @@ class PeerLink:
 
     def __init__(self, node_id, n_nodes, topology="ring", peers=None, base_port=5800,
                  peer_ports=None,
-                 link="tcp", connect_timeout=120.0, tx_args="", rx_args="", scheme="DQPSK",
+                 link="tcp", connect_timeout=120.0, tx_args="", rx_args="", scheme="QPSK",
                  waveform="sc", tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A",
                  rx_ant="RX2", tx_ant="TX/RX", extra_cfg=None, ack_port=5599, chunk=125,
                  lora_backend="sim", lora_port=None, lora_sf=9, lora_cr=5,
@@ -778,7 +778,7 @@ class RadioRoundTrip:
 
     def __init__(self, role, tx_args="", rx_args="", ack_host="127.0.0.1", ack_port=5599,
                  net_host="127.0.0.1", net_port=5700, bind_host="0.0.0.0",
-                 scheme="DQPSK", waveform="sc",
+                 scheme="QPSK", waveform="sc",
                  tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A",
                  rx_ant="RX2", tx_ant="TX/RX", extra_cfg=None, chunk=125,
                  down_host=None, down_port=None, freq_hz=915e6, samp_rate=2e6,

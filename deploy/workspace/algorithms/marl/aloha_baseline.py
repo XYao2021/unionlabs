@@ -119,7 +119,7 @@ def main(argv):
     a.add_argument("--tx-args", default="serial=30CD424")
     a.add_argument("--tx-gain", type=float, default=85)
     a.add_argument("--rx-gain", type=float, default=20)
-    a.add_argument("--scheme", default="DQPSK")
+    a.add_argument("--scheme", default="QPSK")
     a.add_argument("--objective", type=int, default=0)
     a.add_argument("--pkt-int", type=int, default=10,
                    help="mean packet inter-arrival (epochs); lower = heavier traffic")

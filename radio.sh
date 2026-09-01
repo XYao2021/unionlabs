@@ -35,7 +35,7 @@ case "$ROLE" in
   *) echo "usage: ./radio.sh <tx|rx> [--device b210|n210|x310] [opts]   (--help for more)"; exit 2 ;;
 esac
 
-DEVICE=b210 ARGS="" FREQ=915e6 SCHEME=DQPSK WAVE=sc RATE=2e6 SYM=1e6 GAIN="" FEC=true DRY=0
+DEVICE=b210 ARGS="" FREQ=915e6 SCHEME=QPSK WAVE=sc RATE=2e6 SYM=1e6 GAIN="" FEC=true DRY=0
 ANT="" SUB=""      # empty = the sensible default for this role/device
 FREQ_SET=0 PROFILE=1 PHY_NODE=""   # freq typed? consult the profile? whose profile?
 ADDR="" SERIAL=""      # shorthands for --args, and how a host with several radios says which

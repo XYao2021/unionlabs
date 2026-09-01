@@ -69,9 +69,11 @@ def _dense(n, idx, vals):
 
 def _phy(a):
     """PHY for the N210<->B210 link at an N210-exact 2e6 / symbol_rate 1e6.
-    Single-carrier (default) uses a differential scheme (DQPSK) on the free-running
-    LOs; OFDM (--waveform ofdm) uses a COHERENT scheme (QPSK) — its per-subcarrier
-    pilots track the CFO, so never pair OFDM with a differential scheme."""
+    QPSK (the system default) rides the modem's CFO/phase correction; on a link
+    where coherent delivery still collapses (cold free-running LOs), --scheme DQPSK
+    is the differential fallback. OFDM (--waveform ofdm) is coherent by design —
+    its per-subcarrier pilots track the CFO, so never pair OFDM with a
+    differential scheme."""
     d = dict(
         scheme=a.scheme, waveform=a.waveform, fec=True,
         rx_freq=915e6, tx_freq=915e6, tx_rate=2e6, rx_rate=2e6, symbol_rate=1e6,
@@ -387,7 +389,7 @@ def main():
     p.add_argument("--tx-subdev", default="A:A")
     p.add_argument("--tx-gain", type=float, default=85)
     p.add_argument("--rx-gain", type=float, default=20)
-    p.add_argument("--scheme", default="DQPSK")
+    p.add_argument("--scheme", default="QPSK")
     p.add_argument("--waveform", default="sc", choices=["sc", "ofdm"],
                    help="sc (single-carrier, use a differential scheme) or ofdm "
                         "(use a coherent scheme like QPSK)")

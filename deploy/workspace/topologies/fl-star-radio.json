@@ -5,7 +5,7 @@
   "description": "The same federated star on the lab rig: two TX-only B210 clients transmit their models over the air to the RX-only N210 server, which answers over TCP/IP.",
   "defaults": {
     "steps": 20,
-    "scheme": "DQPSK",
+    "scheme": "QPSK",
     "fec": "turbo",
     "freq_mhz": 915,
     "samp_rate": 2000000,

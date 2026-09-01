@@ -143,7 +143,7 @@ check("-> RadioRoundTrip cfg",     lambda: (lambda L: (L.cfg["tx_ant"], L.cfg["t
                                                        L.tx_gain, L.cfg["scheme"],
                                                        L.cfg["tx_freq"]))(
                                        R.build_link(rc0, "tx")),
-      ("TX/RX", "A:A", 78, "DQPSK", 915e6))
+      ("TX/RX", "A:A", 78, "QPSK", 915e6))
 rsrv, _ = parse(["--topology", "fl-star-radio", "--node", "srv"])
 check("server RX connector",       lambda: (rsrv.rx_args, rsrv.rx_ant, rsrv.rx_subdev,
                                             rsrv.rx_gain),

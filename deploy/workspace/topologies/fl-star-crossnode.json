@@ -3,7 +3,7 @@
   "name": "fl-star-crossnode",
   "algo": "fl",
   "description": "The radio star spread ACROSS MACHINES: the server binds its ports inside its pod, and publishes them on its node's IP with expose-my-port.sh, so a client on another machine can reach them.",
-  "defaults": { "steps": 20, "scheme": "DQPSK", "fec": "turbo", "freq_mhz": 915 },
+  "defaults": { "steps": 20, "scheme": "QPSK", "fec": "turbo", "freq_mhz": 915 },
   "nodes": [
     {
       "id": "srv",

@@ -32,7 +32,7 @@ def _fmt_hms(sec):
     return "%d:%02d:%02d" % (sec // 3600, (sec % 3600) // 60, sec % 60)
 
 
-def monitor(minutes=None, bursts=None, period_s=2.0, scheme="DQPSK",
+def monitor(minutes=None, bursts=None, period_s=2.0, scheme="QPSK",
             tx_args="serial=30CD424", rx_args="serial=30CD3F7",
             tx_gain=85, rx_gain=40, out_dir=DEFAULT_OUT, tag="ber_longrun",
             ap_log="/tmp/ber_monitor_ap.log", binary=None, print_every=1, warm=False):
@@ -226,7 +226,7 @@ def main(argv):
     g.add_argument("--minutes", type=float, help="run for N minutes")
     g.add_argument("--bursts", type=int, help="run for N bursts instead")
     a.add_argument("--period", type=float, default=2.0, help="seconds between bursts")
-    a.add_argument("--scheme", default="DQPSK", help="modulation (must match both ends)")
+    a.add_argument("--scheme", default="QPSK", help="modulation (must match both ends)")
     a.add_argument("--tx-args", default="serial=30CD424")
     a.add_argument("--rx-args", default="serial=30CD3F7")
     a.add_argument("--tx-gain", type=float, default=85)

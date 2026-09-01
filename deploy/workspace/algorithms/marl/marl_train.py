@@ -153,9 +153,11 @@ def main(argv):
     a.add_argument("--sense-rx-args", default=None)
     a.add_argument("--tx-gain", type=float, default=85)
     a.add_argument("--rx-gain", type=float, default=20)
-    a.add_argument("--scheme", default="DQPSK",
-                   help="modulation (default DQPSK: CFO-robust, ~83%% vs ~17%% for QPSK "
-                        "on a free-running link). MUST match the AP.")
+    a.add_argument("--scheme", default="QPSK",
+                   help="modulation (system default QPSK; --scheme DQPSK is the CFO-robust "
+                        "fallback — it measured ~83%% vs ~17%% before the modem's CFO "
+                        "correction, and single-shot cold-LO bursts are the hardest case). "
+                        "MUST match the AP.")
     a.add_argument("--pkt-int", type=int, default=10,
                    help="mean packet inter-arrival (epochs/packet); lower = heavier traffic")
     a.add_argument("--steps", type=int, default=150)

@@ -281,7 +281,7 @@ def main(argv):
     a.add_argument("--fires", type=int, default=30, help="packets the Dell fires per distance")
     a.add_argument("--dry-run", action="store_true", help="print the sink + Dell commands and exit")
     # ---- PHY (MUST MATCH the Dell; recorded per row) ----
-    a.add_argument("--scheme", default="DQPSK", help="DQPSK (robust to per-fire cold LO) / QPSK / BPSK / ...")
+    a.add_argument("--scheme", default="QPSK", help="QPSK (system default) / DQPSK (robust to per-fire cold LO) / BPSK / ...")
     a.add_argument("--waveform", default="sc", choices=["sc", "ofdm"])
     a.add_argument("--fec", type=lambda s: s.lower() in ("1", "true", "yes"), default=True)
     a.add_argument("--symbol_rate", type=float, default=800000)
