@@ -483,6 +483,22 @@ def main():
 
     vals, path, why = load(a.node, a.pick, a.band, a.near, a.ant,
                            a.subdev, a.args)
+    # Two fields consumers want that are NOT modem options, so they must never
+    # enter `vals` (run_algo applies vals verbatim as configuration): the noise
+    # ACQ p95, which calibration_rx.sh needs to set its collection gate, and the
+    # survey's timestamp, so whoever adopts these values can say how old they are.
+    extra = {}
+    if path:
+        try:
+            with open(path) as fh:
+                _prof = json.load(fh)
+            v = (_prof.get("noise") or {}).get("acq_p95")
+            if v is not None:
+                extra["noise_acq_p95"] = v
+            if _prof.get("measured_utc"):
+                extra["measured_utc"] = _prof["measured_utc"]
+        except Exception:
+            pass
     if a.emit == "shell":
         # Consumed by `eval` in radio.sh: plain assignments only, no commands,
         # every value shell-quoted. Paths routinely contain spaces, and an
@@ -493,11 +509,14 @@ def main():
             print(f"PHY_PROFILE_WHY={shlex.quote(why)}")
             for k, v in vals.items():
                 print(f"PHY_{k.upper()}={shlex.quote(str(v))}")
+            for k, v in extra.items():
+                print(f"PHY_{k.upper()}={shlex.quote(str(v))}")
         else:
             print(f"PHY_PROFILE_WHY={shlex.quote(why)}")
         return 0
     if a.emit == "json":
-        print(json.dumps({"path": path, "why": why, "values": vals}, indent=2))
+        print(json.dumps({"path": path, "why": why, "values": vals,
+                          **({"extra": extra} if extra else {})}, indent=2))
         return 0
     if not path:
         print(f"[phy-profile] none: {why}")

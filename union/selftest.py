@@ -182,6 +182,26 @@ def _calibration_check():
                                 "output or computes the documented threshold")
 
 
+def _calibration_flag_check():
+    """calibration_rx.sh claims to adopt the survey's values (carrier, gain,
+    det-mult, noise p95) below anything typed. A value that quietly fails to
+    arrive just makes the calibration a little wrong, so walk each one."""
+    print(f"    {'calibration adopts profile':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(HERE, "test_calibration_flags.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) calibration adoption paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines()[:4]:
+        print(f"      {line}")
+    return ("calibration adoption", "a surveyed value no longer reaches "
+                                    "calibration_rx.sh, or a typed flag no longer wins")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -266,6 +286,10 @@ def main():
         failures.append(bad)
 
     bad = _calibration_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _calibration_flag_check()
     if bad:
         failures.append(bad)
 

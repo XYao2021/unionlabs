@@ -131,8 +131,12 @@ real preamble scores on *this* link, which no survey can contain. The calibratio
 measures it. The two machines need no network path between them — RF is the coordination.
 
 ```bash
-# on the RECEIVER, first (lowers the ACQ gate to just above the measured noise,
-# counts only CRC-passing bursts, writes the result into the PHY profile):
+# on the RECEIVER, first. A surveyed radio needs NO flags: the carrier, receive
+# gain, det-mult and noise floor all arrive from the profile prepare.sh
+# published (printed with the survey's age; anything you type still wins):
+./calibration_rx.sh
+
+# ...or name everything yourself on an unsurveyed radio:
 ./calibration_rx.sh --device n210 --addr 192.168.10.2 --freq 915e6
 
 # then on the TRANSMITTER — the receiver prints this exact line:

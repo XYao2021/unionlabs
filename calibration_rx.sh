@@ -3,6 +3,10 @@
 # it into this radio's PHY profile. Run this on the receiver FIRST; then start
 # calibration_tx.sh on the transmitting machine (it prints the exact line).
 #
+#   ./calibration_rx.sh                       # a surveyed radio needs no flags:
+#                                             # carrier, gain, det-mult and the
+#                                             # noise floor all come from the
+#                                             # profile prepare.sh published
 #   ./calibration_rx.sh --device n210 --addr 192.168.10.2 --freq 915e6
 #   ./calibration_rx.sh --device b210 --serial 30CD424 --freq 915e6 --target 60
 #
@@ -41,6 +45,7 @@ DEVICE="${DEVICE:-n210}"; ARGS="${ARGS:-}"; ADDR=""; SERIAL=""
 FREQ="${FREQ:-915e6}"; GAIN="${GAIN:-}"; SCHEME="${SCHEME:-QPSK}"
 RATE="${RATE:-2e6}"; SYM="${SYM:-1e6}"; SUBDEV="${SUBDEV:-}"; ANT="${ANT:-RX2}"
 TARGET="${TARGET:-40}"; TIMEOUT="${TIMEOUT:-300}"; NOISE=""; WRITE=1; DRY=0
+FREQ_SET=0    # a typed --freq names the band AND outranks the profile's carrier
 EXTRA=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -48,7 +53,7 @@ while [ $# -gt 0 ]; do
     --args)      ARGS="$2";    shift 2;;
     --addr)      ADDR="$2";    shift 2;;
     --serial)    SERIAL="$2";  shift 2;;
-    --freq)      FREQ="$2";    shift 2;;
+    --freq)      FREQ="$2"; FREQ_SET=1; shift 2;;
     --gain)      GAIN="$2";    shift 2;;
     --scheme)    SCHEME="$2";  shift 2;;
     --rate)      RATE="$2";    shift 2;;
@@ -75,33 +80,45 @@ esac
 [ -n "$SERIAL" ] && [ -z "$ARGS" ] && ARGS="serial=$SERIAL"
 [ -z "$ARGS" ]   && ARGS="$DEF_ARGS"
 [ -z "$SUBDEV" ] && SUBDEV="$DEF_SUBDEV"
-[ -z "$GAIN" ]   && GAIN="$DEF_GAIN"
 
-# ── noise p95: the profile's, unless the caller supplied one ──────────────────
-# The gate for the COLLECTION run comes from this: 1.3x the noise p95, so real
-# bursts print their peaks while noise mostly stays out. With no measurement the
-# gate falls back to 5 — collection still works, but the final threshold is
-# one-sided and says so.
-if [ -z "$NOISE" ]; then
-  NOISE="$(HERE="$HERE" FREQ="$FREQ" ANT="$ANT" SUBDEV="$SUBDEV" ARGS="$ARGS" \
-  python3 - <<'PY' 2>/dev/null || true
-import json, os, sys
-sys.path.insert(0, os.path.join(os.environ["HERE"], "union"))
-import phy_profile
-path, why = phy_profile.find(near_mhz=float(os.environ["FREQ"]) / 1e6,
-                             ant=os.environ.get("ANT"),
-                             subdev=os.environ.get("SUBDEV"),
-                             args=os.environ.get("ARGS"))
-if path:
-    v = (json.load(open(path)).get("noise") or {}).get("acq_p95")
-    if v is not None:
-        print(v)
-PY
-)"
+# ── adopt what prepare.sh measured ────────────────────────────────────────────
+# The survey published a PHY profile: carrier, receive gain, detector settings,
+# noise ACQ p95 — timestamped. Calibration is the follow-up measurement on the
+# same signal path, so it reads that file through the same resolver radio.sh
+# uses and joins the same chain: explicit flag > profile > built-in default.
+# Every adopted value is printed with the survey's age, because a default that
+# arrives from a file without saying so is worse than no default at all.
+PHY_PROFILE_PATH=""; PHY_PROFILE_WHY=""; PHY_FREQ=""; PHY_RX_GAIN=""
+PHY_DET_MULT=""; PHY_NOISE_ACQ_P95=""; PHY_MEASURED_UTC=""
+PROF_SEL=(--args "$ARGS" --subdev "$SUBDEV" --ant "$ANT")
+[ "$FREQ_SET" = 1 ] && \
+  PROF_SEL+=(--near "$(awk -v f="$FREQ" 'BEGIN{printf "%.6g", f/1e6}')")
+eval "$(python3 "$HERE/union/phy_profile.py" --emit shell "${PROF_SEL[@]}" 2>/dev/null || true)"
+PROF_EXTRA=(); APPLIED=()
+if [ -n "$PHY_PROFILE_PATH" ]; then
+  if [ "$FREQ_SET" = 0 ] && [ -n "$PHY_FREQ" ]; then
+    FREQ="${PHY_FREQ}e6"; APPLIED+=("freq=$FREQ")
+  fi
+  if [ -z "$GAIN" ] && [ -n "$PHY_RX_GAIN" ]; then
+    GAIN="$PHY_RX_GAIN"; APPLIED+=("rx-gain=$GAIN")
+  fi
+  [ -n "$PHY_DET_MULT" ] && { PROF_EXTRA+=(--det-mult "$PHY_DET_MULT")
+                              APPLIED+=("det-mult=$PHY_DET_MULT"); }
+  if [ -z "$NOISE" ] && [ -n "$PHY_NOISE_ACQ_P95" ]; then
+    NOISE="$PHY_NOISE_ACQ_P95"; APPLIED+=("noise-p95=$NOISE")
+  fi
+  [ ${#APPLIED[@]} -gt 0 ] && \
+    echo "[phy-profile] $(basename "$PHY_PROFILE_PATH")${PHY_MEASURED_UTC:+ (measured $PHY_MEASURED_UTC)}: ${APPLIED[*]}  (anything you typed still wins)"
 fi
+[ -z "$GAIN" ] && GAIN="$DEF_GAIN"
+
+# ── the collection gate: 1.3x the noise p95 ───────────────────────────────────
+# Low enough that every real burst prints its peak, high enough that noise
+# mostly stays out. With no measurement the gate falls back to 5 — collection
+# still works, but the final threshold is one-sided and says so.
 if [ -n "$NOISE" ]; then
   GATE="$(python3 -c "print(round(max(1.3 * float('$NOISE'), 3.0), 1))")"
-  echo "[calibrate] noise ACQ p95 $NOISE (from the profile) -> collection gate $GATE"
+  echo "[calibrate] noise ACQ p95 $NOISE -> collection gate $GATE"
 else
   GATE=5
   echo "[calibrate] no noise measurement found — run prepare.sh first for a"
@@ -119,14 +136,11 @@ cat <<TXT
 
 TXT
 
-# mktemp on macOS only expands TRAILING Xs, so derive both names from one base.
-BASE="$(mktemp /tmp/calibration-rx.XXXXXX)"
-LOG="$BASE.log"; RESULT="$BASE.json"
-: > "$LOG"
 CMD=("$BIN" --role rx --rx-args "$ARGS" --rx-subdev "$SUBDEV" --rx-ant "$ANT"
      --rx-freq "$FREQ" --rx-rate "$RATE" --tx-rate "$RATE" --symbol_rate "$SYM"
      --rx-gain "$GAIN" --scheme "$SCHEME" --waveform sc --fec true
      --bytes-length 125 --sync-threshold "$GATE"
+     ${PROF_EXTRA[@]+"${PROF_EXTRA[@]}"}
      --rx-idle-timeout 0 --stop-on-complete false)
 
 # Merge: a caller's option REPLACES our default for the same option (the modem
@@ -148,8 +162,13 @@ if [ ${#EXTRA[@]} -gt 0 ]; then
 fi
 
 echo ">> ${CMD[*]}"
-echo ">> receiver log: $LOG"
 [ "$DRY" = 1 ] && exit 0
+
+# mktemp on macOS only expands TRAILING Xs, so derive both names from one base.
+BASE="$(mktemp /tmp/calibration-rx.XXXXXX)"
+LOG="$BASE.log"; RESULT="$BASE.json"
+: > "$LOG"
+echo ">> receiver log: $LOG"
 
 "${CMD[@]}" >"$LOG" 2>&1 &
 RX_PID=$!
