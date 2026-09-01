@@ -14,6 +14,8 @@ For the layout and *why* it is shaped this way, see [`STRUCTURE.md`](STRUCTURE.m
 | `docs/HOW_TO_ADD_ALGORITHM.md` | The tutorial: write your own `app.py`, name your roles, link existing code. |
 | `run.sh` | Run an experiment over any PHY. Also `run.sh list` and `run.sh selftest`. |
 | `radio.sh` | Raw TX/RX on a USRP (B210 default; `--device n210\|x310`). |
+| `calibration_rx.sh` | Measures the true `--sync-threshold` on a real link (receiver half; writes the PHY profile). |
+| `calibration_tx.sh` | The transmitting half — run on the other machine; RF is the only coordination. |
 | `requirements.txt` | Python dependencies for everything that runs without a radio. |
 
 ## `algorithms/` — everything you run
@@ -105,7 +107,7 @@ run_pair(sink_arq(rx_args="serial=30CD3F7", scheme="QPSK", fec=True),
 ```
 ```python
 rx(rx_args="addr=192.168.20.2", rx_subdev="A:0", rx_freq=915e6,
-   rx_rate=2e6, tx_rate=2e6, symbol_rate=1e6, rx_gain=25, scheme="DQPSK").run()
+   rx_rate=2e6, tx_rate=2e6, symbol_rate=1e6, rx_gain=25, scheme="QPSK").run()
 ```
 
 **Channel sense / print-only / background**

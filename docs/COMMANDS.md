@@ -21,7 +21,7 @@ the air". **Start the receiver first**, then transmit.
 ```
 
 `radio.sh` fills in a working setup so these two lines are complete on their own:
-**915 MHz, DQPSK, single-carrier, 2 MS/s, 1 MSym/s, FEC on**, N210 gains tx/rx = 25/25
+**915 MHz, QPSK, single-carrier, 2 MS/s, 1 MSym/s, FEC on**, N210 gains tx/rx = 25/25
 (B210: 78/20). TX leaves the **TX/RX** port, RX listens on **RX2**.
 
 Two practical notes:
@@ -124,6 +124,26 @@ rig.
 
 ---
 
+## 1b. Calibrate the sync threshold on a real link
+
+`prepare.sh` is receive-only and says so: the true `--sync-threshold` depends on what a
+real preamble scores on *this* link, which no survey can contain. The calibration pair
+measures it. The two machines need no network path between them — RF is the coordination.
+
+```bash
+# on the RECEIVER, first (lowers the ACQ gate to just above the measured noise,
+# counts only CRC-passing bursts, writes the result into the PHY profile):
+./calibration_rx.sh --device n210 --addr 192.168.10.2 --freq 915e6
+
+# then on the TRANSMITTER — the receiver prints this exact line:
+./calibration_tx.sh --device b210 --serial 30CD424 --freq 915e6
+```
+
+The threshold is the geometric mean of the noise p95 and the weakest CRC-passing peak,
+clamped to `[1.3 x noise, 0.8 x weakest]` — never inside the noise cloud, never so high a
+weak-but-real burst is refused. `radio.sh` and `run.sh` pick the written value up on the
+next run; anything you type still wins over it.
+
 ## 2. Then change one thing at a time
 
 Every flag `radio.sh` accepts — this is the complete list. Anything not given falls back to
@@ -134,7 +154,7 @@ a default tuned over the air, so no command needs all of them.
 | `--device b210\|n210\|x310` | which model — picks the subdev, address and gains below | `b210` |
 | `--args <uhd args>` | which radio: `serial=…` (USB) or `addr=…` (Ethernet) | b210: auto-pick · n210: `addr=192.168.20.2` · x310: `addr=192.168.40.2` |
 | `--freq <Hz>` | carrier frequency | `915e6` |
-| `--scheme <NAME>` | `BPSK` `QPSK` `8-PSK` `16-QAM` `DBPSK` `DQPSK` `8-DPSK` | `DQPSK` |
+| `--scheme <NAME>` | `BPSK` `QPSK` `8-PSK` `16-QAM` `DBPSK` `DQPSK` `8-DPSK` | `QPSK` |
 | `--waveform sc\|ofdm` | single-carrier, or OFDM (64 subcarriers, CP 16) | `sc` |
 | `--gain <dB>` | TX or RX gain, whichever role is running | b210: tx 78 / rx 20 · n210 & x310: 25 / 25 |
 | `--rate <Hz>` | sample rate | `2e6` |
@@ -805,7 +825,7 @@ python3 marl_phy.py ber --attempts 20 --scheme DQPSK
 ```
 ```python
 from marl_phy import ber_probe
-rows = ber_probe(n=20, scheme="DQPSK")     # [{pre_fec, post_fec, crc}, ...]
+rows = ber_probe(n=20, scheme="QPSK")      # [{pre_fec, post_fec, crc}, ...]
 ```
 
 Note: **post-FEC > pre-FEC** means the raw BER exceeded the rate-½ code's ~11%

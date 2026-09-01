@@ -160,6 +160,28 @@ def _radio_flag_check():
     return ("radio.sh flags", "a radio.sh flag no longer overrides the wrapper default")
 
 
+def _calibration_check():
+    """The sync-threshold calibration's parser and formula, against a synthetic
+    receiver log. The modem's output format and the clamp math both live in
+    calibrate_sync.py; if either drifts, a calibration would quietly compute
+    nonsense from a healthy link — this catches that without radios."""
+    print(f"    {'sync calibration math':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(REPO, "drivers", "usrp",
+                                                     "python", "calibrate_sync.py"),
+                        "--self-test"], cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) scenarios checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} scenarios){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines()[-3:]:
+        print(f"      {line}")
+    return ("sync calibration", "calibrate_sync.py no longer parses the modem's "
+                                "output or computes the documented threshold")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -240,6 +262,10 @@ def main():
         failures.append(bad)
 
     bad = _topology_flag_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _calibration_check()
     if bad:
         failures.append(bad)
 

@@ -21,8 +21,9 @@
 # Two things this cannot settle, because no receive-only measurement contains
 # them: the TRANSMIT gain, which depends on the path loss between the radios, and
 # the true sync threshold, which depends on what a real preamble scores. Both
-# want a link test. The saved file marks the threshold as a placeholder when the
-# survey could not measure it.
+# want a link test — calibration_rx.sh (here) + calibration_tx.sh (on the other
+# machine) run that test and write the measured threshold back into this
+# profile. The saved file marks the threshold as a placeholder until then.
 #
 # The result is PUBLISHED by default, to the shared workspace, keyed by the
 # radio's serial. That is the point: run.sh and radio.sh read it back, so nobody

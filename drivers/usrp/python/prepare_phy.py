@@ -419,9 +419,9 @@ def main():
         print("[prepare] band too quiet to trigger noise ACQ — sync-threshold 15 "
               "is a PLACEHOLDER, not a measurement. It is only a floor: noise "
               "here never scored high enough to say where the real one is. What "
-              "a genuine preamble scores can only be seen once a link runs, so "
-              "check the [ACQ] peak on the first decode and raise this to sit "
-              "between that and the noise.")
+              "a genuine preamble scores can only be seen once a link runs — "
+              "calibration_rx.sh + calibration_tx.sh measure exactly that and "
+              "write the result back here.")
 
     # 4 · does the default link fit?
     fits = width >= DEFAULT_LINK_BW_MHZ

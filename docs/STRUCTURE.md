@@ -11,6 +11,8 @@ unionlabs/
 │   └── HOW_TO_ADD_ALGORITHM.md  the tutorial: write your own experiment
 ├── run.sh                   run an EXPERIMENT over any PHY (the uniform API)
 ├── radio.sh                 raw TX/RX on a USRP  (B210 default; --device n210|x310)
+├── calibration_rx.sh        measure the true sync threshold on a real link (RX half)
+├── calibration_tx.sh        ...and the transmitting half, on the other machine
 │
 ├── algorithms/         EVERYTHING YOU RUN — one folder per experiment, each with app.py.
 │   │                    Algorithms and worked applications live together here, so there is
