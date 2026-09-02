@@ -464,6 +464,12 @@ def main():
         "schema": 3,
         "node": a.node,
         "measured_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        # This survey is receive-only, so the radio it characterises is the
+        # RECEIVER of any link it takes part in. --args named that radio; recording
+        # the role here lets calibration read a searching/ file and know, without a
+        # separate reservation, which end this is. (A transmitter is never surveyed:
+        # its own noise says nothing about the link it will drive.)
+        "role": "rx",
         "radio": {"device": a.device, "args": a.args, "ant": a.rx_ant,
                   "subdev": subdev, "gain_db": a.gain, "band": a.band},
         # measured once, at the recommended carrier, and shared by every option

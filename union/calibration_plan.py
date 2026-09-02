@@ -187,12 +187,16 @@ def ready_path(plan_path):
                         "calibration-ready.json")
 
 
-def mark_ready(plan_path, note=""):
+def mark_ready(plan_path, link=None, note=""):
+    """The receiver calls this the moment it starts listening. It carries the
+    LINK the receiver settled on -- above all the carrier, which the receiver
+    took from its own survey -- so the transmitter reads the exact frequency to
+    match instead of anyone retyping it. link: {freq_hz, scheme, rate, sym}."""
     p = ready_path(plan_path)
     tmp = p + ".tmp"
     with open(tmp, "w") as fh:
         json.dump({"utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                   "note": note}, fh)
+                   "note": note, "link": link or {}}, fh)
     os.replace(tmp, p)
     return p
 
@@ -204,16 +208,23 @@ def clear_ready(plan_path):
         pass
 
 
-def ready_seen(plan_path, max_age_s=600):
+def read_ready(plan_path, max_age_s=600):
+    """The link the receiver published, or None if there is no FRESH ready flag.
+    Fresh only: a flag left by a past calibration must not launch this
+    transmitter into a receiver that is not up. os.path.getmtime is the wall
+    clock the writer stamped, close enough with a generous window."""
     p = ready_path(plan_path)
     try:
         rec = json.load(open(p))
     except Exception:
-        return False
-    # Fresh only: a flag left by a previous calibration must not launch this TX
-    # into a receiver that is not up. os.path.getmtime is the wall clock the
-    # writer stamped, close enough with a generous window.
-    return (time.time() - os.path.getmtime(p)) <= max_age_s
+        return None
+    if (time.time() - os.path.getmtime(p)) > max_age_s:
+        return None
+    return rec.get("link") or {}
+
+
+def ready_seen(plan_path, max_age_s=600):
+    return read_ready(plan_path, max_age_s) is not None
 
 
 # ── emit the plan as shell, so calibration.sh needs no JSON parsing ───────────
@@ -286,8 +297,9 @@ def _guess_device(radio):
     return None
 
 
-def build_plan(rx_serial, tx_serial, freq_hz, scheme, rate, sym,
-               rx_band=None, target=None, timeout=None, reps=None, inv=None):
+def build_plan(rx_serial, tx_serial, freq_hz=None, scheme="QPSK", rate=2e6,
+               sym=1e6, rx_band=None, target=None, timeout=None, reps=None,
+               inv=None):
     inv = inv if inv is not None else inventory()
 
     def side(serial):
@@ -303,11 +315,16 @@ def build_plan(rx_serial, tx_serial, freq_hz, scheme, rate, sym,
     rx = side(rx_serial)
     if rx_band:
         rx["band"] = rx_band
+    # freq_hz is deliberately optional: the reservation names the radios and the
+    # band, and the CARRIER comes from prepare.sh's survey of the receiver -- the
+    # quiet spot IT found. A pinned freq here is an override, not the norm.
+    link = {"scheme": scheme, "rate": float(rate), "sym": float(sym)}
+    if freq_hz is not None:
+        link["freq_hz"] = float(freq_hz)
     plan = {
         "schema": 1,
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "link": {"freq_hz": float(freq_hz), "scheme": scheme,
-                 "rate": float(rate), "sym": float(sym)},
+        "link": link,
         "rx": rx,
         "tx": side(tx_serial),
     }
@@ -354,6 +371,21 @@ def self_test():
     assert p["rx"]["addr"] == "192.168.20.2" and p["rx"]["device"] == "n210", p["rx"]
     assert p["tx"]["device"] == "b210" and "addr" not in p["tx"], p["tx"]
     assert p["rx"]["band"] == "vert900"
+    # freq is optional: a plan with no pinned carrier omits freq_hz
+    p2 = build_plan("3169C62", "30CD424", inv=inv)
+    assert "freq_hz" not in p2["link"], p2["link"]
+    assert p2["link"]["scheme"] == "QPSK"
+    # the ready flag carries the link the receiver settled on
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        pp = os.path.join(td, "calibration-plan.json")
+        assert read_ready(pp) is None                      # nothing yet
+        mark_ready(pp, link={"freq_hz": 902.5e6, "scheme": "QPSK"}, note="t")
+        got = read_ready(pp)
+        assert got and got["freq_hz"] == 902.5e6, got
+        assert ready_seen(pp) is True
+        os.utime(ready_path(pp), (time.time() - 700, time.time() - 700))
+        assert read_ready(pp) is None and ready_seen(pp) is False   # stale ignored
     # the parser reads real uhd_find_devices text
     sample = ("-- UHD Device 0\n"
               "--------------------------------------------------\n"
@@ -363,7 +395,7 @@ def self_test():
               "        type: usrp2\n")
     got = parse_find_devices(sample)
     assert got == [{"serial": "3169C62", "addr": "192.168.20.2", "type": "usrp2"}], got
-    print("calibration_plan self-test: 8 scenarios checked")
+    print("calibration_plan self-test: 11 scenarios checked")
     return 0
 
 
@@ -375,7 +407,8 @@ def main():
     ap.add_argument("--write", action="store_true", help="author the plan")
     ap.add_argument("--rx-serial")
     ap.add_argument("--tx-serial")
-    ap.add_argument("--freq", type=float, default=915e6)
+    ap.add_argument("--freq", type=float, default=None,
+                    help="pin the carrier; omit to let prepare.sh's survey choose it")
     ap.add_argument("--scheme", default="QPSK")
     ap.add_argument("--rate", type=float, default=2e6)
     ap.add_argument("--sym", type=float, default=1e6)

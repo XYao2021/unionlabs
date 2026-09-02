@@ -156,18 +156,24 @@ two halves by hand. Write one shared plan, then run the *same* command on each m
 works out its own role from the radios it can see.
 
 ```bash
-# once, anywhere (or hand-edit the file). Serials name the radios; addr/device
-# are filled in from what each session already published to the shared workspace:
-./calibration.sh --plan --rx-serial 3169C62 --tx-serial 30CD424 --freq 915e6 --band vert900
+# once (or hand-edit the file). Serials name the radios; addr/device are filled in
+# from what each session published to the shared workspace. The carrier is NOT
+# given here — it comes from the receiver's survey:
+./calibration.sh --plan --rx-serial 3169C62 --tx-serial 30CD424 --band vert900
 
 # then the identical line on BOTH machines:
 ./calibration.sh
 ```
 
-The receiver surveys itself if needed, starts listening, and writes a ready flag into
-`/workspace`; the transmitter waits for that flag before sending, so no burst is wasted.
-A single host that happens to hold both radios runs the whole link itself. Nobody's radio is
-ever driven remotely — the plan is a file that is read, never a command.
+The receiver surveys itself with `prepare.sh` if it has not already (that survey chooses the
+carrier — the quiet spot this receiver found), starts listening, and writes a ready flag into
+`/workspace` carrying the carrier it settled on. The transmitter waits for that flag, reads
+the carrier from it, and transmits to match — so the two ends cannot disagree on frequency and
+nobody retypes it. A single host holding both radios runs the whole link itself. Nobody's
+radio is ever driven remotely — the plan is a file that is read, never a command. The full
+chain is: reservation (names radios) → `prepare.sh` (finds the carrier, writes the survey
+under `searching/`) → `calibration.sh` (measures the sync threshold, writes it back) →
+`radio.sh`/`run.sh` (read the finished profile, defaulting anything the survey did not set).
 
 ## 2. Then change one thing at a time
 
