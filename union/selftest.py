@@ -182,6 +182,28 @@ def _calibration_check():
                                 "output or computes the documented threshold")
 
 
+def _calibration_plan_check():
+    """calibration_plan.py decides which end of a shared plan this session is,
+    from the radios it sees, and handshakes RX->TX through a file. Role
+    detection and the plan builder both live there; if either drifts, one
+    session calibrates the wrong radio or both stall. Radio-free self-test."""
+    print(f"    {'calibration plan roles':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(REPO, "union",
+                                                     "calibration_plan.py"),
+                        "--self-test"], cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) scenarios checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} scenarios){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines()[-3:]:
+        print(f"      {line}")
+    return ("calibration plan", "calibration_plan.py no longer detects roles or "
+                                "builds a plan correctly")
+
+
 def _calibration_flag_check():
     """calibration_rx.sh claims to adopt the survey's values (carrier, gain,
     det-mult, noise p95) below anything typed. A value that quietly fails to
@@ -290,6 +312,10 @@ def main():
         failures.append(bad)
 
     bad = _calibration_flag_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _calibration_plan_check()
     if bad:
         failures.append(bad)
 

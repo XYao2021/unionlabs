@@ -148,6 +148,27 @@ clamped to `[1.3 x noise, 0.8 x weakest]` — never inside the noise cloud, neve
 weak-but-real burst is refused. `radio.sh` and `run.sh` pick the written value up on the
 next run; anything you type still wins over it.
 
+### One command for both ends (`./calibration.sh`)
+
+When the two radios live in **separate, isolated sessions** — pods that cannot reach each
+other over the network but share `/workspace` — you do not have to run and coordinate the
+two halves by hand. Write one shared plan, then run the *same* command on each machine; each
+works out its own role from the radios it can see.
+
+```bash
+# once, anywhere (or hand-edit the file). Serials name the radios; addr/device
+# are filled in from what each session already published to the shared workspace:
+./calibration.sh --plan --rx-serial 3169C62 --tx-serial 30CD424 --freq 915e6 --band vert900
+
+# then the identical line on BOTH machines:
+./calibration.sh
+```
+
+The receiver surveys itself if needed, starts listening, and writes a ready flag into
+`/workspace`; the transmitter waits for that flag before sending, so no burst is wasted.
+A single host that happens to hold both radios runs the whole link itself. Nobody's radio is
+ever driven remotely — the plan is a file that is read, never a command.
+
 ## 2. Then change one thing at a time
 
 Every flag `radio.sh` accepts — this is the complete list. Anything not given falls back to

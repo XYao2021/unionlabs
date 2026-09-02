@@ -16,6 +16,7 @@ For the layout and *why* it is shaped this way, see [`STRUCTURE.md`](STRUCTURE.m
 | `radio.sh` | Raw TX/RX on a USRP (B210 default; `--device n210\|x310`). |
 | `calibration_rx.sh` | Measures the true `--sync-threshold` on a real link (receiver half; writes the PHY profile). |
 | `calibration_tx.sh` | The transmitting half — run on the other machine; RF is the only coordination. |
+| `calibration.sh` | One command run identically on both machines. Reads a shared plan (`calibration-plan.json`), matches its own radios by serial to work out RX/TX, and runs its half — coordinating through `/workspace`, never a network channel. |
 | `requirements.txt` | Python dependencies for everything that runs without a radio. |
 
 ## `algorithms/` — everything you run
