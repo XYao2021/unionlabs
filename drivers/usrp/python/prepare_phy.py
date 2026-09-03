@@ -41,6 +41,7 @@ quoted on the detector's scale.
 ready-to-paste run.sh / radio.sh flags and the topology "defaults" snippet.
 """
 import argparse
+import glob
 import json
 import math
 import os
@@ -240,6 +241,47 @@ def band_for(ident, band_map, default_band):
         if key and key in ident:
             return band, True
     return default_band, False
+
+
+def publish_profile(profile, d, node, band, subdev, ant, stamp):
+    """Write a survey to searching/ and supersede earlier surveys of the SAME
+    signal path. Returns (path_written, [paths_removed]).
+
+    Factored out of main() precisely so it can be exercised without a radio: the
+    write path runs only on real hardware, so a bug here (a missing import, say)
+    slips past every hardware-free test and first appears in a session at the end
+    of a several-minute survey. test_prepare_publish.py now walks it.
+
+    The filename carries the survey time so `ls` shows when each radio was last
+    measured; the folder still keeps ONE profile per path (the current one), so
+    the timestamped write removes prior surveys of this radio/band/subdev/ant,
+    the old un-stamped name included.
+    """
+    os.makedirs(d, exist_ok=True)
+
+    def _tag(x):
+        return re.sub(r"[^A-Za-z0-9]+", "", str(x)) or "x"
+
+    base = f"phy-{node}-{band}-{_tag(subdev)}-{_tag(ant)}"
+    path = os.path.join(d, f"{base}-{stamp}.json")
+    superseded = [q for q in
+                  glob.glob(os.path.join(d, f"{base}-*.json"))
+                  + [os.path.join(d, f"{base}.json")]
+                  if os.path.exists(q) and q != path]
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(profile, fh, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())         # a network share can lose a buffered write
+    os.replace(tmp, path)
+    removed = []
+    for q in superseded:
+        try:
+            os.remove(q)
+            removed.append(q)
+        except OSError:
+            pass
+    return path, removed
 
 
 def main():
@@ -510,36 +552,10 @@ def main():
         # antenna and the room do, so it does not belong in a folder whose
         # contents are expected to churn.
         d = os.environ.get("UNION_SETTINGS_DIR") or "/workspace/experiments/searching"
-        os.makedirs(d, exist_ok=True)
-        # The name identifies the physical thing that was measured: this radio,
-        # through this RF channel, on this connector, with this antenna. Keyed on
-        # the serial alone, a second survey silently replaced the first; keyed on
-        # serial+band, two same-band antennas on different ports still collided.
-        # Selection reads the record itself -- the name only has to be unique.
-        def _tag(x):
-            return re.sub(r"[^A-Za-z0-9]+", "", str(x)) or "x"
-        base = f"phy-{a.node}-{a.band}-{_tag(subdev)}-{_tag(a.rx_ant)}"
-        path = os.path.join(d, f"{base}-{stamp}.json")
-        # Supersede earlier surveys of this exact signal path: the timestamp keeps
-        # the name unique, but a folder should still hold ONE profile per path (the
-        # current one), not a pile. The old un-stamped name is removed too. The
-        # resolver would pick the newest regardless; this keeps the folder honest.
-        superseded = [q for q in
-                      glob.glob(os.path.join(d, f"{base}-*.json"))
-                      + [os.path.join(d, f"{base}.json")]
-                      if os.path.exists(q) and q != path]
-        tmp = path + ".tmp"
-        with open(tmp, "w") as fh:
-            json.dump(profile, fh, indent=2)
-            fh.flush()
-            os.fsync(fh.fileno())     # a network share can lose a buffered write
-        os.replace(tmp, path)
+        path, superseded = publish_profile(profile, d, a.node, a.band, subdev,
+                                           a.rx_ant, stamp)
         for q in superseded:
-            try:
-                os.remove(q)
-                print(f"[prepare] superseded earlier survey: {os.path.basename(q)}")
-            except OSError:
-                pass
+            print(f"[prepare] superseded earlier survey: {os.path.basename(q)}")
 
         # Prove it landed. os.replace returning is not evidence the bytes are on
         # the share: report what is actually readable at the path, and where that

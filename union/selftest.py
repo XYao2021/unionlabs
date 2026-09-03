@@ -182,6 +182,26 @@ def _calibration_check():
                                 "output or computes the documented threshold")
 
 
+def _prepare_publish_check():
+    """prepare.sh's profile WRITE path runs only on hardware, so a bug in it (a
+    missing import glob, which shipped) first appears in a session after a long
+    survey, with the measurement lost. Exercise it here with no radio."""
+    print(f"    {'prepare write path':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(HERE, "test_prepare_publish.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) prepare-publish paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines()[-4:]:
+        print(f"      {line}")
+    return ("prepare write path", "prepare_phy's profile write path no longer runs "
+                                  "cleanly (import, filename, or supersede)")
+
+
 def _profile_resolve_check():
     """The PHY-profile resolver: timestamped surveys mean a radio can have several
     files for one signal path, and the newest must win without turning a genuine
@@ -341,6 +361,10 @@ def main():
         failures.append(bad)
 
     bad = _profile_resolve_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _prepare_publish_check()
     if bad:
         failures.append(bad)
 
