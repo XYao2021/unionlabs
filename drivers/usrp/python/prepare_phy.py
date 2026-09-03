@@ -36,9 +36,12 @@ gain. Measured here at one --gain, the remainder is a number in the profile
 so is immune to the offset; an absolute --energy_threshold is not, and must be
 quoted on the detector's scale.
 
---write publishes the profile to searching/phy-<key>-<band>-<subdev>-<ant>.json
-(the same shared folder the node records live in), and every run prints the
-ready-to-paste run.sh / radio.sh flags and the topology "defaults" snippet.
+--write publishes the profile to
+searching/phy-<key>-<band>-<subdev>-<ant>-<local-time>.json (the same shared
+folder the node records live in) -- the local wall-clock time is in the name so
+`ls` shows when each radio was surveyed; a re-survey of the same path supersedes
+the prior file. Every run prints the ready-to-paste run.sh / radio.sh flags and
+the topology "defaults" snippet.
 """
 import argparse
 import glob
@@ -241,6 +244,27 @@ def band_for(ident, band_map, default_band):
         if key and key in ident:
             return band, True
     return default_band, False
+
+
+def survey_timestamps(epoch=None):
+    """(measured_utc, measured_local, filename_stamp) for a survey, all from one
+    instant so they never disagree.
+
+    The filename and the local string are LOCAL time (honouring $TZ), so the name
+    reads as the wall clock the operator sees -- inside a container that means
+    `export TZ=America/New_York` (or their zone) once, else it shows the
+    container's clock, which is UTC. measured_utc stays ISO-UTC, because the
+    resolver sorts surveys by it and a machine must not depend on a local zone.
+
+        filename:  2026-09-02_23-45-00     (dashes: no colon/slash/space)
+        local:     2026-09-02 23:45:00 EDT
+        utc:       2026-09-03T03:45:00Z
+    """
+    epoch = time.time() if epoch is None else epoch
+    utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+    local = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(epoch)).strip()
+    stamp = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(epoch))
+    return utc, local, stamp
 
 
 def publish_profile(profile, d, node, band, subdev, ant, stamp):
@@ -502,14 +526,15 @@ def main():
               f"(--max-options to keep more); dropped: "
               + ", ".join(f"{r['carrier_mhz']:g} MHz" for r in regions[len(keep):]))
 
-    # One timestamp for both the record and its filename, so they never disagree.
-    _ts = time.gmtime()
-    measured_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", _ts)   # human, inside the file
-    stamp = time.strftime("%Y%m%dT%H%M%SZ", _ts)              # filename-safe (no colons)
+    # One instant for the record and its filename, so they never disagree. The
+    # filename carries LOCAL wall-clock time (see survey_timestamps); UTC stays
+    # in the record for the resolver to sort on.
+    measured_utc, measured_local, stamp = survey_timestamps()
     profile = {
         "schema": 3,
         "node": a.node,
         "measured_utc": measured_utc,
+        "measured_local": measured_local,
         # This survey is receive-only, so the radio it characterises is the
         # RECEIVER of any link it takes part in. --args named that radio; recording
         # the role here lets calibration read a searching/ file and know, without a
@@ -574,6 +599,7 @@ def main():
                   file=sys.stderr)
         print(f"\n[prepare] profile published: {path} — visible to every "
               f"session of the account, on every testbed")
+        print(f"[prepare] surveyed at {measured_local} ({measured_utc})")
 
         # Read it back the way run.sh and radio.sh will. Writing a file and
         # announcing success proves only that a write succeeded; it does not

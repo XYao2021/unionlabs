@@ -34,6 +34,25 @@ def main():
                       "subdev": "A:0", "gain_db": 25, "band": "vert2450"},
             "noise": {"acq_p95": 6.2}, "det_mult": 30.0, "options": []}
 
+    # the timestamp helper: one instant, readable local name, ISO-UTC record.
+    # Pin TZ=UTC so the assertion is deterministic wherever this runs.
+    _tz = os.environ.get("TZ")
+    os.environ["TZ"] = "UTC"
+    try:
+        import time as _time
+        _time.tzset()
+        utc, local, stamp = prepare_phy.survey_timestamps(epoch=1788138300)  # 2026-... fixed
+        check("utc is ISO-Z", utc.endswith("Z") and "T" in utc, True)
+        check("stamp has no colon/space", (":" not in stamp) and (" " not in stamp), True)
+        check("stamp is readable date", stamp[:10], utc[:10])   # same Y-M-D at UTC
+        check("local carries a zone or time", len(local) >= 19, True)
+    finally:
+        if _tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = _tz
+        import time as _t2; _t2.tzset()
+
     with tempfile.TemporaryDirectory() as d:
         # first survey: file created, timestamped name, nothing superseded
         p1, rm1 = prepare_phy.publish_profile(prof, d, "327D82F", "vert2450",
