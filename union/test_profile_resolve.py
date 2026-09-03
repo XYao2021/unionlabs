@@ -80,6 +80,43 @@ def main():
             else:
                 os.environ["UNION_SETTINGS_DIR"] = orig
 
+    # A network radio is FILED under its serial (node_key prefers it) but a run
+    # ADDRESSES it by addr, so the filename key and the query identifier differ.
+    # Resolution must still find it, by reading the record. This is the case that
+    # shipped broken: the profile was written and then "nothing resolves it back".
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["UNION_SETTINGS_DIR"] = d
+
+        def _addr(band, carrier, utc, stamp):
+            prof = _profile(band, carrier, utc)
+            prof["radio"]["args"] = "addr=192.168.30.2"    # addressed by addr...
+            p = os.path.join(d, f"phy-327D82F-{band}-A0-RX2-{stamp}.json")  # ...filed by serial
+            with open(p, "w") as fh:
+                json.dump(prof, fh)
+            return p
+
+        try:
+            p24 = _addr("vert2450", 2410.0, "2026-09-02T00:00:00Z", "20260902T000000Z")
+            p5g = _addr("vert2450-5g", 5425.0, "2026-09-03T03:24:47Z", "20260903T032447Z")
+            # addr + band -> the serial-named file for that band
+            _, path, why = phy_profile.load(args="addr=192.168.30.2", band="vert2450-5g")
+            check("addr finds serial-named file", path, p5g)
+            check("by-record why", "by record" in (why or ""), True)
+            # addr + freq -> the band that covers it
+            _, path, _ = phy_profile.load(args="addr=192.168.30.2", near_mhz=5425)
+            check("addr+freq disambiguates band", path, p5g)
+            _, path, _ = phy_profile.load(args="addr=192.168.30.2", near_mhz=2410)
+            check("addr+freq other band", path, p24)
+            # addr alone, two bands -> genuine ambiguity, refuse (do not guess)
+            _, path, why = phy_profile.load(args="addr=192.168.30.2")
+            check("addr alone across bands refuses", path, None)
+            check("refusal names radio", "match this radio" in (why or ""), True)
+        finally:
+            if orig is None:
+                os.environ.pop("UNION_SETTINGS_DIR", None)
+            else:
+                os.environ["UNION_SETTINGS_DIR"] = orig
+
     if failures:
         print(f"  {failures} of {checked} profile-resolution paths FAILED")
         return 1

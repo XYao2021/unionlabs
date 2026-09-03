@@ -584,7 +584,12 @@ def main():
             sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
                 os.path.dirname(os.path.abspath(__file__))))))
             from union import phy_profile as pp
-            vals, found, why = pp.load()
+            # Resolve it the way radio.sh and run.sh will: by the radio's own
+            # args and connector and the recommended carrier -- NOT bare, which
+            # cannot tell two of this radio's bands apart and cannot find a
+            # serial-named file when the radio is addressed by addr.
+            vals, found, why = pp.load(args=a.args, band=a.band, subdev=subdev,
+                                       ant=a.rx_ant, near_mhz=carrier)
             if found and os.path.samefile(found, path):
                 print(f"[prepare] verified: run.sh and radio.sh resolve this "
                       f"profile ({why}) — "

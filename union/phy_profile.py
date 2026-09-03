@@ -196,6 +196,49 @@ def _ident_of(args):
     return str(args).strip() or None
 
 
+def _keeps(h, field, value):
+    """A record that does not MENTION a field cannot contradict it. Profiles
+    written before a field existed simply say nothing about it, and treating
+    silence as a mismatch made every one of them unreadable the moment radio.sh
+    started passing --args."""
+    have = _meta(h).get(field)
+    if have is None:
+        return True
+    if field == "args":
+        return _ident_of(have) == _ident_of(value)
+    return str(have) == str(value)
+
+
+def _sigpath(h):
+    m = _meta(h)
+    return (m.get("band"), m.get("subdev"), m.get("ant"))
+
+
+def _newest(files):
+    return max(files, key=lambda h: (_meta(h).get("measured_utc") or "",
+                                     os.path.basename(h)))
+
+
+def _record_idents(h):
+    """Every identifier a query might legitimately name this record by: its node
+    key, its serial, and the ident of the args it was measured with. A network
+    radio is FILED under its serial (node_key prefers it) but ADDRESSED by its
+    addr, so the filename key and the caller's identifier differ by design -- and
+    resolution has to match on what the record SAYS, not only on the filename."""
+    try:
+        with open(h) as fh:
+            prof = json.load(fh)
+    except Exception:
+        return set()
+    out = set()
+    for v in (prof.get("node"), prof.get("serial"),
+              _ident_of((prof.get("radio") or {}).get("args"))):
+        if v:
+            out.add(str(v))
+            out.add(str(v).replace(".", "-"))
+    return out
+
+
 def find(node=None, band=None, near_mhz=None, ant=None, subdev=None, args=None):
     """-> (path, why) or (None, why-not). $UNION_PHY_PROFILE wins outright.
 
@@ -231,25 +274,12 @@ def find(node=None, band=None, near_mhz=None, ant=None, subdev=None, args=None):
         if not hits:
             continue
 
-        # A record that does not MENTION a field cannot contradict it. Profiles
-        # written before a field existed simply say nothing about it, and
-        # treating silence as a mismatch made every one of them unreadable the
-        # moment radio.sh started passing --args: the profile was found by key
-        # and then thrown away for not answering a question it predates.
-        def keeps(h, field, value):
-            have = _meta(h).get(field)
-            if have is None:
-                return True
-            if field == "args":
-                return _ident_of(have) == _ident_of(value)
-            return str(have) == str(value)
-
         narrowed, applied = hits, []
         for field, value in (("band", band), ("subdev", subdev), ("ant", ant),
                              ("args", args)):
             if not value:
                 continue
-            sel = [h for h in narrowed if keeps(h, field, value)]
+            sel = [h for h in narrowed if _keeps(h, field, value)]
             if not sel:
                 return None, (f"no profile for {key} with {field}={value} — measured: "
                               + "; ".join(sorted(_describe(h) for h in narrowed)))
@@ -265,13 +295,8 @@ def find(node=None, band=None, near_mhz=None, ant=None, subdev=None, args=None):
         # the name makes them accumulate -- so the newest measurement wins. Only
         # genuinely different paths (a radio surveyed on two bands, say) still
         # need the caller to narrow.
-        def _sigpath(h):
-            m = _meta(h)
-            return (m.get("band"), m.get("subdev"), m.get("ant"))
         if len({_sigpath(h) for h in narrowed}) == 1:
-            newest = max(narrowed, key=lambda h: (_meta(h).get("measured_utc") or "",
-                                                  os.path.basename(h)))
-            return newest, (f"matched {key}, newest of {len(narrowed)} surveys"
+            return _newest(narrowed), (f"matched {key}, newest of {len(narrowed)} surveys"
                             + (f" ({', '.join(applied)})" if applied else ""))
         if near_mhz is not None:
             covering = [h for h in narrowed if _covers(h, near_mhz)]
@@ -284,6 +309,33 @@ def find(node=None, band=None, near_mhz=None, ant=None, subdev=None, args=None):
                         "inside the band you want")
 
     found = [p for d in searched for p in sorted(glob.glob(os.path.join(d, "phy-*.json")))]
+
+    # No filename key matched -- legitimate when a radio is filed under its serial
+    # but addressed by its addr. Match on what each record says it measured, then
+    # narrow exactly as the key path does.
+    if found and (ident or band or subdev or ant):
+        sel = found
+        if ident:
+            sel = [h for h in sel if ident in _record_idents(h)
+                   or ident.replace(".", "-") in _record_idents(h)]
+        for field, value in (("band", band), ("subdev", subdev), ("ant", ant)):
+            if value:
+                sel = [h for h in sel if _keeps(h, field, value)]
+        if len(sel) == 1:
+            return sel[0], "matched by record (filed under a different key)"
+        if sel:
+            if len({_sigpath(h) for h in sel}) == 1:
+                return _newest(sel), f"matched by record, newest of {len(sel)} surveys"
+            if near_mhz is not None:
+                cov = [h for h in sel if _covers(h, near_mhz)]
+                if len(cov) == 1:
+                    return cov[0], (f"matched by record, the only setup covering "
+                                    f"{float(near_mhz):g} MHz")
+            return None, (f"{len(sel)} profiles match this radio ("
+                          + "; ".join(sorted(_describe(h) for h in sel))
+                          + ") — narrow with --band / --ant / --subdev, or a --freq "
+                            "inside the band you want")
+
     if len(found) == 1:
         return found[0], "the only profile present (no key matched this node)"
     if found:
