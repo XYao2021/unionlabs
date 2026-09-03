@@ -156,7 +156,8 @@ def _meta(path):
             "subdev": r.get("subdev") or prof.get("rx_subdev"),
             "ant":    r.get("ant")    or prof.get("rx_ant"),
             "args":   r.get("args")   or prof.get("args"),
-            "node":   prof.get("node")}
+            "node":   prof.get("node"),
+            "measured_utc": prof.get("measured_utc")}
 
 
 def _describe(path):
@@ -259,6 +260,19 @@ def find(node=None, band=None, near_mhz=None, ant=None, subdev=None, args=None):
         if len(narrowed) == 1:
             return narrowed[0], (f"matched {key}"
                                  + (f" ({', '.join(applied)})" if applied else ""))
+        # Several survived. Re-surveys of the SAME signal path (same band, RF
+        # channel and connector) are history, not ambiguity -- the timestamp in
+        # the name makes them accumulate -- so the newest measurement wins. Only
+        # genuinely different paths (a radio surveyed on two bands, say) still
+        # need the caller to narrow.
+        def _sigpath(h):
+            m = _meta(h)
+            return (m.get("band"), m.get("subdev"), m.get("ant"))
+        if len({_sigpath(h) for h in narrowed}) == 1:
+            newest = max(narrowed, key=lambda h: (_meta(h).get("measured_utc") or "",
+                                                  os.path.basename(h)))
+            return newest, (f"matched {key}, newest of {len(narrowed)} surveys"
+                            + (f" ({', '.join(applied)})" if applied else ""))
         if near_mhz is not None:
             covering = [h for h in narrowed if _covers(h, near_mhz)]
             if len(covering) == 1:

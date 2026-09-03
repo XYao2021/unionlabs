@@ -460,10 +460,14 @@ def main():
               f"(--max-options to keep more); dropped: "
               + ", ".join(f"{r['carrier_mhz']:g} MHz" for r in regions[len(keep):]))
 
+    # One timestamp for both the record and its filename, so they never disagree.
+    _ts = time.gmtime()
+    measured_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", _ts)   # human, inside the file
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", _ts)              # filename-safe (no colons)
     profile = {
         "schema": 3,
         "node": a.node,
-        "measured_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "measured_utc": measured_utc,
         # This survey is receive-only, so the radio it characterises is the
         # RECEIVER of any link it takes part in. --args named that radio; recording
         # the role here lets calibration read a searching/ file and know, without a
@@ -514,14 +518,28 @@ def main():
         # Selection reads the record itself -- the name only has to be unique.
         def _tag(x):
             return re.sub(r"[^A-Za-z0-9]+", "", str(x)) or "x"
-        path = os.path.join(
-            d, f"phy-{a.node}-{a.band}-{_tag(subdev)}-{_tag(a.rx_ant)}.json")
+        base = f"phy-{a.node}-{a.band}-{_tag(subdev)}-{_tag(a.rx_ant)}"
+        path = os.path.join(d, f"{base}-{stamp}.json")
+        # Supersede earlier surveys of this exact signal path: the timestamp keeps
+        # the name unique, but a folder should still hold ONE profile per path (the
+        # current one), not a pile. The old un-stamped name is removed too. The
+        # resolver would pick the newest regardless; this keeps the folder honest.
+        superseded = [q for q in
+                      glob.glob(os.path.join(d, f"{base}-*.json"))
+                      + [os.path.join(d, f"{base}.json")]
+                      if os.path.exists(q) and q != path]
         tmp = path + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(profile, fh, indent=2)
             fh.flush()
             os.fsync(fh.fileno())     # a network share can lose a buffered write
         os.replace(tmp, path)
+        for q in superseded:
+            try:
+                os.remove(q)
+                print(f"[prepare] superseded earlier survey: {os.path.basename(q)}")
+            except OSError:
+                pass
 
         # Prove it landed. os.replace returning is not evidence the bytes are on
         # the share: report what is actually readable at the path, and where that
