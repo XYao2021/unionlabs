@@ -39,6 +39,7 @@ PLAN_ARGS=(); PASS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --plan)          MODE=plan; shift;;
+    --show-reservation) exec python3 "$HERE/union/calibration_plan.py" --show-reservation;;
     --role)          MODE=role; shift;;
     --wait-timeout)  WAIT_TIMEOUT="$2"; shift 2;;
     --dry-run)       DRY=1; shift;;
@@ -51,7 +52,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$MODE" = plan ]; then
-  exec python3 "$PLANNER" --write "${PLAN_ARGS[@]}"
+  exec python3 "$PLANNER" --write ${PLAN_ARGS[@]+"${PLAN_ARGS[@]}"}
 fi
 
 # Resolve this session's role and the link parameters in one shot.

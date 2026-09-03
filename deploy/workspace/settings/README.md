@@ -67,3 +67,30 @@ discover-node.py --once --node-id n1 --role tx
 
 The session hook starts the daemon automatically; run it by hand only to re-probe
 immediately (for example right after a radio is attached).
+
+## reservation.json — what SHOULD be here (authored, not generated)
+
+Every file above is *generated* by a live session. `reservation.json` is the exception:
+it is **hand-authored**, and it is the top of the PHY pipeline. Copy the template and fill it:
+
+```bash
+cp deploy/workspace/settings/reservation.template.json \
+   /workspace/experiments/settings/reservation.json
+# edit it: your reserved radios, each with role rx or tx
+./calibration.sh --show-reservation      # read it back
+```
+
+It exists because the *transmitter is never surveyed* — a receive-only survey says nothing
+about a TX — so nothing discovers it. The reservation is the one place a TX radio is named.
+
+```
+reservation.json  ->  prepare.sh --args <rx>   surveys the receiver, picks the carrier
+                  ->  calibration.sh --plan     reads the rx/tx serials from here
+                  ->  calibration.sh            measures the sync threshold
+                  ->  radio.sh / run.sh         read the finished profile
+```
+
+`./calibration.sh --plan` with no `--rx-serial`/`--tx-serial` fills them from this file, so
+once it is filled you never retype the serials. It is manually maintained until the testbed's
+reservation feed populates it; an unfilled template (values still in `<…>`) is ignored, not
+accepted. `reserved_local` is a note to yourself of when you last edited it — not load-bearing.

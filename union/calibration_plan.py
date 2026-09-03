@@ -44,6 +44,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEARCH = ("$UNION_SETTINGS_DIR", "/workspace/experiments/settings",
           os.path.join(REPO, "deploy", "workspace", "settings"))
 PLAN = "calibration-plan.json"
+RESERVATION = "reservation.json"
 
 
 def dirs():
@@ -86,6 +87,46 @@ def load_plan():
             return json.load(fh), p, None
     except Exception as e:
         return None, p, f"{p}: {e}"
+
+
+# ── the reservation: what SHOULD be here (hand-authored, names the TX) ────────
+def load_reservation():
+    """(reservation, path, why). The hand-authored list of reserved devices --
+    NOT the generated <node>.json inventory. It says what SHOULD be here, which
+    is the only place the TX radio (never surveyed) is named. Manually maintained
+    until the testbed's reservation feed populates it; the template is
+    deploy/workspace/settings/reservation.template.json."""
+    for d in dirs():
+        p = os.path.join(d, RESERVATION)
+        if os.path.exists(p):
+            try:
+                return json.load(open(p)), p, None
+            except Exception as e:
+                return None, p, f"{p}: {e}"
+    return None, None, ("no reservation.json — copy "
+                        "deploy/workspace/settings/reservation.template.json to "
+                        "/workspace/experiments/settings/reservation.json and fill it in")
+
+
+def reserved_serial(resv, role):
+    """The serial reserved for `role` (rx/tx), or None. addr is accepted as a
+    fallback identifier for a radio with no serial listed."""
+    for dev in (resv.get("devices") or []):
+        if str(dev.get("role", "")).strip().lower() == role:
+            s = dev.get("serial") or dev.get("addr")
+            s = str(s or "").strip()
+            # ignore an unfilled template placeholder like "<rx radio serial...>"
+            if s and not s.startswith("<"):
+                return s
+    return None
+
+
+def reserved_band(resv, role):
+    for dev in (resv.get("devices") or []):
+        if str(dev.get("role", "")).strip().lower() == role:
+            b = str(dev.get("band") or "").strip()
+            return b if b and not b.startswith("<") else None
+    return None
 
 
 # ── this node's radios ────────────────────────────────────────────────────────
@@ -395,7 +436,27 @@ def self_test():
               "        type: usrp2\n")
     got = parse_find_devices(sample)
     assert got == [{"serial": "3169C62", "addr": "192.168.20.2", "type": "usrp2"}], got
-    print("calibration_plan self-test: 11 scenarios checked")
+    # reservation: reads roles, ignores unfilled template placeholders
+    resv = {"devices": [
+        {"role": "rx", "serial": "327D82F", "addr": "192.168.30.2", "band": "vert2450-5g"},
+        {"role": "tx", "serial": "30CD424"}]}
+    assert reserved_serial(resv, "rx") == "327D82F"
+    assert reserved_serial(resv, "tx") == "30CD424"
+    assert reserved_band(resv, "rx") == "vert2450-5g"
+    assert reserved_serial(resv, "relay") is None
+    tmpl = {"devices": [{"role": "rx", "serial": "<rx radio serial, e.g. 327D82F>",
+                         "band": "<vert900 | ism915>"}]}
+    assert reserved_serial(tmpl, "rx") is None, "placeholder must be ignored"
+    assert reserved_band(tmpl, "rx") is None
+    # the shipped template parses and is a real template (placeholders, both roles)
+    tpath = os.path.join(REPO, "deploy", "workspace", "settings",
+                         "reservation.template.json")
+    tj = json.load(open(tpath))
+    roles = {str(d.get("role", "")).lower() for d in tj.get("devices", [])}
+    assert {"rx", "tx"} <= roles, roles
+    assert reserved_serial(tj, "rx") is None, "template rx must be a placeholder"
+
+    print("calibration_plan self-test: 16 scenarios checked")
     return 0
 
 
@@ -416,17 +477,46 @@ def main():
     ap.add_argument("--target", type=int, default=None)
     ap.add_argument("--timeout", type=float, default=None)
     ap.add_argument("--reps", type=int, default=None)
+    ap.add_argument("--show-reservation", action="store_true",
+                    help="print the reserved devices (reservation.json)")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
 
     if a.self_test:
         return self_test()
 
+    if a.show_reservation:
+        resv, path, why = load_reservation()
+        if not resv:
+            print(f"[reservation] {why}")
+            return 1
+        rl = str(resv.get("reserved_local") or "")
+        print(f"[reservation] {path}"
+              + (f"   reserved {rl}" if rl and not rl.startswith("<") else ""))
+        for dev in (resv.get("devices") or []):
+            print(f"    {str(dev.get('role','?')).lower():3s}  {dev.get('serial')}"
+                  f"  {dev.get('addr') or ''}  {dev.get('type') or ''}"
+                  f"  {('band ' + dev['band']) if dev.get('band') else ''}")
+        return 0
+
     if a.write:
-        if not a.rx_serial or not a.tx_serial:
-            ap.error("--write needs --rx-serial and --tx-serial")
-        plan = build_plan(a.rx_serial, a.tx_serial, a.freq, a.scheme, a.rate,
-                          a.sym, rx_band=a.band, target=a.target,
+        rx_serial, tx_serial, band = a.rx_serial, a.tx_serial, a.band
+        # Fall back to the reservation for anything not typed: it is the authored
+        # list of reserved devices, and the only place the TX is named.
+        if not rx_serial or not tx_serial:
+            resv, rpath, why = load_reservation()
+            if resv:
+                rx_serial = rx_serial or reserved_serial(resv, "rx")
+                tx_serial = tx_serial or reserved_serial(resv, "tx")
+                band = band or reserved_band(resv, "rx")
+                if rx_serial and tx_serial:
+                    print(f"[calibration-plan] rx/tx from {rpath}")
+            if not rx_serial or not tx_serial:
+                ap.error("--write needs --rx-serial and --tx-serial, or a filled "
+                         "reservation.json naming an rx and a tx device "
+                         + (f"({why})" if not resv else "(roles rx/tx not both set)"))
+        plan = build_plan(rx_serial, tx_serial, a.freq, a.scheme, a.rate,
+                          a.sym, rx_band=band, target=a.target,
                           timeout=a.timeout, reps=a.reps)
         p = write_plan(plan)
         print(f"[calibration-plan] wrote {p}")

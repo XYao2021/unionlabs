@@ -1,0 +1,41 @@
+{
+  "_README": [
+    "Reserved devices for this account — the radios you have been allocated.",
+    "MANUALLY maintained: the testbed's reservation feed does not populate this",
+    "yet, so copy this file to /workspace/experiments/settings/reservation.json",
+    "and fill in your radios. Update reserved_local whenever you edit it.",
+    "",
+    "This is the TOP of the PHY pipeline:",
+    "  reservation (this file)",
+    "    -> prepare.sh --args <rx addr/serial>   surveys the RECEIVER, picks the carrier",
+    "    -> calibration.sh --plan                reads the rx/tx serials from here",
+    "    -> calibration.sh                       measures the sync threshold",
+    "    -> radio.sh / run.sh                    read the finished profile.",
+    "",
+    "Unlike the GENERATED <node>.json inventory in this folder (what each session",
+    "actually sees), this file is AUTHORED: it says what SHOULD be here — which is",
+    "how the TX radio, never surveyed, gets named at all. Match a device by its",
+    "serial (stable) or addr; role is rx (the one that gets surveyed) or tx."
+  ],
+  "schema": 1,
+  "reserved_local": "2026-09-02 20:00:00 EDT   <- set to when you last edited this",
+  "site": "<your site or testbed name>",
+  "devices": [
+    {
+      "type": "X310",
+      "serial": "<rx radio serial, e.g. 327D82F>",
+      "addr": "<rx network radio IP, e.g. 192.168.30.2, or null for USB>",
+      "role": "rx",
+      "band": "<vert900 | ism915 | vert2450 | vert2450-5g>",
+      "note": "receiver — prepare.sh surveys this one"
+    },
+    {
+      "type": "B210",
+      "serial": "<tx radio serial, e.g. 30CD424>",
+      "addr": null,
+      "role": "tx",
+      "band": null,
+      "note": "transmitter — never surveyed (a receive-only survey says nothing about a TX)"
+    }
+  ]
+}
