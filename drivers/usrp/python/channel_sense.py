@@ -48,7 +48,10 @@ _LINE = re.compile(
     r"power=([-\d.eE+]+) window_ms=([-\d.]+) samples=(\d+)")
 
 # Defaults match the validated RX radio; override per call.
-_DEF = dict(rx_args="serial=30CD3F7", rx_freq=915e6, rx_rate=1.6e6, rx_gain=30)
+# rx_rate must be master_clock/N on a fixed-clock radio. 1.5625 MSps = 100/64
+# (N210) = 200/128 (X310), so it is exact on both; 1.6 MSps is 200/125 (X310 ok)
+# but 100/62.5 (N210 CANNOT), which made every N210 survey abort. B210 is flexible.
+_DEF = dict(rx_args="serial=30CD3F7", rx_freq=915e6, rx_rate=1.5625e6, rx_gain=30)
 
 
 def _run_sense(window_ms, count, threshold_db, binary=None, **radio):

@@ -39,13 +39,15 @@ BANDS = {
 }
 
 
-def survey(freqs_mhz, window_ms, gain, args, ant, subdev, binary=None):
+def survey(freqs_mhz, window_ms, gain, args, ant, subdev, binary=None, rx_rate=None):
     rows = []
     t0 = time.time()
     consecutive_fail = 0
     for i, f in enumerate(freqs_mhz):
         radio = dict(rx_args=args, rx_freq=f * 1e6, rx_gain=gain,
                      rx_ant=ant, rx_subdev=subdev)
+        if rx_rate is not None:
+            radio["rx_rate"] = rx_rate
         if binary:
             radio["binary"] = binary
         try:

@@ -323,6 +323,10 @@ def main():
                     help="how many usable carriers to save (default 3). Each is a "
                          "complete parameter combination; the widest is recommended.")
     ap.add_argument("--dwell-windows", type=int, default=100)
+    ap.add_argument("--rx-rate", type=float, default=None,
+                    help="sense sample rate (Hz). Default (channel_sense) is 1.5625e6, "
+                         "exact on N210 (100/64) and X310 (200/128). A fixed-clock radio "
+                         "only does master_clock/N; the modem refuses anything else.")
     ap.add_argument("--acq-seconds", type=float, default=8.0)
     ap.add_argument("--node", default=None,
                     help="name for the profile. Default: this node's stable key "
@@ -417,6 +421,8 @@ def main():
     step = a.step_mhz or (1.0 if hi0 - lo0 <= 200 else 10.0)
     subdev = a.subdev or {"b210": "A:A", "n210": "A:0", "x310": "A:0"}[a.device]
     radio = dict(rx_args=a.args, rx_gain=a.gain, rx_ant=a.rx_ant, rx_subdev=subdev)
+    if a.rx_rate is not None:
+        radio["rx_rate"] = a.rx_rate
     if a.binary:
         radio["binary"] = a.binary
 
@@ -431,7 +437,8 @@ def main():
 
     # 1 · survey
     freqs = [round(lo0 + i * step, 6) for i in range(n_pts)]
-    rows = band_survey(freqs, 10.0, a.gain, a.args, a.rx_ant, subdev, a.binary)
+    rows = band_survey(freqs, 10.0, a.gain, a.args, a.rx_ant, subdev, a.binary,
+                       rx_rate=a.rx_rate)
     sweep_floor, regions = quiet_regions(rows)
     if not regions:
         sys.exit("[prepare] no quiet region found — the whole band is occupied?")
