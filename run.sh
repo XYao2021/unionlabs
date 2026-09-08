@@ -63,6 +63,13 @@ if [ "${1:-}" = "selftest" ]; then
   shift
   exec python3 "$HERE/union/selftest.py" "$@"
 fi
+if [ "${1:-}" = "refresh-workspace" ]; then
+  # force the persistent /workspace to re-seed from THIS checkout now, without waiting
+  # for a session restart. Refreshes shipped topologies/algorithms you have not edited;
+  # yours are kept (see init-workspace.sh). Use after a git pull to make it take effect.
+  shift
+  exec env FORCE=1 bash "$HERE/deploy/workspace/init-workspace.sh" "$@"
+fi
 if [ "${1:-}" = "topology" ] || [ "${1:-}" = "topo" ]; then
   # start every node of a topology file that lives on THIS machine, listeners first
   shift

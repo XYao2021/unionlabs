@@ -182,6 +182,27 @@ def _calibration_check():
                                 "output or computes the documented threshold")
 
 
+def _workspace_seed_check():
+    """init-workspace.sh seeds and refreshes the persistent /workspace: stale seeds
+    updated, edits protected, and — the bug that would hit every session start — it
+    must not abort under set -e on the FORCE-unset path. Runs only in a session, so
+    exercise it here against a temp ROOT."""
+    print(f"    {'workspace seed/refresh':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(HERE, "test_workspace_seed.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) workspace-seed paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines()[-4:]:
+        print(f"      {line}")
+    return ("workspace seed", "init-workspace.sh no longer seeds/refreshes correctly "
+                              "or aborts under set -e")
+
+
 def _prepare_publish_check():
     """prepare.sh's profile WRITE path runs only on hardware, so a bug in it (a
     missing import glob, which shipped) first appears in a session after a long
@@ -365,6 +386,10 @@ def main():
         failures.append(bad)
 
     bad = _prepare_publish_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _workspace_seed_check()
     if bad:
         failures.append(bad)
 
