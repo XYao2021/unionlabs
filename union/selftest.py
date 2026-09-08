@@ -47,8 +47,14 @@ ROLE_OVERRIDE = {
     "dl":          ["--role", "gossip", "--agents", "3", "--steps", "2"],
 }
 
-# Keep the models small so a full sweep stays under a minute.
-SMALL = {"FL_HIDDEN": "8", "DL_HIDDEN": "8"}
+# Keep the models small so a full sweep stays under a minute. And point algorithm
+# and topology resolution at the REPO, not /workspace: selftest asks "does THIS
+# installation work", and the persistent /workspace can hold a stale seed that
+# would make a shipped experiment skip or fail against code that is actually fine.
+# (The /workspace re-seed itself is covered separately by test_workspace_seed.)
+SMALL = {"FL_HIDDEN": "8", "DL_HIDDEN": "8",
+         "UNION_ALGO_DIR": os.path.join(REPO, "deploy", "workspace", "algorithms"),
+         "UNION_TOPOLOGY_DIR": os.path.join(REPO, "deploy", "workspace", "topologies")}
 
 
 def run(args, timeout=600):
@@ -348,7 +354,7 @@ def main():
     t0 = time.time()
     fp = subprocess.run([sys.executable, os.path.join(HERE, "test_flags.py")],
                         cwd=REPO, capture_output=True, text=True,
-                        env=dict(os.environ,
+                        env=dict(os.environ, **SMALL,
                                  PYTHONPATH=os.path.join(REPO, "drivers", "usrp", "bindings")))
     dt = time.time() - t0
     if fp.returncode == 0:

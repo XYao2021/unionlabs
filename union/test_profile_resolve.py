@@ -47,8 +47,10 @@ def main():
             print(f"  FAIL {label}: got={got!r} want={want!r}")
 
     orig = os.environ.get("UNION_SETTINGS_DIR")
+    orig_search = phy_profile.SEARCH
     with tempfile.TemporaryDirectory() as d:
         os.environ["UNION_SETTINGS_DIR"] = d
+        phy_profile.SEARCH = (d,)          # isolate: never see the real /workspace
         try:
             # two surveys of ONE path, different times -> newest wins
             _write(d, "vert2450", 2400.0, "2026-09-01T10:00:00Z", "20260901T100000Z")
@@ -75,6 +77,7 @@ def main():
             check("band names it", path, newer)
             check("band's carrier", vals.get("freq"), 2410.0)
         finally:
+            phy_profile.SEARCH = orig_search
             if orig is None:
                 os.environ.pop("UNION_SETTINGS_DIR", None)
             else:
@@ -86,6 +89,7 @@ def main():
     # shipped broken: the profile was written and then "nothing resolves it back".
     with tempfile.TemporaryDirectory() as d:
         os.environ["UNION_SETTINGS_DIR"] = d
+        phy_profile.SEARCH = (d,)          # isolate from the real /workspace
 
         def _addr(band, carrier, utc, stamp):
             prof = _profile(band, carrier, utc)
@@ -112,6 +116,7 @@ def main():
             check("addr alone across bands refuses", path, None)
             check("refusal names radio", "match this radio" in (why or ""), True)
         finally:
+            phy_profile.SEARCH = orig_search
             if orig is None:
                 os.environ.pop("UNION_SETTINGS_DIR", None)
             else:
