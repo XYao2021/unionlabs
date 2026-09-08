@@ -155,7 +155,7 @@ def detector_floor(freq_mhz, seconds, radio, binary=None):
     """
     import sdr
     cmd = sdr.SDR(role="rx", rx_freq=freq_mhz * 1e6, viz=False,
-                  binary=binary, **radio).command()
+                  binary=binary, skip_rate_check=1, **radio).command()
     try:
         p = subprocess.run(shlex.split(cmd), capture_output=True, text=True,
                            timeout=seconds)
@@ -180,7 +180,7 @@ def noise_acq(freq_mhz, seconds, radio, binary=None):
     RX printed no ACQ lines (a very quiet band may never trigger)."""
     import sdr
     cmd = sdr.SDR(role="rx", rx_freq=freq_mhz * 1e6, det_mult=1.05,
-                  viz=False, binary=binary, **radio).command()
+                  viz=False, binary=binary, skip_rate_check=1, **radio).command()
     try:
         p = subprocess.run(shlex.split(cmd), capture_output=True, text=True,
                            timeout=seconds)
@@ -323,10 +323,11 @@ def main():
                     help="how many usable carriers to save (default 3). Each is a "
                          "complete parameter combination; the widest is recommended.")
     ap.add_argument("--dwell-windows", type=int, default=100)
-    ap.add_argument("--rx-rate", type=float, default=None,
-                    help="sense sample rate (Hz). Default (channel_sense) is 1.5625e6, "
-                         "exact on N210 (100/64) and X310 (200/128). A fixed-clock radio "
-                         "only does master_clock/N; the modem refuses anything else.")
+    ap.add_argument("--rx-rate", type=float, default=1.5625e6,
+                    help="receive sample rate (Hz) for the survey. Default 1.5625e6 is "
+                         "exact on N210 (100/64) and X310 (200/128); a fixed-clock radio "
+                         "only does master_clock/N. If yours coerces, pick from the modem's "
+                         "'nearest usable rates' line.")
     ap.add_argument("--acq-seconds", type=float, default=8.0)
     ap.add_argument("--node", default=None,
                     help="name for the profile. Default: this node's stable key "
@@ -420,9 +421,8 @@ def main():
     lo0, hi0, why = BANDS[a.band]
     step = a.step_mhz or (1.0 if hi0 - lo0 <= 200 else 10.0)
     subdev = a.subdev or {"b210": "A:A", "n210": "A:0", "x310": "A:0"}[a.device]
-    radio = dict(rx_args=a.args, rx_gain=a.gain, rx_ant=a.rx_ant, rx_subdev=subdev)
-    if a.rx_rate is not None:
-        radio["rx_rate"] = a.rx_rate
+    radio = dict(rx_args=a.args, rx_gain=a.gain, rx_ant=a.rx_ant, rx_subdev=subdev,
+                 rx_rate=a.rx_rate)
     if a.binary:
         radio["binary"] = a.binary
 

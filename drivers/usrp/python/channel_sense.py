@@ -59,7 +59,7 @@ def _run_sense(window_ms, count, threshold_db, binary=None, **radio):
     opts = {**_DEF, **radio}
     cmd = sdr.SDR(role="sense", sense_window=window_ms, sense_count=count,
                   sense_threshold_db=threshold_db, viz=False, binary=binary,
-                  **opts).command()
+                  skip_rate_check=1, **opts).command()   # sensing is RX-only: no tx to match
     p = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
     rows = [{"busy": m.group(1) == "1", "power_db": float(m.group(2)),
              "peak_db": float(m.group(3)), "power": float(m.group(4)),
@@ -126,7 +126,7 @@ class SenseStream:
         opts = {**_DEF, **radio}
         cmd = sdr.SDR(role="sense", sense_window=window_ms, sense_count=0,
                       sense_threshold_db=-999.0, viz=False, binary=binary,
-                      **opts).command()                       # -999 => Python owns 'busy'
+                      skip_rate_check=1, **opts).command()    # -999 => Python owns 'busy'
         self._p = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL, text=True, bufsize=1)
         self._win_s = window_ms / 1000.0
