@@ -308,6 +308,57 @@ def publish_profile(profile, d, node, band, subdev, ant, stamp):
     return path, removed
 
 
+def publish_frequencies(profile, d, stamp):
+    """Write the survey's AVAILABLE FREQUENCIES as a small flat JSON named by the
+    time they were measured. Returns the path written.
+
+    The profile beside it keeps exactly ONE file per signal path -- each survey
+    supersedes the last, so yesterday's picture of the band is deliberately gone.
+    This file is the opposite: nothing is superseded, so the folder accumulates
+    what the band looked like at each survey. That history is the point. A carrier
+    that was clear last week may not be clear today, and when a link that used to
+    work stops working, the first question is what changed in the band -- which is
+    unanswerable if every survey overwrote the one before it.
+
+    It is also deliberately FLAT: a plain list of carriers, then the numbers that
+    justify them. It can be read at a glance, or by a two-line script, without
+    knowing the profile schema or which of its keys is authoritative.
+    """
+    os.makedirs(d, exist_ok=True)
+    opts = profile.get("options") or []
+    use = profile.get("use", 0)
+    radio = profile.get("radio") or {}
+    rec = {
+        "measured_utc":   profile.get("measured_utc"),
+        "measured_local": profile.get("measured_local"),
+        "node":           profile.get("node"),
+        "radio": {"args":   radio.get("args"),   "device": radio.get("device"),
+                  "band":   radio.get("band"),   "ant":    radio.get("ant"),
+                  "subdev": radio.get("subdev")},
+        # the recommended carrier, then the plain list of every usable one
+        "recommended_mhz": (opts[use].get("carrier_mhz")
+                            if isinstance(use, int) and 0 <= use < len(opts) else None),
+        "available_mhz": [o.get("carrier_mhz") for o in opts],
+        # and what justifies each: how wide it is, how quiet, whether a default
+        # link fits inside it
+        "frequencies": [{"carrier_mhz":       o.get("carrier_mhz"),
+                         "band_mhz":          o.get("band_mhz"),
+                         "width_mhz":         o.get("width_mhz"),
+                         "floor_db":          o.get("floor_db"),
+                         "fits_default_link": o.get("fits_default_link")}
+                        for o in opts],
+        "noise_floor_db": (profile.get("noise") or {}).get("floor_db"),
+    }
+    path = os.path.join(d, f"freqs-{stamp}.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(rec, fh, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())         # a network share can lose a buffered write
+    os.replace(tmp, path)
+    return path
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("--band", choices=sorted(BANDS), default="ism915")
@@ -588,6 +639,18 @@ def main():
                                            a.rx_ant, stamp)
         for q in superseded:
             print(f"[prepare] superseded earlier survey: {os.path.basename(q)}")
+
+        # The frequency list is a keepsake, not the authority — so a failure to
+        # write it must never cost the profile, which is the artifact everything
+        # downstream actually resolves against.
+        try:
+            fpath = publish_frequencies(profile, d, stamp)
+            avail = ", ".join(f"{o['carrier_mhz']:g}" for o in profile["options"])
+            print(f"[prepare] available frequencies ({avail} MHz) saved: {fpath}")
+        except Exception as e:
+            print(f"[prepare] WARNING: could not save the frequency list "
+                  f"({e.__class__.__name__}: {e}) — the profile above is unaffected",
+                  file=sys.stderr)
 
         # Prove it landed. os.replace returning is not evidence the bytes are on
         # the share: report what is actually readable at the path, and where that

@@ -13,17 +13,21 @@
 #   1. reads link.json and decides this box's role by the radio serial it can see
 #      (source = transmits data / receives ACK;  sink = receives data / transmits ACK)
 #   2. prepare.sh — surveys THIS box's RECEIVE band: noise floor, quiet carrier,
-#      detector margin (det-mult). Receive-only; nothing transmits.
-#   3. calibration.sh — runs the TX->RX link so the receiver measures the real
+#      detector margin (det-mult). Receive-only; nothing transmits. It also saves
+#      the carriers it found as searching/freqs-<timestamp>.json.
+#   3. settles BOTH carriers. A freq_hz left null in link.json is chosen by the
+#      survey of the box that RECEIVES that direction — the sink picks the data
+#      carrier, the source picks the ACK carrier — and published to link-state.json;
+#      each box then waits for the other's. A pinned freq_hz publishes itself.
+#   4. calibration.sh — runs the TX->RX link so the receiver measures the real
 #      sync-threshold. Both ends agree through the shared file; each drives its
-#      own radio. (Author of the plan is derived from link.json — no second file
-#      to keep in step.)
-#   4. writes ONE resolved parameter file recording exactly what was measured, and
-#   5. launches radio.sh with det-mult and sync-threshold filled in from the profile.
+#      own radio. (The plan is derived from link.json — no second file to keep in step.)
+#   5. writes ONE resolved parameter file recording exactly what was measured, and
+#   6. launches radio.sh with det-mult and sync-threshold filled in from the profile.
 #
-# The frequencies are settled in link.json (agreed by hand) so the two ends cannot
-# drift apart; everything measured (det-mult, sync-threshold, noise floor) is read
-# back from the survey/calibration profile, never retyped.
+# Nothing measured is ever retyped: det-mult, sync-threshold, the noise floor and
+# any survey-driven carrier are read back from the shared files, so the two ends
+# cannot drift apart.
 #
 #   --role              print this box's role (source|sink|none) and exit
 #   --dry-run           show every step's command, run nothing
@@ -82,7 +86,32 @@ else
     || echo "[auto_link] prepare.sh did not complete — calibration will use a one-sided threshold."
 fi
 
-# ── 3 · measure the sync-threshold on the data link (source -> sink) ──────────
+# ── 3 · settle BOTH carriers ─────────────────────────────────────────────────
+# A direction whose freq_hz is null in link.json is chosen by the survey of the box
+# that RECEIVES it — the sink picks the data carrier, the source picks the ACK one,
+# because only the receiver's survey knows which stretch is actually quiet there.
+# Each box publishes its own into link-state.json and then waits for the other's, so
+# a survey-driven carrier is never typed on either machine and the two ends cannot
+# tune apart. A pinned freq_hz simply publishes itself and the wait returns at once.
+echo "[auto_link] === carriers (data: ${LINK_DATA_FREQ_MODE:-?}, ack: ${LINK_ACK_FREQ_MODE:-?}) ==="
+if [ "$DRY" = 1 ]; then
+  echo ">> python3 union/link_setup.py --publish-freq   (this box's ${LINK_ROLE} receive carrier)"
+  echo ">> python3 union/link_setup.py --wait-freqs     (until the far end publishes its own)"
+else
+  python3 "$SETUP" --publish-freq \
+    || echo "[auto_link] WARNING: could not publish this box's carrier — is the survey done?"
+  if ! python3 "$SETUP" --wait-freqs --timeout "$WAIT_TIMEOUT"; then
+    echo "[auto_link] both carriers are not settled, so the link would be a guess — stopping."
+    echo "            Start ./auto_link.sh on the other machine, or raise --wait-timeout."
+    exit 1
+  fi
+  # re-read: the carriers, and the radio.sh line built from them, now reflect
+  # what both boxes actually published.
+  eval "$(python3 "$SETUP" --emit shell 2>/dev/null || echo 'LINK_ROLE=none')"
+  echo "[auto_link] data carrier ${LINK_DATA_FREQ:-?} Hz · ack carrier ${LINK_ACK_FREQ:-?} Hz"
+fi
+
+# ── 4 · measure the sync-threshold on the data link (source -> sink) ──────────
 # The DATA link is what carries user traffic, so its receiver's threshold is the
 # one worth measuring. auto_link authors the calibration plan straight from the
 # link file (same serials, band, carrier), then hands the run to calibration.sh —
@@ -109,7 +138,7 @@ else
     || echo "[auto_link] calibration did not complete — the profile keeps its prior threshold."
 fi
 
-# ── 4 · one resolved parameter file, for the record and for radio.sh ─────────
+# ── 5 · one resolved parameter file, for the record and for radio.sh ─────────
 # Re-emit AFTER calibration so det-mult and sync-threshold are read from the
 # freshly-written profile, and capture the exact radio.sh line.
 eval "$(python3 "$SETUP" --emit shell 2>/dev/null || echo 'LINK_ROLE=none')"
@@ -132,7 +161,7 @@ PY
   [ -e "$RESOLVED" ] && echo "[auto_link] resolved parameters written to $RESOLVED"
 fi
 
-# ── 5 · launch radio.sh with everything filled in ────────────────────────────
+# ── 6 · launch radio.sh with everything filled in ────────────────────────────
 echo "[auto_link] === launch (radio.sh) ==="
 # LINK_RADIO_CMD is a shell-quoted argument list beginning with tx|rx.
 eval "set -- $LINK_RADIO_CMD"

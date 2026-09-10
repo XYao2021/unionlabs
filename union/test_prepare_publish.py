@@ -85,11 +85,48 @@ def main():
         check("other band left alone", os.path.exists(p3), True)
         check("supersede is path-scoped", p3 in rm4, False)
 
+    # ── the available-frequency list: flat, timestamped, and never superseded ──
+    with tempfile.TemporaryDirectory() as d:
+        rich = dict(prof)
+        rich["node"] = "327D82F"
+        rich["measured_local"] = "2026-09-02 11:00:00 EDT"
+        rich["noise"] = {"acq_p95": 6.2, "floor_db": -95.4}
+        rich["use"] = 1                      # the SECOND option is recommended
+        rich["options"] = [
+            {"carrier_mhz": 2412.0, "band_mhz": [2402.0, 2422.0], "width_mhz": 20.0,
+             "floor_db": -93.1, "fits_default_link": True},
+            {"carrier_mhz": 2437.0, "band_mhz": [2427.0, 2447.0], "width_mhz": 20.0,
+             "floor_db": -96.8, "fits_default_link": True},
+        ]
+        f1 = prepare_phy.publish_frequencies(rich, d, "20260902T150000Z")
+        check("freq file created", os.path.exists(f1), True)
+        check("named by timestamp", os.path.basename(f1), "freqs-20260902T150000Z.json")
+        rec = json.load(open(f1))
+        check("plain carrier list", rec["available_mhz"], [2412.0, 2437.0])
+        check("recommended follows 'use'", rec["recommended_mhz"], 2437.0)
+        check("per-carrier detail kept", rec["frequencies"][1]["floor_db"], -96.8)
+        check("radio identified", rec["radio"]["band"], "vert2450")
+        check("noise floor carried", rec["noise_floor_db"], -95.4)
+
+        # a later survey ACCUMULATES: the history is the point, so nothing is removed
+        f2 = prepare_phy.publish_frequencies(rich, d, "20260903T150000Z")
+        check("earlier survey kept", os.path.exists(f1) and os.path.exists(f2), True)
+        check("both surveys on disk",
+              len([x for x in os.listdir(d) if x.startswith("freqs-")]), 2)
+
+        # a survey that found nothing usable still writes a readable file
+        empty = dict(rich)
+        empty["options"] = []
+        empty["use"] = 0
+        r3 = json.load(open(prepare_phy.publish_frequencies(empty, d, "20260904T150000Z")))
+        check("empty survey still readable", r3["available_mhz"], [])
+        check("empty survey has no recommendation", r3["recommended_mhz"], None)
+
     if failures:
         print(f"  {failures} of {checked} prepare-publish paths FAILED")
         return 1
     print(f"  {checked} prepare-publish paths checked — write runs, name is "
-          f"timestamped, supersede is path-scoped")
+          f"timestamped, supersede is path-scoped, frequency list accumulates")
     return 0
 
 

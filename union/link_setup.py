@@ -144,6 +144,131 @@ def resolve_rx_detector(args, band, subdev, ant, freq_hz):
     return vals.get("det_mult"), vals.get("sync_threshold")
 
 
+# ── survey-driven frequencies, coordinated through one shared file ────────────
+# A carrier is either PINNED in link.json (a number under data.freq_hz / ack.freq_hz)
+# or SURVEY-DRIVEN (null / "survey" / absent) — decided per direction, so you can pin
+# the data carrier and let the survey choose the ACK carrier, or the reverse, or both.
+# When a direction is survey-driven the box that RECEIVES it picks the quiet spot its
+# survey found and writes it to link-state.json; the other box reads it back there.
+# Neither end ever hand-types a survey-driven carrier, and both read the SAME file, so
+# they cannot tune apart. The data receiver is the sink; the ACK receiver is the source.
+STATE = "link-state.json"
+
+
+def _state_path():
+    _, lp, _ = load_link()
+    if lp:
+        return os.path.join(os.path.dirname(lp), STATE)
+    for d in dirs():
+        if os.path.isdir(d):
+            return os.path.join(d, STATE)
+    return None
+
+
+def read_state():
+    p = _state_path()
+    if p and os.path.exists(p):
+        try:
+            return json.load(open(p)) or {}
+        except Exception:
+            return {}
+    return {}
+
+
+def write_state(update):
+    p = _state_path()
+    if not p:
+        return False
+    st = read_state()
+    st.update(update)
+    try:
+        json.dump(st, open(p, "w"), indent=2)
+        return True
+    except Exception:
+        return False
+
+
+def _pinned(link, direction):
+    """The hand-set carrier for a direction as a float, or None if survey-driven."""
+    v = (link.get(direction) or {}).get("freq_hz")
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if v in (None, "", "survey", "auto"):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def freq_is_survey(link, direction):
+    return _pinned(link, direction) is None
+
+
+def resolved_freq(link, direction, state=None):
+    """The carrier to actually use: the pin if set, else what the survey wrote to
+    link-state. None until a survey-driven carrier has been published."""
+    p = _pinned(link, direction)
+    if p is not None:
+        return p
+    st = read_state() if state is None else state
+    v = st.get(f"{direction}_freq_hz")
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def rx_direction(role):
+    """The direction THIS box receives -> the one its survey can price."""
+    return "data" if role == "sink" else "ack"
+
+
+def surveyed_carrier_hz(args, band=None, subdev=None, ant=None):
+    """The quiet carrier this radio's survey recommends, in Hz — read the exact way
+    calibration.sh reads it (phy_profile --emit shell -> PHY_FREQ, in MHz)."""
+    cmd = [sys.executable, os.path.join(REPO, "union", "phy_profile.py"),
+           "--emit", "shell", "--args", args or ""]
+    for flag, val in (("--band", band), ("--subdev", subdev), ("--ant", ant)):
+        if val:
+            cmd += [flag, val]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout
+    except Exception:
+        return None
+    for line in out.splitlines():
+        if line.startswith("PHY_FREQ="):
+            try:
+                return float(line.split("=", 1)[1].strip().strip("'\"")) * 1e6
+            except ValueError:
+                return None
+    return None
+
+
+def publish_rx_freq(link, role, hz=None):
+    """Write THIS box's receive-direction carrier into link-state, so the far end
+    reads it. Uses the pin if this direction is pinned, else the survey's carrier
+    (measured here if not passed in). Returns the Hz written, or None."""
+    d = rx_direction(role)
+    if not freq_is_survey(link, d):
+        hz = _pinned(link, d)                       # pinned: publish the agreed value
+    elif hz is None:
+        r = link["roles"][role]
+        side = r.get(d, {})
+        hz = surveyed_carrier_hz(_radio_args(r), (link.get(d) or {}).get("band"),
+                                 side.get("subdev"), side.get("ant"))
+    if hz is None:
+        return None
+    write_state({f"{d}_freq_hz": float(hz)})
+    return float(hz)
+
+
+def freqs_ready(link, state=None):
+    """Both carriers known (pinned or published)? The gate before launching."""
+    st = read_state() if state is None else state
+    return (resolved_freq(link, "data", st) is not None and
+            resolved_freq(link, "ack", st) is not None)
+
+
 def radio_cmd(link, role, resolve=True):
     """The radio.sh argument list for THIS box. The RX path carries the resolved
     det-mult/sync-threshold; the ACK path is added only when transport == rf."""
@@ -154,13 +279,19 @@ def radio_cmd(link, role, resolve=True):
     args = _radio_args(r)
     rf = str(ack.get("transport", "tcp")).lower() == "rf"
 
+    # the carriers to fly on: pinned in link.json, or what the survey published to
+    # link-state. Both ends read the same file, so a survey-driven carrier matches.
+    st = read_state()
+    data_freq = resolved_freq(link, "data", st)
+    ack_freq = resolved_freq(link, "ack", st)
+
     # radio.sh mode = the DATA direction (its primary path)
     mode = "tx" if data_dir == "tx" else "rx"
     cmd = [mode, "--device", str(r.get("device", "")), "--args", args]
 
     dp, ap = r.get("data", {}), r.get("ack", {})
     # DATA path -> the wrapper's primary flags
-    cmd += [f"--{data_dir}-freq", _hz(data.get("freq_hz")),
+    cmd += [f"--{data_dir}-freq", _hz(data_freq),
             f"--{data_dir}-subdev", dp.get("subdev", ""),
             f"--{data_dir}-ant", dp.get("ant", ""),
             f"--{data_dir}-gain", str(dp.get("gain", ""))]
@@ -180,7 +311,7 @@ def radio_cmd(link, role, resolve=True):
     if rf:
         cmd += ["--ack-transport", "rf",
                 f"--{ack_dir}-args", args,
-                f"--{ack_dir}-freq", _hz(ack.get("freq_hz")),
+                f"--{ack_dir}-freq", _hz(ack_freq),
                 f"--{ack_dir}-subdev", ap.get("subdev", ""),
                 f"--{ack_dir}-ant", ap.get("ant", ""),
                 f"--{ack_dir}-gain", str(ap.get("gain", ""))]
@@ -195,9 +326,9 @@ def radio_cmd(link, role, resolve=True):
     # det-mult / sync-threshold for whichever path RECEIVES, resolved from its survey
     if resolve:
         if ack_dir == "rx" and rf:              # source: ACK RX needs the profile
-            band, side, freq = ack.get("band"), ap, ack.get("freq_hz")
+            band, side, freq = ack.get("band"), ap, ack_freq
         elif data_dir == "rx":                  # sink: DATA RX
-            band, side, freq = data.get("band"), dp, data.get("freq_hz")
+            band, side, freq = data.get("band"), dp, data_freq
         else:
             band, side, freq = None, {}, None
         if band:
@@ -219,6 +350,22 @@ def _num(v):
 
 
 def self_test():
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    saved = os.environ.get("UNION_SETTINGS_DIR")
+    os.environ["UNION_SETTINGS_DIR"] = tmp     # isolate link.json + link-state here
+    try:
+        return _self_test_body(tmp)
+    finally:
+        if saved is None:
+            os.environ.pop("UNION_SETTINGS_DIR", None)
+        else:
+            os.environ["UNION_SETTINGS_DIR"] = saved
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _self_test_body(tmp):
     link = {
         "phy": {"scheme": "QPSK", "waveform": "sc", "rate": 2e6, "symbol_rate": 1e6,
                 "fec": "true", "interval_ms": 1000},
@@ -261,7 +408,42 @@ def self_test():
     assert "--ack-transport" in s2 and _after(s2, "--ack-transport") == "tcp"
     assert _after(s2, "--ack-host") == "siteB"
     assert "rf" not in [s2[i+1] for i, t in enumerate(s2) if t == "--ack-transport"][1:]
-    print("link_setup self-test: 6 scenarios checked")
+
+    # ── survey-driven carriers, coordinated through link-state ──
+    sp = _state_path()
+    if sp and os.path.exists(sp):
+        os.remove(sp)
+    # DATA pinned, ACK survey-driven (null)
+    surv = json.loads(json.dumps(link))
+    surv["data"]["freq_hz"] = 5330e6
+    surv["ack"]["freq_hz"] = None
+    assert freq_is_survey(surv, "ack") is True and freq_is_survey(surv, "data") is False
+    assert resolved_freq(surv, "ack") is None          # nobody published yet
+    assert freqs_ready(surv) is False
+    # the source (the ACK receiver) publishes the carrier its survey found
+    assert write_state({"ack_freq_hz": 5.44e9})
+    assert resolved_freq(surv, "ack") == 5.44e9 and freqs_ready(surv) is True
+    s3 = radio_cmd(surv, "source", resolve=False)
+    assert _after(s3, "--rx-freq") == "5.44e+09"       # source ACK RX == published
+    assert _after(s3, "--tx-freq") == "5.33e+09"       # data still pinned
+    k3 = radio_cmd(surv, "sink", resolve=False)
+    assert _after(k3, "--tx-freq") == "5.44e+09"       # sink ACK TX mirrors it exactly
+    # a pinned direction publishes its pin (no survey needed)
+    os.remove(_state_path())
+    assert publish_rx_freq(link, "sink") == 5330e6     # sink's data RX is pinned
+    assert read_state().get("data_freq_hz") == 5330e6
+    # both directions survey-driven: not ready until BOTH sides publish
+    both = json.loads(json.dumps(link))
+    both["data"]["freq_hz"] = None
+    both["ack"]["freq_hz"] = None
+    os.remove(_state_path())
+    assert freqs_ready(both) is False
+    write_state({"data_freq_hz": 5.331e9})
+    assert freqs_ready(both) is False                  # one side only
+    write_state({"ack_freq_hz": 5.441e9})
+    assert freqs_ready(both) is True
+
+    print("link_setup self-test: 10 scenarios checked")
     return 0
 
 
@@ -274,6 +456,12 @@ def main():
     ap.add_argument("--role", action="store_true")
     ap.add_argument("--rx-band", action="store_true")
     ap.add_argument("--emit", choices=["shell", "radio-cmd"])
+    ap.add_argument("--publish-freq", action="store_true",
+                    help="write THIS box's receive-direction carrier to link-state")
+    ap.add_argument("--wait-freqs", action="store_true",
+                    help="block until both carriers (data and ack) are known")
+    ap.add_argument("--timeout", type=float, default=180.0,
+                    help="--wait-freqs: seconds to wait (default 180)")
     ap.add_argument("--no-resolve", action="store_true",
                     help="skip profile resolution of det-mult/sync-threshold")
     ap.add_argument("--self-test", action="store_true")
@@ -307,6 +495,33 @@ def main():
         print(rx_band(link, role) or "")
         return 0
 
+    if a.publish_freq:
+        hz = publish_rx_freq(link, role)
+        d = rx_direction(role)
+        if hz is None:
+            print(f"[link] could not settle a {d} carrier to publish — "
+                  "no survey yet, and none pinned in link.json", file=sys.stderr)
+            return 1
+        print(f"[link] published {d} carrier {hz/1e6:g} MHz to link-state")
+        return 0
+
+    if a.wait_freqs:
+        import time
+        t = 0.0
+        while t < a.timeout:
+            if freqs_ready(link):
+                st = read_state()
+                print(f"[link] both carriers known: data "
+                      f"{(resolved_freq(link,'data',st) or 0)/1e6:g} MHz, ack "
+                      f"{(resolved_freq(link,'ack',st) or 0)/1e6:g} MHz")
+                return 0
+            time.sleep(3)
+            t += 3
+        miss = [d for d in ("data", "ack") if resolved_freq(link, d) is None]
+        print(f"[link] timed out after {a.timeout:g}s waiting for carrier(s): "
+              f"{', '.join(miss)} — is the other box running auto_link?", file=sys.stderr)
+        return 1
+
     r = link["roles"][role]
     if a.emit == "radio-cmd":
         print(" ".join(_q(t) for t in radio_cmd(link, role, resolve=not a.no_resolve)))
@@ -328,10 +543,16 @@ def main():
     print(f"LINK_DATA_TX_SERIAL={_q((roles.get('source') or {}).get('serial',''))}")
     print(f"LINK_DATA_RX_SERIAL={_q((roles.get('sink') or {}).get('serial',''))}")
     print(f"LINK_DATA_BAND={_q(data.get('band') or '')}")
-    print(f"LINK_DATA_FREQ={_q(_hz(data.get('freq_hz')))}")
+    # resolved carriers (pin, or what the survey published) + how each was decided
+    st = read_state()
+    print(f"LINK_DATA_FREQ={_q(_hz(resolved_freq(link, 'data', st)))}")
+    print(f"LINK_DATA_FREQ_MODE={_q('pinned' if not freq_is_survey(link,'data') else 'survey')}")
     print(f"LINK_ACK_TRANSPORT={_q(str(ack.get('transport','tcp')).lower())}")
     print(f"LINK_ACK_BAND={_q(ack.get('band') or '')}")
-    print(f"LINK_ACK_FREQ={_q(_hz(ack.get('freq_hz')))}")
+    print(f"LINK_ACK_FREQ={_q(_hz(resolved_freq(link, 'ack', st)))}")
+    print(f"LINK_ACK_FREQ_MODE={_q('pinned' if not freq_is_survey(link,'ack') else 'survey')}")
+    print(f"LINK_RX_FREQ_MODE={_q('pinned' if not freq_is_survey(link, rx_direction(role)) else 'survey')}")
+    print(f"LINK_FREQS_READY={_q('1' if freqs_ready(link, st) else '0')}")
     print(f"LINK_SCHEME={_q(phy.get('scheme') or 'QPSK')}")
     print(f"LINK_RATE={_q(_hz(phy.get('rate')) or '2e6')}")
     print(f"LINK_SYM={_q(_hz(phy.get('symbol_rate')) or '1e6')}")
