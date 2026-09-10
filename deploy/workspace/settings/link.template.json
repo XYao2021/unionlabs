@@ -1,0 +1,72 @@
+{
+  "_README": [
+    "One point-to-point ARQ link, described ONCE, for both machines to share.",
+    "MANUALLY maintained for now: copy this file to",
+    "  /workspace/experiments/settings/link.json",
+    "fill in your two radios, and run  ./auto_link.sh  on EACH machine.",
+    "",
+    "auto_link.sh reads this, works out which end THIS box is (by matching a",
+    "radio serial it can see), and runs the whole pipeline for that end:",
+    "  read role  ->  prepare.sh (survey THIS box's receive band)",
+    "             ->  calibration.sh (measure sync-threshold on the TX->RX link,",
+    "                                 both ends agreeing through the shared file)",
+    "             ->  one resolved parameter file  ->  radio.sh",
+    "",
+    "ROLES. 'source' TRANSMITS the data and RECEIVES the ACK. 'sink' RECEIVES the",
+    "data and TRANSMITS the ACK. Each box's RECEIVE path is the one surveyed:",
+    "the sink surveys the DATA band, the source surveys the ACK band.",
+    "",
+    "FREQUENCIES. data.freq_hz is where the source transmits and the sink listens;",
+    "ack.freq_hz is where the sink transmits and the source listens. They are set",
+    "here (agreed by hand) so neither end can drift onto the wrong carrier. Leave a",
+    "freq null to let prepare.sh's survey of that band choose the quiet spot.",
+    "",
+    "ACK TRANSPORT. 'rf' carries the ACK over a second RF path (full-duplex: one",
+    "radio, two RF ports, data and ACK on different frequencies) — fill in ack.*",
+    "and each role's ack:{subdev,ant,gain}. 'tcp' carries the ACK over the network",
+    "instead — set ack.host (the sink's site/host) and ack.port, drop the RF ack",
+    "fields. det-mult and sync-threshold are NOT set here: they are MEASURED and",
+    "read back from the survey/calibration profile."
+  ],
+  "schema": 1,
+
+  "phy": {
+    "scheme": "QPSK",
+    "waveform": "sc",
+    "rate": 2e6,
+    "symbol_rate": 1e6,
+    "fec": "true",
+    "interval_ms": 1000
+  },
+
+  "data": {
+    "freq_hz": 5330e6,
+    "band": "vert2450-5g"
+  },
+
+  "ack": {
+    "transport": "rf",
+    "freq_hz": 5430e6,
+    "band": "vert2450-5g",
+    "_tcp_only": "for transport=tcp use these instead of freq/band:",
+    "host": null,
+    "port": 5599
+  },
+
+  "roles": {
+    "source": {
+      "serial": "<TX radio serial, e.g. 315F2FB>",
+      "device": "b210",
+      "args": null,
+      "data": { "subdev": "A:A", "ant": "TX/RX", "gain": 78 },
+      "ack":  { "subdev": "A:B", "ant": "RX2",   "gain": 60 }
+    },
+    "sink": {
+      "serial": "<RX radio serial, e.g. 327D82F>",
+      "device": "x310",
+      "args": "addr=192.168.30.2",
+      "data": { "subdev": "A:0", "ant": "RX2",   "gain": 25 },
+      "ack":  { "subdev": "A:0", "ant": "TX/RX", "gain": 31.5 }
+    }
+  }
+}

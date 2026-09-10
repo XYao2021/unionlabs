@@ -105,11 +105,12 @@ if [ ! -e "$ROOT/env/requirements.txt" ] && [ -e "$HERE/env/requirements.txt" ];
 fi
 cp "$HERE/env/sync-env.sh" "$ROOT/env/sync-env.sh" 2>/dev/null || true
 
-# ── the reservation TEMPLATE tracks the image; the filled reservation.json never does ──
-if [ -e "$HERE/settings/reservation.template.json" ]; then
-  reseed file "$HERE/settings/reservation.template.json" \
-              "$ROOT/settings/reservation.template.json" "settings/reservation.template.json"
-fi
+# ── the settings TEMPLATES track the image; the filled files never do ──
+for tpl in reservation.template.json link.template.json; do
+  if [ -e "$HERE/settings/$tpl" ]; then
+    reseed file "$HERE/settings/$tpl" "$ROOT/settings/$tpl" "settings/$tpl"
+  fi
+done
 
 # ── the repo's algorithms: track the image, protect edits ──
 if [ -d "$HERE/algorithms" ]; then

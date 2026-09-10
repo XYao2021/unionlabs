@@ -272,6 +272,28 @@ def _calibration_plan_check():
                                 "builds a plan correctly")
 
 
+def _link_setup_check():
+    """link_setup.py turns one hand-written link.json into the radio.sh command
+    each box should run — role by serial, and (for RF-ACK) the source's ACK-RX
+    path carrying the det-mult/sync-threshold radio.sh alone never resolves. If
+    the mapping drifts, the two ends land on mismatched frequencies or an RX path
+    with no detector settings. Radio-free self-test."""
+    print(f"    {'link_setup role->command':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(REPO, "union", "link_setup.py"),
+                        "--self-test"], cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) scenarios checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} scenarios){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines()[-3:]:
+        print(f"      {line}")
+    return ("link setup", "link_setup.py no longer maps a link.json to the right "
+                          "per-box radio.sh command")
+
+
 def _calibration_flag_check():
     """calibration_rx.sh claims to adopt the survey's values (carrier, gain,
     det-mult, noise p95) below anything typed. A value that quietly fails to
@@ -384,6 +406,10 @@ def main():
         failures.append(bad)
 
     bad = _calibration_plan_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _link_setup_check()
     if bad:
         failures.append(bad)
 
