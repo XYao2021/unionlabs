@@ -290,9 +290,14 @@ def radio_cmd(link, role, resolve=True):
     cmd = [mode, "--device", str(r.get("device", "")), "--args", args]
 
     dp, ap = r.get("data", {}), r.get("ack", {})
-    # DATA path -> the wrapper's primary flags
-    cmd += [f"--{data_dir}-freq", _hz(data_freq),
-            f"--{data_dir}-subdev", dp.get("subdev", ""),
+    # DATA path -> the wrapper's primary flags. A carrier that is not settled yet
+    # (survey-driven, nobody has published it) OMITS the flag rather than passing an
+    # empty value: `--tx-freq` followed by the next flag makes radio.sh read
+    # "--tx-subdev" as the frequency. A live run cannot reach here unsettled (the
+    # wait gate blocks first), but a dry run can, and dry-run output gets pasted.
+    if data_freq is not None:
+        cmd += [f"--{data_dir}-freq", _hz(data_freq)]
+    cmd += [f"--{data_dir}-subdev", dp.get("subdev", ""),
             f"--{data_dir}-ant", dp.get("ant", ""),
             f"--{data_dir}-gain", str(dp.get("gain", ""))]
     for k, v in (("scheme", phy.get("scheme")), ("waveform", phy.get("waveform")),
@@ -309,10 +314,10 @@ def radio_cmd(link, role, resolve=True):
     # ARQ role + ACK transport
     cmd += ["--role", ("source_arq" if role == "source" else "sink_arq")]
     if rf:
-        cmd += ["--ack-transport", "rf",
-                f"--{ack_dir}-args", args,
-                f"--{ack_dir}-freq", _hz(ack_freq),
-                f"--{ack_dir}-subdev", ap.get("subdev", ""),
+        cmd += ["--ack-transport", "rf", f"--{ack_dir}-args", args]
+        if ack_freq is not None:                 # same rule as the data path above
+            cmd += [f"--{ack_dir}-freq", _hz(ack_freq)]
+        cmd += [f"--{ack_dir}-subdev", ap.get("subdev", ""),
                 f"--{ack_dir}-ant", ap.get("ant", ""),
                 f"--{ack_dir}-gain", str(ap.get("gain", ""))]
     else:
@@ -432,18 +437,28 @@ def _self_test_body(tmp):
     os.remove(_state_path())
     assert publish_rx_freq(link, "sink") == 5330e6     # sink's data RX is pinned
     assert read_state().get("data_freq_hz") == 5330e6
+    # An UNSETTLED carrier omits its flag — it must never be emitted empty, or
+    # radio.sh reads the following flag name as the frequency. (A dry run can reach
+    # here before anything is published, and dry-run output gets pasted.)
+    os.remove(_state_path())
+    un = radio_cmd(surv, "source", resolve=False)          # ack survey-driven, unpublished
+    assert "--rx-freq" not in un, "unsettled carrier must omit the flag, not empty it"
+    assert "" not in un, "no empty argument may be emitted"
+    assert _after(un, "--rx-args") == "serial=315F2FB"      # the rest of the path survives
+    assert _after(un, "--rx-subdev") == "A:B"
+    assert _after(un, "--tx-freq") == "5.33e+09"            # the pinned one still lands
+
     # both directions survey-driven: not ready until BOTH sides publish
     both = json.loads(json.dumps(link))
     both["data"]["freq_hz"] = None
     both["ack"]["freq_hz"] = None
-    os.remove(_state_path())
     assert freqs_ready(both) is False
     write_state({"data_freq_hz": 5.331e9})
     assert freqs_ready(both) is False                  # one side only
     write_state({"ack_freq_hz": 5.441e9})
     assert freqs_ready(both) is True
 
-    print("link_setup self-test: 10 scenarios checked")
+    print("link_setup self-test: 11 scenarios checked")
     return 0
 
 
