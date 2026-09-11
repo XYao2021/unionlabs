@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-link_setup — turn one hand-written link file into the radio.sh command THIS box
+link_setup - turn one hand-written link file into the radio.sh command THIS box
 should run, with the receive-side detector settings resolved from its survey.
 
 A point-to-point ARQ link has ~15 coupled parameters, and RF-ACK doubles them (a
 data path AND an ACK path, each with its own freq / subdev / antenna / gain). Typed
-by hand per box they drift — a source dials 5330 while the sink listens on 5340, or
+by hand per box they drift - a source dials 5330 while the sink listens on 5340, or
 the ACK RX carries no det-mult because radio.sh only resolves the PRIMARY path's
 profile, never the appended ACK path. This reads the link once and emits each box's
 whole command line, so neither box can disagree with the other.
@@ -71,7 +71,7 @@ def load_link():
                 return json.load(open(p)), p, None
             except Exception as e:
                 return None, p, f"{p}: {e}"
-    return None, None, ("no link.json — copy "
+    return None, None, ("no link.json - copy "
                         "deploy/workspace/settings/link.template.json to "
                         "/workspace/experiments/settings/link.json and fill it in")
 
@@ -95,13 +95,30 @@ def local_serials(_probe=None):
     return {m.group(1).strip() for m in re.finditer(r"serial:\s*(\S+)", out)}
 
 
-def role_of(link, serials):
-    """'source' | 'sink' | 'none', by which planned serial this box can see."""
+def roles_here(link, serials):
+    """Every planned role whose radio THIS box can see - usually one, but a bench
+    with both radios in one machine sees two."""
+    out = []
     for role in ("source", "sink"):
         s = str((link.get("roles", {}).get(role, {}) or {}).get("serial") or "").strip()
         if s and s in serials:
-            return role
-    return "none"
+            out.append(role)
+    return out
+
+
+def role_of(link, serials):
+    """'source' | 'sink' | 'both' | 'none', by which planned serials this box sees.
+
+    'both' is a real and common case - two radios in one machine - and it must not
+    silently collapse to whichever role was checked first. That would run one half of
+    the link and then wait forever for a carrier the other half was never started to
+    publish, with nothing anywhere saying why. The caller is told to pick a role
+    instead (auto_link --as), and each half runs as its own process, because UHD
+    claims a device per process."""
+    here = roles_here(link, serials)
+    if len(here) == 2:
+        return "both"
+    return here[0] if here else "none"
 
 
 # ── which path each role transmits / receives ─────────────────────────────────
@@ -146,7 +163,7 @@ def resolve_rx_detector(args, band, subdev, ant, freq_hz):
 
 # ── survey-driven frequencies, coordinated through one shared file ────────────
 # A carrier is either PINNED in link.json (a number under data.freq_hz / ack.freq_hz)
-# or SURVEY-DRIVEN (null / "survey" / absent) — decided per direction, so you can pin
+# or SURVEY-DRIVEN (null / "survey" / absent) - decided per direction, so you can pin
 # the data carrier and let the survey choose the ACK carrier, or the reverse, or both.
 # When a direction is survey-driven the box that RECEIVES it picks the quiet spot its
 # survey found and writes it to link-state.json; the other box reads it back there.
@@ -224,7 +241,7 @@ def rx_direction(role):
 
 
 def surveyed_carrier_hz(args, band=None, subdev=None, ant=None):
-    """The quiet carrier this radio's survey recommends, in Hz — read the exact way
+    """The quiet carrier this radio's survey recommends, in Hz - read the exact way
     calibration.sh reads it (phy_profile --emit shell -> PHY_FREQ, in MHz)."""
     cmd = [sys.executable, os.path.join(REPO, "union", "phy_profile.py"),
            "--emit", "shell", "--args", args or ""]
@@ -387,6 +404,12 @@ def _self_test_body(tmp):
     assert role_of(link, {"315F2FB"}) == "source"
     assert role_of(link, {"327D82F"}) == "sink"
     assert role_of(link, {"NOPE"}) == "none"
+    # BOTH radios in one machine is a real bench setup. It must be reported, not
+    # silently collapsed to whichever role was checked first - that runs one half and
+    # then waits forever for a carrier the other half was never started to publish.
+    assert role_of(link, {"315F2FB", "327D82F"}) == "both"
+    assert sorted(roles_here(link, {"315F2FB", "327D82F"})) == ["sink", "source"]
+    assert roles_here(link, {"327D82F"}) == ["sink"]
     # the band each box must survey is its RECEIVE band
     assert rx_band(link, "sink") == "vert2450-5g"       # sink receives data
     assert rx_band(link, "source") == "vert2450-5g"     # source receives ack
@@ -437,7 +460,7 @@ def _self_test_body(tmp):
     os.remove(_state_path())
     assert publish_rx_freq(link, "sink") == 5330e6     # sink's data RX is pinned
     assert read_state().get("data_freq_hz") == 5330e6
-    # An UNSETTLED carrier omits its flag — it must never be emitted empty, or
+    # An UNSETTLED carrier omits its flag - it must never be emitted empty, or
     # radio.sh reads the following flag name as the frequency. (A dry run can reach
     # here before anything is published, and dry-run output gets pasted.)
     os.remove(_state_path())
@@ -458,7 +481,7 @@ def _self_test_body(tmp):
     write_state({"ack_freq_hz": 5.441e9})
     assert freqs_ready(both) is True
 
-    print("link_setup self-test: 11 scenarios checked")
+    print("link_setup self-test: 12 scenarios checked")
     return 0
 
 
@@ -469,6 +492,10 @@ def _after(lst, opt):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("--role", action="store_true")
+    ap.add_argument("--as", dest="as_role", choices=["source", "sink"],
+                    help="act as this role regardless of what is detected - needed "
+                         "when one machine holds BOTH radios, so each half runs as "
+                         "its own process")
     ap.add_argument("--rx-band", action="store_true")
     ap.add_argument("--emit", choices=["shell", "radio-cmd"])
     ap.add_argument("--publish-freq", action="store_true",
@@ -494,10 +521,23 @@ def main():
         print(f"[link] {why}", file=sys.stderr)
         return 1
     role = role_of(link, local_serials())
+    if a.as_role:
+        # Trust the operator over the probe: --as is how a bench with both radios
+        # runs each half, and it is also the escape hatch when a serial is unreadable.
+        role = a.as_role
 
     if a.role:
         print(role)
         return 0
+    if role == "both":
+        why_both = ("both radios are in this machine - run each half separately, "
+                    "with --as sink in one shell and --as source in another")
+        if a.emit == "shell":
+            print("LINK_ROLE=both")
+            print(f"LINK_WHY={_q(why_both)}")
+            return 0
+        print("[link] " + why_both, file=sys.stderr)
+        return 1
     if role == "none":
         if a.emit == "shell":
             print("LINK_ROLE=none")
@@ -514,7 +554,7 @@ def main():
         hz = publish_rx_freq(link, role)
         d = rx_direction(role)
         if hz is None:
-            print(f"[link] could not settle a {d} carrier to publish — "
+            print(f"[link] could not settle a {d} carrier to publish - "
                   "no survey yet, and none pinned in link.json", file=sys.stderr)
             return 1
         print(f"[link] published {d} carrier {hz/1e6:g} MHz to link-state")
@@ -534,14 +574,14 @@ def main():
             t += 3
         miss = [d for d in ("data", "ack") if resolved_freq(link, d) is None]
         print(f"[link] timed out after {a.timeout:g}s waiting for carrier(s): "
-              f"{', '.join(miss)} — is the other box running auto_link?", file=sys.stderr)
+              f"{', '.join(miss)} - is the other box running auto_link?", file=sys.stderr)
         return 1
 
     r = link["roles"][role]
     if a.emit == "radio-cmd":
         print(" ".join(_q(t) for t in radio_cmd(link, role, resolve=not a.no_resolve)))
         return 0
-    # default / --emit shell — everything auto_link.sh needs in one eval:
+    # default / --emit shell - everything auto_link.sh needs in one eval:
     # this box's role/radio, the band it must survey, the calibration-link facts
     # (both boxes agree on these, so either can author the same plan), and the
     # final radio.sh line with det-mult/sync-threshold already resolved.
