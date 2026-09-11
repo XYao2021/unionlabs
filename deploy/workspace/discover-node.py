@@ -117,8 +117,18 @@ def write_atomic(path, data):
 
 
 def gc(dirpath, gc_age, keep):
-    """Reap records nobody has refreshed. Any live session may do this — no node has
-    privileged standing, and the node that owns a dead record is by definition gone."""
+    """Reap NODE RECORDS nobody has refreshed. Any live session may do this — no node
+    has privileged standing, and the node that owns a dead record is by definition gone.
+
+    Only our own kind of record is ever reaped. settings/ is a shared folder: it also
+    holds files that are authored, not heartbeated — link.json, link-state.json,
+    reservation.json, the *.template.json seeds — and none of them carry a heartbeat.
+    Treating a missing heartbeat as "infinitely stale" deleted every one of them on the
+    first pass, which looked like the workspace seeding silently failing: init-workspace
+    reported the templates written, every run, because every run they were gone again.
+    A file without a heartbeat is not ours, so we leave it alone. Only a file that
+    HAS one, and whose owner stopped refreshing it, is reaped; a record too corrupt to
+    parse falls back to mtime, since a half-written record is still ours."""
     removed = []
     try:
         names = os.listdir(dirpath)
@@ -131,9 +141,13 @@ def gc(dirpath, gc_age, keep):
         p = os.path.join(dirpath, name)
         try:
             with open(p) as f:
-                hb = json.load(f).get("heartbeat", 0)
+                rec = json.load(f)
         except Exception:
-            hb = os.path.getmtime(p)          # unreadable/partial: fall back to mtime
+            hb = os.path.getmtime(p)          # unreadable/partial: still ours
+        else:
+            if not isinstance(rec, dict) or "heartbeat" not in rec:
+                continue                      # authored file, not a node record
+            hb = rec["heartbeat"]
         if now - hb > gc_age:
             try:
                 os.unlink(p)

@@ -294,6 +294,28 @@ def _link_setup_check():
                           "per-box radio.sh command")
 
 
+def _node_gc_check():
+    """discover-node reaps stale node records out of the SHARED settings/ folder —
+    which also holds authored files that carry no heartbeat (link.json,
+    link-state.json, reservation.json, the templates). Reaping those deletes the
+    link both machines read, and it fails silently: the seeding reports the files
+    written on every run because every run they are gone again."""
+    print(f"    {'node-record GC spares files':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(HERE, "test_node_record_gc.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) node-record GC paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines()[:4]:
+        print(f"      {line}")
+    return ("node-record GC", "discover-node's reaper deletes authored files in "
+                              "settings/, not just its own stale records")
+
+
 def _calibration_flag_check():
     """calibration_rx.sh claims to adopt the survey's values (carrier, gain,
     det-mult, noise p95) below anything typed. A value that quietly fails to
@@ -410,6 +432,10 @@ def main():
         failures.append(bad)
 
     bad = _link_setup_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _node_gc_check()
     if bad:
         failures.append(bad)
 
