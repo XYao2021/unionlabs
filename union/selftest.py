@@ -312,6 +312,29 @@ def _link_setup_check():
                           "per-box radio.sh command")
 
 
+def _profile_backend_check():
+    """A surveyed radio must not break the radio-free runs. prepare.sh publishes
+    det_mult/sync_threshold, which reach the modem through --usrp-set; injecting those
+    into a `--channel usrp` run with the in-process pyphy backend makes it REFUSE the
+    run. The machine that had been surveyed was the one where three checks stopped
+    working, and the refusal names pyphy, so it read as a broken extension."""
+    print(f"    {'survey vs radio-free runs':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable, os.path.join(HERE, "test_profile_backend.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) profile/backend paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines():
+        if "FAIL" in line:
+            print(f"      {line.strip()}")
+    return ("survey vs radio-free", "a surveyed profile now breaks --channel usrp "
+                                    "with the in-process backend")
+
+
 def _node_gc_check():
     """discover-node reaps stale node records out of the SHARED settings/ folder —
     which also holds authored files that carry no heartbeat (link.json,
@@ -454,6 +477,10 @@ def main():
         failures.append(bad)
 
     bad = _node_gc_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _profile_backend_check()
     if bad:
         failures.append(bad)
 

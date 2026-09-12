@@ -736,16 +736,28 @@ def apply_phy_profile(ap, a):
         a._freq_from_profile = True
 
     # det_mult / sync_threshold reach the modem through --usrp-set, so add them
-    # there only when the experimenter did not name them already.
+    # there only when the experimenter did not name them already -- AND only when the
+    # backend actually starts the modem process they configure.
+    #
+    # The in-process pyphy backend calls the DSP directly, so it does not merely ignore
+    # --usrp-set, it REFUSES the run (rightly: a typed option that cannot arrive must
+    # not look applied). But these are not typed, they are ours. Injecting them into a
+    # pyphy run turned "this radio has been surveyed" into "--channel usrp no longer
+    # runs at all" -- and because the refusal names pyphy, it read as the extension
+    # being broken. The machine that had done the most setup was the one where the
+    # radio-free checks stopped working, and the remedy it suggested was to rebuild a
+    # perfectly good extension.
+    backend = getattr(a, "usrp_backend", None)
     named = set()
     for kv in getattr(a, "usrp_set", []) or []:
         if "=" in kv:
             named.add(kv.split("=", 1)[0].strip())
     extra = []
-    for key in ("det_mult", "sync_threshold"):
-        if vals.get(key) is not None and key not in named:
-            extra.append(f"{key}={vals[key]}")
-            applied.append(f"{key}={vals[key]}")
+    if backend == "radio":
+        for key in ("det_mult", "sync_threshold"):
+            if vals.get(key) is not None and key not in named:
+                extra.append(f"{key}={vals[key]}")
+                applied.append(f"{key}={vals[key]}")
     if extra:
         a.usrp_set = list(getattr(a, "usrp_set", []) or []) + extra
 
