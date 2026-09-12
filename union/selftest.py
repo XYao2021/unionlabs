@@ -90,6 +90,24 @@ def missing_dependency(output):
     """-> a human reason if this failed only because something is not installed."""
     for needle, reason in MISSING_DEP:
         if needle in output:
+            if needle == "pyphy":
+                # phy_link has ALREADY worked out which of the two problems this is
+                # -- nothing built, or built for a different Python -- and printed the
+                # versions that prove it. Printing a canned "run build.sh" over the top
+                # of that is worse than saying nothing: it names a remedy that is wrong
+                # whenever the extension is present but mismatched, and someone then
+                # rebuilds a file that was never missing while the real cause goes
+                # unread. Carry phy_link's own diagnosis up instead.
+                d = re.search(r"Diagnosis:\s*(.+)", output)
+                if d:
+                    py = re.search(r"Your Python:\s*(\S+)", output)
+                    built = re.search(r"Built here:\s*(.+)", output)
+                    msg = f"pyphy: {d.group(1).strip()}"
+                    if py:
+                        msg += f" | this Python {py.group(1)}"
+                    if built:
+                        msg += f", built {built.group(1).strip()}"
+                    return msg
             return reason
     return None
 
