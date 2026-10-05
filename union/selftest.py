@@ -72,6 +72,14 @@ def run(args, timeout=600):
 # they are not installed. That is a missing OPTIONAL dependency, not a broken install
 # — reporting it as FAILED sends a newcomer hunting a bug that does not exist.
 MISSING_DEP = [
+    # numpy first: the whole PHY layer imports it, so when it is absent every single
+    # check fails with the same ImportError and the summary's parting hint used to
+    # blame the pyphy extension -- the wrong remedy, loudly, 20 times over. Naming it
+    # turns that cascade into one clear reason. (This is the same mistake the pyphy
+    # entry below made for years; see its comment.)
+    ("No module named 'numpy'",  "numpy not installed for THIS Python "
+                                 "(python3 -m pip install numpy) — the PHY layer "
+                                 "cannot import without it"),
     ("No module named 'torch'",  "torch not installed (pip install torch)"),
     ("No module named 'cv2'",    "opencv not installed (pip install opencv-python-headless)"),
     ("No module named 'networkx'", "networkx not installed"),
@@ -159,6 +167,13 @@ def _topology_flag_check():
         m = re.search(r"(\d+)/(\d+) topology paths checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(2) if m else '?'} paths){OFF}")
         return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in r.stdout.splitlines():
         if "FAIL" in line:
@@ -177,6 +192,13 @@ def _radio_flag_check():
     if r.returncode == 0:
         m = re.search(r"(\d+) radio\.sh override paths checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
         return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines()[:4]:
@@ -199,6 +221,13 @@ def _calibration_check():
         m = re.search(r"(\d+) scenarios checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} scenarios){OFF}")
         return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines()[-3:]:
         print(f"      {line}")
@@ -220,6 +249,13 @@ def _workspace_seed_check():
         m = re.search(r"(\d+) workspace-seed paths checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
         return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines()[-4:]:
         print(f"      {line}")
@@ -239,6 +275,13 @@ def _prepare_publish_check():
     if r.returncode == 0:
         m = re.search(r"(\d+) prepare-publish paths checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
         return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines()[-4:]:
@@ -260,6 +303,13 @@ def _profile_resolve_check():
     if r.returncode == 0:
         m = re.search(r"(\d+) profile-resolution paths checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
         return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines()[:4]:
@@ -283,6 +333,13 @@ def _calibration_plan_check():
         m = re.search(r"(\d+) scenarios checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} scenarios){OFF}")
         return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines()[-3:]:
         print(f"      {line}")
@@ -304,6 +361,13 @@ def _link_setup_check():
     if r.returncode == 0:
         m = re.search(r"(\d+) scenarios checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} scenarios){OFF}")
+        return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
         return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines()[-3:]:
@@ -327,12 +391,47 @@ def _profile_backend_check():
         m = re.search(r"(\d+) profile/backend paths checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
         return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines():
         if "FAIL" in line:
             print(f"      {line.strip()}")
     return ("survey vs radio-free", "a surveyed profile now breaks --channel usrp "
                                     "with the in-process backend")
+
+
+def _phy_features_check():
+    """phy_features.py derives power, SNR, occupied bandwidth, IQ quality, CFO and
+    EVM from one IQ capture. Those numbers are what an evaluation reports, so the
+    estimators are checked against synthetic captures whose answer is known -- and
+    the two SNR definitions (in-band vs total-band, which differ by the bandwidth
+    ratio) are asserted separately, because conflating them is a silent 6 dB."""
+    print(f"    {'phy feature extraction':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable,
+                        os.path.join(REPO, "drivers", "usrp", "python",
+                                     "phy_features.py"), "--self-test"],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"self-test: (\d+) checks passed", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} checks){OFF}")
+        return None
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines():
+        if "FAIL" in line:
+            print(f"      {line.strip()}")
+    return ("phy features", "a PHY feature estimator no longer recovers a known value")
 
 
 def _node_gc_check():
@@ -349,6 +448,13 @@ def _node_gc_check():
     if r.returncode == 0:
         m = re.search(r"(\d+) node-record GC paths checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
         return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines()[:4]:
@@ -369,6 +475,13 @@ def _calibration_flag_check():
     if r.returncode == 0:
         m = re.search(r"(\d+) calibration adoption paths checked", r.stdout)
         print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    # A package this check needs being absent is not a broken installation: say so
+    # and skip, the way the experiment checks do. Reporting FAIL makes one missing
+    # import look like N independent regressions and sends the reader hunting.
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
         return None
     print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
     for line in (r.stdout + r.stderr).strip().splitlines()[:4]:
@@ -481,6 +594,10 @@ def main():
         failures.append(bad)
 
     bad = _profile_backend_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _phy_features_check()
     if bad:
         failures.append(bad)
 
