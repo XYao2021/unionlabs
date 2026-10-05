@@ -124,7 +124,8 @@ def build_channel(a):
                      "--usrp-backend pyphy does not start (it calls the DSP in-process). "
                      "Use --usrp-backend radio with --role tx/rx, or drop --usrp-set.")
         return pl.make_channel("pyphy", scheme=a.scheme, fec=(a.fec or None),
-                               snr_db=a.snr_db)
+                               snr_db=a.snr_db,
+                               features=getattr(a, "phy_features", True))
     if kind == "lora":
         return pl.make_channel("lora", backend=a.lora_backend, sf=a.lora_sf,
                                cr=a.lora_cr, bw_hz=a.lora_bw, power_dbm=a.lora_power,
@@ -1142,6 +1143,15 @@ def build_parser():
     # pyphy channel knobs
     # Named exactly as the modem names them (drivers/usrp/src/main.cpp), so a flag found
     # in PARAMETERS.md or a radio.sh command is typed identically here.
+    # Default ON: the per-packet PHY numbers are the first thing anyone asks for
+    # when a link misbehaves, and they cost nothing -- the modem already has both
+    # the sent and received symbols in hand when it computes them.
+    ap.add_argument("--phy-features", dest="phy_features", action="store_true",
+                    default=True,
+                    help="print one [PHY-FEAT] line per packet: measured SNR, EVM, "
+                         "BER, bit errors, scheme/FEC (default: on)")
+    ap.add_argument("--no-phy-features", dest="phy_features", action="store_false",
+                    help="silence the per-packet [PHY-FEAT] lines")
     ap.add_argument("--usrp-set", action="append", metavar="KEY=VALUE", default=[],
                     help="any other USRP modem variable, by its own name — repeatable. "
                          "e.g. --usrp-set det_mult=5 --usrp-set viz=true. "

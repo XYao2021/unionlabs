@@ -48,6 +48,24 @@
 # lora-backend serial/spi) have no peer inside one process, so they run as the two-host
 # role split (--role tx / --role rx). Older spellings still work: sim=ideal, pyphy=usrp.
 #
+# PHY FEATURES, printed per packet, ON BY DEFAULT:
+#   [PHY-FEAT] scheme=QPSK fec=turbo syms=768 bits=600 snr_req=10.0dB
+#              snr_meas=10.18dB evm=30.98% ber=0.000e+00 errs=0 crc=OK
+# --no-phy-features silences them. snr_req is the knob (--sim-snr-db); snr_meas is
+# the noise realisation that was actually drawn, which differs from it packet to
+# packet -- quote the measured one, never the request. Available on --channel usrp
+# because only there does the modem hold both the sent and the received symbols.
+#
+# THE C++ MODEM'S OWN LOGS ([ACQ] [FILTER] [MODULATION] [DEMODULATION] [AGC] ...)
+# have no flag and never did: they are unconditional std::cout in the modem's
+# threaded pipeline. They appear when the real modem process runs -- radio.sh, or
+# --usrp-backend radio -- and do NOT appear under the default in-process pyphy
+# backend, which calls the DSP blocks directly and never enters the pipeline loops
+# those prints live in. So there is nothing here to switch on; use radio.sh to see
+# them, and [PHY-FEAT] above for the numbers on the radio-free path. (For the record
+# there is no [SYNC] tag -- sync logs under [ACQ], [TimingRecovery], [CFO_thread],
+# [PhaseEstimator] -- and demodulation is [DEMODULATION], not [DEMOD].)
+#
 # RADIOS. --radio names the USRP this process owns: a B210 by serial (serial=30CD424),
 # an X310/N210 by address (addr=192.168.40.2); a bare serial or IP works too. Use
 # --tx-args/--rx-args instead when one node has two radios.

@@ -184,7 +184,8 @@ class PyphyChannel:
     radio-free stand-in for the wireless channel. (Generalised from phy_port.py.)"""
     name = "pyphy"
 
-    def __init__(self, scheme="QPSK", fec="turbo", k=256, snr_db=8.0, soft=True, seed=0):
+    def __init__(self, scheme="QPSK", fec="turbo", k=256, snr_db=8.0, soft=True, seed=0,
+                 features=False):
         try:
             import pyphy
         except ImportError:
@@ -233,6 +234,10 @@ class PyphyChannel:
         self.p = sys.modules["pyphy"]
         self.scheme, self.fec, self.k = scheme, (fec or None), k
         self.snr_db, self.soft = snr_db, soft
+        # features=True prints one [PHY-FEAT] line per packet. The numbers are
+        # computed either way and returned in the metrics dict, since they cost
+        # nothing once the symbols are in hand; the flag only controls printing.
+        self.features = bool(features)
         self.rng = np.random.RandomState(seed)
         self.bps = {"BPSK": 1, "QPSK": 2, "8-PSK": 3, "16-QAM": 4,
                     "DBPSK": 1, "DQPSK": 2}.get(scheme, 2)
@@ -258,7 +263,39 @@ class PyphyChannel:
         if rbits.size < nbits:
             rbits = np.concatenate([rbits, np.zeros(nbits - rbits.size, np.uint8)])
         ber = float(np.mean(rbits != bits))
-        return np.packbits(rbits).tobytes()[:len(buf)], dict(ber=ber, crc_ok=(ber == 0), snr_db=self.snr_db)
+        # ── per-packet PHY features ──
+        # The transmitted and received symbols are both in scope here, which no
+        # other layer can say, so the honest measurements are free: EVM against the
+        # symbols actually sent (not a decision, so a wrong decision cannot flatter
+        # it), and the SNR of the noise realisation that was actually drawn --
+        # which is NOT snr_db. snr_db is what was REQUESTED; over a short packet the
+        # realised value differs, and reporting the request as a measurement is how
+        # a simulation knob ends up in a results table.
+        err = rx - syms
+        n_pow = float(np.mean(np.abs(err) ** 2))
+        feat = {
+            "ber": ber,
+            "crc_ok": (ber == 0),
+            "snr_db": self.snr_db,                      # requested
+            "snr_measured_db": (10.0 * np.log10(es / n_pow) if n_pow > 0 else None),
+            "evm_pct": (100.0 * np.sqrt(n_pow / es) if es > 0 else None),
+            "bit_errors": int(np.sum(rbits != bits)),
+            "bits": int(nbits),
+            "symbols": int(syms.size),
+            "scheme": self.scheme,
+            "fec": self.fec or "none",
+        }
+        if self.features:
+            s = feat["snr_measured_db"]
+            e = feat["evm_pct"]
+            print(f"[PHY-FEAT] scheme={feat['scheme']} fec={feat['fec']} "
+                  f"syms={feat['symbols']} bits={feat['bits']} "
+                  f"snr_req={feat['snr_db']:.1f}dB "
+                  f"snr_meas={'n/a' if s is None else f'{s:.2f}dB'} "
+                  f"evm={'n/a' if e is None else f'{e:.2f}%'} "
+                  f"ber={ber:.3e} errs={feat['bit_errors']} "
+                  f"crc={'OK' if feat['crc_ok'] else 'FAIL'}", flush=True)
+        return np.packbits(rbits).tobytes()[:len(buf)], feat
 
 
 def make_channel(kind="ideal", **kw):
