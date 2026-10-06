@@ -104,26 +104,12 @@ experiment runs on any driver — the portability POWDER and AERPAW do not expos
 | `usrp` | `drivers/usrp` | `pyphy` (default, no radio) · `radio` |
 | `lora` | `drivers/lora` | `sim` (default) · `serial` · `spi` |
 
-- **`ideal`** — lossless and in-process. Check your logic here first.
-- **`usrp`** — the real C++ modem: OFDM or single-carrier, LDPC/turbo/Viterbi FEC, sync, CFO.
-- **`lora`** — SX1276. The 255-byte MTU means the driver fragments and retransmits, and it
-  reports the real airtime that cost.
+Every default backend needs **no hardware**, so the whole experiment develops on a laptop
+and moves to radios by changing one flag. Each PHY keeps its own knobs, and passing one
+PHY's knob while another is selected prints a NOTE rather than being silently ignored.
 
-Each PHY keeps its own knobs, because the PHYs genuinely differ — we assemble the USRP
-waveform, while a LoRa chip embeds its modulation and CRC:
-
-```
-shared    --freq (MHz)  --max-attempts  --arq
-simulated --sim-snr-db      (the noise a SIMULATED channel adds; on real radios SNR is
-                         measured, not set — use the gains below)
-usrp      --modulation --fec --samp-rate --symbol-rate --tx-gain --rx-gain
-          --ack-transport tcp|rf  --ack-timeout  --radio serial=…|addr=…
-lora      --lora-sf 7..12  --lora-cr 5..8  --lora-bw 125000|250000|500000
-          --lora-power  --lora-port /dev/ttyUSB0
-```
-
-Passing one PHY's knob while another is selected prints a NOTE rather than being silently
-ignored.
+Every flag with its default: [`docs/PARAMETERS_ALGO.md`](docs/PARAMETERS_ALGO.md).
+What each choice means in practice: [`docs/BEGINNER_GUIDE.md`](docs/BEGINNER_GUIDE.md) §3.
 
 ## Documentation
 

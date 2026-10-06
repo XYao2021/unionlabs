@@ -126,27 +126,19 @@ rig.
 
 ## 1b. Calibrate the sync threshold on a real link
 
-`prepare.sh` is receive-only and says so: the true `--sync-threshold` depends on what a
-real preamble scores on *this* link, which no survey can contain. The calibration pair
-measures it. The two machines need no network path between them — RF is the coordination.
-
 ```bash
-# on the RECEIVER, first. A surveyed radio needs NO flags: the carrier, receive
-# gain, det-mult and noise floor all arrive from the profile prepare.sh
-# published (printed with the survey's age; anything you type still wins):
+# on the RECEIVER first — a surveyed radio needs no flags
 ./calibration_rx.sh
 
-# ...or name everything yourself on an unsurveyed radio:
+# an unsurveyed radio, named in full
 ./calibration_rx.sh --device n210 --addr 192.168.10.2 --freq 915e6
 
-# then on the TRANSMITTER — the receiver prints this exact line:
+# then the TRANSMITTER — the receiver prints this exact line
 ./calibration_tx.sh --device b210 --serial 30CD424 --freq 915e6
 ```
 
-The threshold is the geometric mean of the noise p95 and the weakest CRC-passing peak,
-clamped to `[1.3 x noise, 0.8 x weakest]` — never inside the noise cloud, never so high a
-weak-but-real burst is refused. `radio.sh` and `run.sh` pick the written value up on the
-next run; anything you type still wins over it.
+`prepare.sh` is receive-only, so it cannot know what a real preamble scores on this link.
+This measures it and writes it back; `radio.sh` and `run.sh` pick it up on the next run.
 
 ### One command for both ends (`./calibration.sh`)
 
@@ -402,21 +394,16 @@ the same file, saying only which node it is. The examples live in
 ./run.sh topology fl-chain-tcp             # the same chain with no radio at all
 ```
 
-Across machines, listeners are published for you: the node opens a NodePort block for
-every session, on a timer, with nothing to run and nothing to install from in here. Put what it reports — a site name and the translated port — in the node's
-`advertise` block, because a NodePort renumbers the port, so what a node binds (5599) is
-not what callers dial (35999). `./run.sh ports` prints the block for this session. Count listeners to know how many to
-publish: a node receiving over the air binds two (the ARQ ack and the TCP reply), a node
-that only transmits binds none. `fl-star-crossnode.json` is that shape.
+Across machines, listeners are published for you — `./run.sh ports` prints the block to
+paste into the node's `advertise`, because a NodePort renumbers the port: what a node
+binds (5599) is not what callers dial (35999). `fl-star-crossnode.json` is that shape.
 
-The relay's two hops come from the links: the link where it is `to` is upstream, the one
-where it is `from` is downstream. Without a file, the same relay is
-`--role relay --link chain --up-medium wireless --down-medium tcp` plus `--net-port` (what
-upstream dials) and `--down-host/--down-port` (the next hop).
+The file format, each node's `radio`/`ports`/`advertise` blocks, the per-link media and
+how a relay's two hops are read are specified once in
+[`deploy/workspace/topologies/README.md`](../deploy/workspace/topologies/README.md).
 
-Without a file, the same two transports are reachable by flag: `--link tcp` runs the
-client/server roles over plain TCP/IP with no radio (`fl.py --uplink tcp --downlink tcp`),
-and `--clients N` tells a server how many clients to collect from before it aggregates.
+Without a file: `--link tcp` runs the client/server roles over plain TCP/IP with no radio,
+and `--clients N` tells a server how many clients to collect before it aggregates.
 
 ### Every PHY variable is reachable here too
 

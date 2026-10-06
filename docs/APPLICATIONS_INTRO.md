@@ -338,12 +338,10 @@ Build: `drivers/usrp/bindings/build.sh` (DSP only, builds anywhere) or `WITH_UHD
 
 ### 5.2 Hardware inventory
 
-| Device | Role | Address / serial | Subdev | Rate | Notes |
-|---|---|---|---|---|---|
-| N210 | AP / server (RX-only on the rig) | `addr=192.168.20.2` | `A:0` | 2e6/1e6 exact | gain 0–31.5 dB; 100e6/int clock |
-| B210 #1 | agent / client (TX) | `serial=30CD424` | `A:A` | flexible | gain ~0–89 dB; 2×2 MIMO |
-| B210 #2 | agent / client (TX) | `serial=30CD3F7` | `A:A` | flexible | 2×2 MIMO (a diversity-RX candidate for App 2) |
-| X310 | (optional) | `addr=` | — | 200e6/int | 2×2 MIMO |
+Which radio is which, with the addresses, subdevs, antenna ports, gain ranges and clock
+rules, is a table that belongs in one place and is kept in
+[`COMMANDS.md`](COMMANDS.md) — "What changes per model". A second copy here would be the
+one someone reads on the day it goes stale.
 
 ### 5.3 Where to read the code (bottom -> top)
 
