@@ -21,13 +21,13 @@ The Python glue that drives the radio lives **here in this folder** (alongside t
 
 ## How to run it
 
-See **`../EXPERIMENT_GUIDE.pdf`** (or `.md`) **§1A** for the full step-by-step: radio-free
+See **`docs/BEGINNER_GUIDE.md` §9 — worked, runnable recipes for every application (radio-free first, then hardware)
 validation (`ap_multi.py --sim-test`, mock training) through hardware single-agent
 (`real_channel.py ap` + `marl_train.py`) and decentralized multi-agent (`ap_multi.py` +
 `slot_sync.py` + `agent_node.py` per agent). Design rationale is in `INTEGRATION.md`.
 
 ## See also
 
-- `../EXPERIMENT_GUIDE.pdf` (or `.md`) — step-by-step commands to run every application (radio-free + hardware).
+- `docs/BEGINNER_GUIDE.md` §9 — worked, runnable recipes for every application (radio-free first, then hardware)
 - `../APPLICATIONS_INTRO.pdf` — all applications introduced together.
 - `../../../../README.md` — the PHY wrapper (`sdr.py`) and role modes the adapters use.

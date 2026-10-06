@@ -16,7 +16,7 @@ unionlabs/
 ├── calibration.sh           one command for BOTH ends: reads a shared plan file,
 │                            works out its own role, runs its half
 │
-├── algorithms/         EVERYTHING YOU RUN — one folder per experiment, each with app.py.
+├── deploy/workspace/algorithms/         EVERYTHING YOU RUN — one folder per experiment, each with app.py.
 │   │                    Algorithms and worked applications live together here, so there is
 │   │                    exactly ONE place to look.
 │   ├── _template/         copy this to start
@@ -49,7 +49,7 @@ unionlabs/
 │   │   ├── build/sdr_system  the compiled modem
 │   │   ├── CMakeLists.txt    build; POST_BUILD regenerates sdr.py + docs/PARAMETERS.md
 │   │   ├── bindings/         pyphy — DSP blocks as numpy functions (pybind11 .so)
-│   │   ├── tools/ tests/ sim/ GUIDE.md
+│   │   ├── tools/ tests/ sim/
 │   │   └── python/           sdr.py (auto-gen) · run.py · configs/ · RF utils
 │   ├── lora/             the SX1276 LoRa PHY                 --channel lora
 │   │   ├── arduino/lora_phy/  PHY firmware (Arduino/Teensy + SX1276)
@@ -67,13 +67,13 @@ unionlabs/
 └── results/             figures / run outputs, regenerable (gitignored)
 ```
 
-**Why this shape.** Four files and five folders. A newcomer opens `algorithms/` and finds
+**Why this shape.** Four files and five folders. A newcomer opens `deploy/workspace/algorithms/` and finds
 everything runnable in one place; `union/` is the bridge; `drivers/` is every PHY; `docs/` is
 every word of documentation. Nothing else competes for attention at the top level.
 
 **Two layers (the UnionLabs model):** `union/` is the **abstraction / middleware** — one
 contract, shared across every testbed and PHY; `drivers/<name>/` is the **driver layer** — one
-per (PHY × testbed). Experiments in `algorithms/` and `algorithms/` code to `union/` only, so
+per (PHY × testbed). Experiments in `deploy/workspace/algorithms/` and `deploy/workspace/algorithms/` code to `union/` only, so
 the same experiment runs on any driver. This middleware is what POWDER / AERPAW don't expose.
 
 ## The two stacks
@@ -81,7 +81,7 @@ the same experiment runs on any driver. This middleware is what POWDER / AERPAW 
 **Uniform algorithm API** (PHY-agnostic contract → the radio):
 
 ```
-algorithms/<name>/app.py     your algorithm: transmit() / receive() / on_result()
+deploy/workspace/algorithms/<name>/app.py     your algorithm: transmit() / receive() / on_result()
         │  make(role[, index, total])   +  optional ROLES = {"client": "tx", ...}
         ▼
 union/run_algo.py            discovers + adapts your algorithm; resolves --algo / --channel /

@@ -201,7 +201,7 @@ full-size frame so it reuses the data sizing.)
 
 Verified end-to-end on the two radios (30CD424 TX/RX  →  30CD3F7 RX2, SMA cable,
 QPSK @ 2.45 GHz, 1.6 Msps). With the current defaults the full message decodes
-and is readable. What it took, beyond the front-end rebuild (see `CHANGES.md`):
+and is readable. What it took, beyond the front-end rebuild :
 
 - **Energy detector**: default `--alpha` is now **0.95** (was 0.02). The IIR is
   `filtered = (1-alpha)*inst + alpha*prev`, so 0.02 barely smoothed and the

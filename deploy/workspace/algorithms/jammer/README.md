@@ -72,5 +72,5 @@ band hits every burst, while **burst** mode leaves gaps the policy can learn to 
 
 ## See also
 
-- `../EXPERIMENT_GUIDE.pdf` (or `.md`) — step-by-step commands to run every application
+- `docs/BEGINNER_GUIDE.md` §9 — worked, runnable recipes for every application (radio-free first, then hardware)
   (radio-free + hardware); the jammer appears under §1A as an optional contention source.

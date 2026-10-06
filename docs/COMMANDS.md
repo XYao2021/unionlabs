@@ -299,6 +299,29 @@ set it on both sides). Per-scheme gains tuned over the air are in §5.
 
 ---
 
+### Which carrier?
+
+Set `--tx-freq` and `--rx-freq` to the **same** value. Nothing else changes with the carrier.
+
+| band | usable carriers |
+|---|---|
+| 900 MHz ISM (902–928) | `910e6` cleaner · `915e6` default · **avoid** `918e6` and `924–928e6` — noisy in our scans |
+| 2.4 GHz ISM (2400–2483) | `2412e6` ch1 · `2437e6` ch6 · `2462e6` ch11 — WiFi-congested, raise `--det-mult` |
+
+Tuning range is the board's: B210 70 MHz–6 GHz; N210/X310 per daughterboard
+(WBX 50 MHz–2.2 GHz, SBX 400 MHz–4.4 GHz, UBX 10 MHz–6 GHz).
+
+### Which scheme?
+
+| your link | use |
+|---|---|
+| shared 10 MHz reference (`--ref external`) | any coherent scheme, incl. 16-QAM on a cable |
+| free-running LOs, single carrier | **differential** — DQPSK, DBPSK, 8-DPSK |
+| free-running LOs, coherent | **OFDM** (`--waveform ofdm`) — pilots track the offset |
+
+Bits/symbol — coherent: BPSK 1, QPSK 2, 8-PSK 3, 16-QAM 4. Differential: DBPSK 1,
+DQPSK 2, 8-DPSK 3. Do not combine `--waveform ofdm` with a `D*` scheme.
+
 ## 3. Run an algorithm over it (`./run.sh`)
 
 ```bash
@@ -766,7 +789,7 @@ no decode. The most effective broadband jammer; also a candidate test waveform.
 ./sdr_system --role tx --message-type chirp --chirp-bw 1.6e6 --chirp-sf 8 \
   --tx-freq 915e6 --tx-rate 1.6e6 --tx-gain 85 --tx-args serial=30CD424
 #   --chirp-bw = sweep Hz (0 = full band), --chirp-sf = 7-12 (2^SF/BW symbol dur),
-#   --chirp-down = down-chirp.  See algorithms/jammer/jammer.py for a full jammer.
+#   --chirp-down = down-chirp.  See deploy/workspace/algorithms/jammer/jammer.py for a full jammer.
 ```
 
 **2. Decodable LoRa data link** (`--waveform lora`) — CSS modulation that *carries data*:

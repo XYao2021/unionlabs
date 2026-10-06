@@ -7,7 +7,7 @@ alongside it.
 
 This document is the design rationale and the build plan. It assumes familiarity with
 `APPLICATIONS_INTRO.md` (§1 substrate, §2.4 Federated Learning) and
-`EXPERIMENT_GUIDE.md` §1B.
+`docs/BEGINNER_GUIDE.md` §9.2 (federated learning).
 
 ---
 
@@ -257,7 +257,7 @@ rather than blocking. Straggler tolerance is a legitimate result to report, not 
 | Phase | Setup | Proves | Status |
 |---|---|---|---|
 | **0** | All-TCP, one host, MNIST | protocol correctness | **done** (`fl.py --uplink tcp --downlink tcp`, 0.92 in 12 rounds) |
-| **1** | One testbed, RF uplink, MNIST | radio in the loop | command-ready (`EXPERIMENT_GUIDE.md` §1B Step 1) |
+| **1** | One testbed, RF uplink, MNIST | radio in the loop | command-ready (`docs/BEGINNER_GUIDE.md` §9.2) |
 | **2** | **Two *virtual* sites at one location** — different rooms / carriers / antennas, separate subnets, separate site aggregators, real tier-2 TCP hop | the entire hierarchical protocol, the site-signature machinery, the WAN rendezvous, the LOTO harness | **build this next** |
 | **3** | Real cross-site, ≥2 remote testbeds + 1 held out | the actual claim | after Phase 2 is green |
 
@@ -332,6 +332,6 @@ path.
 ## See also
 
 - `APPLICATIONS_INTRO.md` — §1 substrate, §2.4 Federated Learning, §4 the archetype seam
-- `EXPERIMENT_GUIDE.md` §1B — the existing single-site FL runbook
+- `docs/BEGINNER_GUIDE.md` §9.2 — the existing single-site FL runbook
 - `python/fl.py`, `python/fl_core.py` — the FedAvg + compression implementation this builds on
 - `DOCKER.md` — the container to ship to every site

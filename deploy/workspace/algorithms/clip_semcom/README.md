@@ -89,7 +89,7 @@ falls back to the mock, so nothing ever hard-fails. Models: `vit-b32`, `vit-b16`
 
 ## See also
 
-- `../EXPERIMENT_GUIDE.pdf` (or `.md`) — step-by-step commands to run every application (radio-free + hardware); this app is §3.
+- `docs/BEGINNER_GUIDE.md` §9 — worked, runnable recipes for every application (radio-free first, then hardware)
 - `../APPLICATIONS_INTRO.pdf` — all applications introduced together.
 - `../fl/fl.py` — the FL data-transfer app this mirrors (same PHY byte-pipe).
 - `../../../../drivers/usrp/bindings/pyphy.cpp` — the block API the `pyphy` channel backend uses.

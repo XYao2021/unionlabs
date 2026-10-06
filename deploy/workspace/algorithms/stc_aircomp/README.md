@@ -91,7 +91,7 @@ path — it all lives on the `pyphy` block API. Details and the validation plan 
 
 ## See also
 
-- `../EXPERIMENT_GUIDE.pdf` (or `.md`) — step-by-step commands to run every application (radio-free + hardware); this app's planned bring-up sequence is in §2.
+- `docs/BEGINNER_GUIDE.md` §9 — worked, runnable recipes for every application (radio-free first, then hardware)
 - `../APPLICATIONS_INTRO.pdf` — both applications introduced side by side.
 - `../marl_ra/` — Application 1 (the reliable-link control archetype).
 - `../../../../drivers/usrp/python/phy_flow_example.py` — worked `pyphy` flowgraph (the substrate this app builds on).

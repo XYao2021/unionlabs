@@ -86,5 +86,5 @@ Notes:
   the multiply-based differential coder).
 - Keep the injected CFO modest (the default ~0.03 rad/sym is fine). A very large
   CFO shrinks the preamble correlation below the guard sidelobe and time sync can
-  mis-lock — the same `sync_threshold` caveat noted in `CHANGES.md`.
+  mis-lock — the same `sync_threshold` caveat.
 ```

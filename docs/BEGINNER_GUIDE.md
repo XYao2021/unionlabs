@@ -65,7 +65,7 @@ still wins over it.
 
 ## 2. Where things live
 
-- **`algorithms/`** — **everything you run**, one folder per experiment, each with an `app.py`.
+- **`deploy/workspace/algorithms/`** — **everything you run**, one folder per experiment, each with an `app.py`.
   Your own code and the worked examples (FL, decentralized learning, MARL, CLIP semantic comm,
   STC-AirComp, jammer) all live here — one place to look.
 - **`union/`** — the middleware you code against: `run_algo.py` + `phy_link.py` (the uniform API)
@@ -88,7 +88,7 @@ still wins over it.
 ## 3. Running an algorithm over the PHY
 
 Your algorithm only says **what to transmit** and **what to receive** — no radio code. Drop it in
-`algorithms/<name>/app.py` (copy `algorithms/_template/`), then run it by name.
+`deploy/workspace/algorithms/<name>/app.py` (copy `deploy/workspace/algorithms/_template/`), then run it by name.
 
 ### 3.1 The three independent choices
 
@@ -100,7 +100,7 @@ to understand about this platform:
           └─ WHAT ────┘    └─ WHICH PHY ──┘      └─ WHICH PART am I ─┘
 ```
 
-1. **`--algo`** — what you are running. Any folder in `algorithms/` (`./run.sh list`).
+1. **`--algo`** — what you are running. Any folder in `deploy/workspace/algorithms/` (`./run.sh list`).
 2. **`--channel`** — which physical layer carries the bytes. Your algorithm never knows.
 3. **`--role`** — whether this process is the *whole network* or *one node of it*.
 
@@ -165,7 +165,7 @@ computer per node:
 
 | Option | Default | What it does |
 |---|---|---|
-| `--algo <name>` | `echo` | which folder under `algorithms/` to run |
+| `--algo <name>` | `echo` | which folder under `deploy/workspace/algorithms/` to run |
 | `--channel ideal\|usrp\|lora` | `ideal` | which PHY carries the payloads |
 | `--role <role>` | `loopback` | see §3.3; or any role the algorithm declares |
 | `--steps <n>` | `5` | how many rounds/round-trips to run |
@@ -259,13 +259,13 @@ This has a guide of its own, so it stays in one place rather than drifting betwe
 
 It covers, in order:
 
-1. **Where to put it** — `algorithms/<name>/app.py`, and `--algo <name>` matches the folder.
+1. **Where to put it** — `deploy/workspace/algorithms/<name>/app.py`, and `--algo <name>` matches the folder.
 2. **One file or many** — many: `app.py` is only the bridge, and your own modules, sub-packages
    and data sit beside it.
 3. **What `app.py` must provide** — `make(role)` returning an object with `transmit()` /
    `receive(msg)`, plus optional `spec` and `on_result(ack)`.
-4. **Two ways to write it** — inline (copy `algorithms/_template/`), or a ~10-line binding onto
-   your existing, untouched code (copy `algorithms/plain_echo/`).
+4. **Two ways to write it** — inline (copy `deploy/workspace/algorithms/_template/`), or a ~10-line binding onto
+   your existing, untouched code (copy `deploy/workspace/algorithms/plain_echo/`).
 5. **Roles** — the four node types (`tx`, `rx`, `relay`, `peer`), naming your own with `ROLES`,
    and learning which node you are with `make(role, index, total)`.
 6. **Running it** — the same file over every PHY, and as a multi-node network.
@@ -273,7 +273,7 @@ It covers, in order:
 The shortest possible version:
 
 ```python
-# algorithms/my_algo/app.py
+# deploy/workspace/algorithms/my_algo/app.py
 import numpy as np
 
 class MyAlgo:
@@ -452,7 +452,7 @@ collision/loss). Single-shot bursts (`--max-attempts 1`); the *policy* owns retr
 
 #### Step 0 — radio-free validation (no hardware)
 ```bash
-cd algorithms/marl_ra
+cd deploy/workspace/algorithms/marl_multi
 python3 ap_multi.py --self-test      # per-agent ACK routing (synthetic id stream)  -> PASS
 python3 ap_multi.py --sim-test       # parser + end-to-end with a fake C++ sink       -> PASS
 python3 slot_sync.py --self-test     # slot clock aligns 3 clients                     -> PASS
@@ -462,10 +462,12 @@ python3 mock_medium.py --agents 2 --slots 600 &
 python3 agent_node.py --mock --id 0 --slots 600
 python3 agent_node.py --mock --id 1 --slots 600
 
-# offline training (learns to transmit; prints P(transmit|queued) climbing):
-python3 marl_train.py --mock --steps 400                       # single agent (A2C)
+# multi-agent training vs ALOHA (still in marl_multi/):
 python3 marl_multi_train.py --mock --agents 4 --steps 800 \
-        --coll-penalty 0.5 --compare-aloha "0.15,0.25,0.5"     # multi-agent vs ALOHA
+        --coll-penalty 0.5 --compare-aloha "0.15,0.25,0.5"
+
+# single-agent A2C lives in the SIBLING folder, not this one:
+cd ../marl && python3 marl_train.py --mock --steps 400
 ```
 **Success:** self/sim-tests PASS; in training `P(transmit|queued)` rises on a clean mock link;
 multi-agent collision rate drops and per-agent `P(transmit)` settles near `1/N`.
@@ -510,7 +512,7 @@ FedAvg-aggregates and broadcasts the aggregate down.
 
 #### Step 0 — radio-free
 ```bash
-cd algorithms/_shared
+cd deploy/workspace/algorithms/fl
 python3 fl.py --mock --clients 2 --rounds 20                    # compressed (default) -> ~0.71→0.93
 python3 fl.py --mock --clients 2 --rounds 20 --compress-ratio 0 # full model
 
@@ -560,7 +562,7 @@ The base station encodes an image with **CLIP** into a float32 embedding and tra
 embedding**; the user classifies it (zero-shot) with no return link. Data-transfer archetype.
 
 ```bash
-cd algorithms/clip_semcom
+cd deploy/workspace/algorithms/clip_semcom
 ```
 
 #### Step 0 — radio-free (no torch weights needed; uses the mock CLIP)
@@ -602,10 +604,10 @@ sweep in Step 0 (radio-free), or the phase-2 single-shot mode in the INTEGRATION
 
 ```bash
 # ---- radio-free (no hardware) ----
-(cd algorithms/marl_ra && python3 ap_multi.py --sim-test)      # MARL routing
-(cd algorithms/marl_ra && python3 marl_multi_train.py --mock --agents 4 --steps 800 --coll-penalty 0.5)
-(cd algorithms/_shared && python3 fl.py --mock --clients 2 --rounds 20)  # FL
-cd algorithms/clip_semcom && python3 semcom.py demo --mock   # CLIP
+(cd deploy/workspace/algorithms/marl_multi && python3 ap_multi.py --sim-test)      # MARL routing
+(cd deploy/workspace/algorithms/marl_multi && python3 marl_multi_train.py --mock --agents 4 --steps 800 --coll-penalty 0.5)
+(cd deploy/workspace/algorithms/fl && python3 fl.py --mock --clients 2 --rounds 20)  # FL
+cd deploy/workspace/algorithms/clip_semcom && python3 semcom.py demo --mock   # CLIP
 PYTHONPATH=../../drivers/usrp/bindings arch -x86_64 python3 semcom.py demo --mock --channel pyphy --fec turbo --snr-sweep 0,2,4,6,10
 
 # ---- hardware (RX/AP host first, TX host second) ----
@@ -625,7 +627,7 @@ and [`APPLICATIONS_INTRO.md`](APPLICATIONS_INTRO.md).
 
 ## Beyond this guide
 
-For deeper reference (in the repo root / `algorithms/`): **`PARAMETERS.md`** (every option — or run
+For deeper reference (in the repo root / `deploy/workspace/algorithms/`): **`PARAMETERS.md`** (every option — or run
 `sdr_system --help`), **`SYSTEM_REFERENCE.md`** (the engine math + every algorithm), **`COMMANDS.md`**
-and **`USRP_CARRIER_MODULATION.txt`** (ready-to-run command recipes per scheme / per device),
+
 **`HARDWARE.md`** (hardware setup), and **§9 above** (running the example apps).

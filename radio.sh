@@ -62,7 +62,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# per-device defaults (from USRP_CARRIER_MODULATION.txt): addr/subdev + default gains
+# per-device defaults: addr/subdev + default gains (see docs/COMMANDS.md §2)
 case "$DEVICE" in
   b210) SUBDEV=A:A; DEF_ARGS="";                  TXG=78; RXG=20;;
   n210) SUBDEV=A:0; DEF_ARGS="addr=192.168.20.2"; TXG=25; RXG=25;;

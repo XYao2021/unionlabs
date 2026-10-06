@@ -13,7 +13,7 @@ shared `/deploy/workspace/algorithms/` — every session of the account sees it.
 
 ```
 unionlabs/
-└── algorithms/
+└── deploy/workspace/algorithms/
     └── my_algo/            ←  the folder name = the algorithm name
         └── app.py          ←  REQUIRED. the framework looks for exactly this file
 ```
@@ -36,7 +36,7 @@ you upload sits beside it and is imported normally — sibling modules, sub-pack
 model weights:
 
 ```
-algorithms/my_algo/
+deploy/workspace/algorithms/my_algo/
 ├── app.py              ← the ONLY required file: ~10 lines of binding
 ├── model.py            ← YOUR code, unchanged
 ├── train_utils.py      ← more of YOUR code
@@ -86,10 +86,10 @@ That's the whole contract. No radio code, no imports from the framework.
 
 ## Step 3 — Two ways to write `app.py`
 
-### 3A. Simplest — write the algorithm inline (copy `algorithms/_template/`)
+### 3A. Simplest — write the algorithm inline (copy `deploy/workspace/algorithms/_template/`)
 
 ```python
-# algorithms/my_algo/app.py
+# deploy/workspace/algorithms/my_algo/app.py
 import numpy as np
 
 class MyAlgo:
@@ -105,13 +105,13 @@ def make(role):
     return MyAlgo(role)
 ```
 
-### 3B. Link your OWN existing algorithm (copy `algorithms/plain_echo/`)
+### 3B. Link your OWN existing algorithm (copy `deploy/workspace/algorithms/plain_echo/`)
 
 Leave your algorithm **untouched** in its own file next to `app.py`, and let `app.py` just map
 its methods. Nothing in your algorithm needs to change or import our framework.
 
 ```
-algorithms/my_algo/
+deploy/workspace/algorithms/my_algo/
 ├── my_model.py         ←  YOUR existing code (unchanged)
 └── app.py              ←  the 10-line binding
 ```
@@ -172,7 +172,7 @@ def receive(self, msg):
         my_model.apply(msg)                               # tx handles the reply
 ```
 
-(See `algorithms/clip_semcom/` — the `tx` sends an image embedding, the `rx` classifies it and
+(See `deploy/workspace/algorithms/clip_semcom/` — the `tx` sends an image embedding, the `rx` classifies it and
 replies the label.)
 
 ### The four node types
@@ -203,7 +203,7 @@ ROLES = {"client": "tx", "server": "rx", "relay": "relay"}
 stay valid for every algorithm, and an algorithm that declares no `ROLES` behaves exactly as before.
 `./run.sh list` prints each algorithm's roles.
 
-Worked examples: `algorithms/fl/` (`client`/`server`/`relay`), `algorithms/dl/`
+Worked examples: `deploy/workspace/algorithms/fl/` (`client`/`server`/`relay`), `deploy/workspace/algorithms/dl/`
 (`peer`/`initiator`/`responder`).
 
 ### Knowing which node you are (optional)
@@ -216,7 +216,7 @@ def make(role, index=None, total=None):       # index = which node, total = how 
     return MyAlgo(role, index or 0, total or 1)
 ```
 
-Plain `make(role)` keeps working. See `algorithms/dl/app.py`, where peer `index` takes shard
+Plain `make(role)` keeps working. See `deploy/workspace/algorithms/dl/app.py`, where peer `index` takes shard
 `index` of `total`.
 
 ---
@@ -251,7 +251,7 @@ what it configures; `BEGINNER_GUIDE.md §3.4` explains each one.
 
 ## Checklist / common mistakes
 
-- ☐ Folder is `algorithms/<name>/` and `--algo <name>` matches it exactly.
+- ☐ Folder is `deploy/workspace/algorithms/<name>/` and `--algo <name>` matches it exactly.
 - ☐ `app.py` exists and defines `make(role)`.
 - ☐ `transmit()` returns a **numpy array**, or `None` to stop.
 - ☐ Build state inside `make()` (per node) — **not** as module-level globals, or the two
@@ -263,6 +263,6 @@ what it configures; `BEGINNER_GUIDE.md §3.4` explains each one.
 - ☐ Your algorithm should contain **no PHY knobs**. If it needs a spreading factor or a
   modulation scheme, it has stopped being portable — those belong on the command line.
 
-More detail: the full contract and the framework functions are in `algorithms/README.md`; every
+More detail: the full contract and the framework functions are in `deploy/workspace/algorithms/README.md`; every
 `run.sh` option is explained in `BEGINNER_GUIDE.md §3.4`; the USRP PHY's own interface is in
-`drivers/usrp/GUIDE.md` and the LoRa PHY's in `drivers/lora/README.md`.
+`docs/COMMANDS.md` and the LoRa PHY's in `drivers/lora/README.md`.

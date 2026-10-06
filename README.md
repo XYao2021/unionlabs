@@ -73,7 +73,7 @@ docs/HOW_TO_ADD_ALGORITHM.md  the tutorial: write your own experiment
 run.sh                    run an experiment over a PHY
 radio.sh                  raw TX/RX on a USRP
 
-algorithms/   ← THE folder you work in. One subfolder per experiment, each with app.py
+deploy/workspace/algorithms/   ← THE folder you work in. One subfolder per experiment, each with app.py
 union/           the UnionLabs bridge: one contract for every PHY and testbed
 drivers/         the PHYs: usrp/ (C++ modem + pyphy), lora/ (SX1276), sim/
 docs/            every guide, reference and PDF
@@ -83,7 +83,7 @@ results/         generated output (gitignored)
 
 | Path | What |
 |---|---|
-| `algorithms/` | **your** work, one folder each |
+| `deploy/workspace/algorithms/` | **your** work, one folder each |
 | `union/` | the **middleware** — `phy_link.py`, `run_algo.py`, `driver.py` |
 | `drivers/` | the **driver layer**, one per PHY — `usrp/`, `lora/`, `sim/` |
 | `docs/` | guides, references, PDFs, diagrams, slides |
@@ -146,10 +146,8 @@ material you read front to back.
 | [`docs/PARAMETERS_ALGO.md`](docs/PARAMETERS_ALGO.md) | every **`run.sh`** and LoRa option — also auto-generated |
 | [`docs/COMMANDS.md`](docs/COMMANDS.md) | ready-to-run commands, and tuned settings per modulation scheme |
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | radio inventory, wiring, FPGA images, the per-device gotchas |
-| [`docs/USRP_CARRIER_MODULATION.txt`](docs/USRP_CARRIER_MODULATION.txt) | raw `sdr_system` commands per device (B210 / N210 / X310) |
 | [`docs/SYSTEM_REFERENCE.md`](docs/SYSTEM_REFERENCE.md) | the engine: the math and every DSP stage, one section each |
-| [`docs/MANIFEST.md`](docs/MANIFEST.md) | file index and the CLI ↔ `sdr.py` mapping |
-| [`drivers/usrp/GUIDE.md`](drivers/usrp/GUIDE.md) | the USRP PHY: every way to drive it directly |
+
 | [`drivers/lora/README.md`](drivers/lora/README.md) | the LoRa PHY: firmware, wiring, the three attachments |
 
 **Design notes — where things are going, not how to run them**
