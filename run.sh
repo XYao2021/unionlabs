@@ -48,6 +48,47 @@
 # lora-backend serial/spi) have no peer inside one process, so they run as the two-host
 # role split (--role tx / --role rx). Older spellings still work: sim=ideal, pyphy=usrp.
 #
+# WHERE A PARAMETER COMES FROM. Three sources, and a fixed precedence so a run can
+# always say why it used a number:
+#
+#     what you type  >  --topology FILE  >  --phy-profile (searching/)  >  built-in
+#
+#   1. MEASURED, from prepare.sh. The survey writes searching/phy-<radio>-<band>-
+#      <subdev>-<ant>-<time>.json: carrier, rx gain, det-mult, sync-threshold. It is
+#      found automatically from the radio this process owns, or pinned outright:
+#        --phy-profile phy-30CD3F7-ism915-AA-RX2-2026-10-05_12-00-00.json
+#        --phy-profile-node KEY / --phy-profile-band BAND   narrow the search instead
+#        --no-phy-profile                                   ignore measurements
+#      Naming a file PINS the run to one survey, which is what makes a reported
+#      number traceable: several surveys accumulate per radio, and otherwise "which
+#      measurement was this" is answered by precedence rather than by the author. A
+#      name that does not resolve is a hard error, never a quiet fallback.
+#
+#   2. AUTHORED, in a topology file — the wiring, the roles, and each node's own
+#      radio settings. This is where TX vs RX vs a both-ways node is declared:
+#        { "nodes": [
+#            { "id": "n0", "role": "tx",
+#              "radio": { "device": "b210", "serial": "30CD424",
+#                         "tx": { "ant": "TX/RX", "subdev": "A:A", "gain": 70,
+#                                 "freq_mhz": 915 } } },
+#            { "id": "n1", "role": "rx",
+#              "radio": { "device": "b210", "serial": "30CD3F7",
+#                         "rx": { "ant": "RX2", "subdev": "A:A", "gain": 40 } } },
+#            { "id": "n2", "role": "relay",
+#              "radio": { "device": "x310", "addr": "192.168.40.2",
+#                         "tx": { "ant": "TX/RX", "subdev": "A:0", "gain": 25 },
+#                         "rx": { "ant": "RX2",   "subdev": "A:0", "gain": 25 } } } ] }
+#      A node carrying BOTH a tx and an rx block is the two-way case; `role` is the
+#      name the ALGORITHM knows it by (tx / rx / relay / peer / server / client —
+#      see ROLES in docs/HOW_TO_ADD_ALGORITHM.md), while the radio blocks are the
+#      hardware. ./run.sh topologies lists them; ./run.sh topologies NAME shows one.
+#
+#   3. TYPED, every flag below. Anything you type wins over both files, so a file is
+#      a default you can always override for one run without editing it.
+#
+# Each layer announces what it supplied ([phy-profile] ... / [topology] ...), because
+# a default that arrives from a file without saying so is worse than no default.
+#
 # PHY FEATURES, printed per packet, ON BY DEFAULT:
 #   [PHY-FEAT] scheme=QPSK fec=turbo syms=768 bits=600 snr_req=10.0dB
 #              snr_meas=10.18dB evm=30.98% ber=0.000e+00 errs=0 crc=OK

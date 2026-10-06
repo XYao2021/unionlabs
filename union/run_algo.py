@@ -724,10 +724,18 @@ def apply_phy_profile(ap, a):
     if not _typed(ap, a, f"{role}_subdev"):
         sub = None
     dev_args = (a.tx_args if role == "tx" else a.rx_args) or None
+    named = getattr(a, "phy_profile", None)
     vals, path, why = pp.load(getattr(a, "phy_profile_node", None),
                               band=getattr(a, "phy_profile_band", None),
-                              near_mhz=near, ant=ant, subdev=sub, args=dev_args)
+                              near_mhz=near, ant=ant, subdev=sub, args=dev_args,
+                              path=named)
     if not path or not vals:
+        # Naming a file is an assertion about which measurement this run used, so a
+        # name that does not resolve must stop the run. Falling back to the resolver
+        # would produce a run whose settings came from a different survey than the
+        # one it says it used.
+        if named:
+            sys.exit(f"--phy-profile {named!r}: {why}")
         return
 
     applied = []
@@ -1078,6 +1086,11 @@ def build_parser():
                          "node (union/phy_profile.py). By default freq, gain and "
                          "the detector thresholds are filled from it when neither "
                          "the command line nor the topology names them.")
+    ap.add_argument("--phy-profile", default=None, metavar="FILE",
+                    help="use THIS searching/ profile outright (a path, or the bare "
+                         "filename) instead of resolving one by radio/band/antenna. "
+                         "Pins the run to one survey; an unresolvable name is a "
+                         "hard error, never a silent fallback")
     ap.add_argument("--phy-profile-band", default=None, metavar="BAND",
                     help="which antenna's survey to use when one radio carries "
                          "two (vert900 / ism915 / vert2450 / vert2450-5g)")

@@ -386,15 +386,53 @@ def pick_candidate(prof, pick=None):
     return best, f"carrier nearest {want:g} MHz"
 
 
+def resolve_named(name):
+    """-> (path, why) for a profile named OUTRIGHT, rather than searched for.
+
+    `name` may be an absolute/relative path, or the bare filename (with or without
+    .json) of a file in any of the searching/ directories. Naming one pins a run to
+    one measurement: filenames carry the survey timestamp and several accumulate per
+    radio, so "which survey produced these settings" is otherwise answered by the
+    resolver's precedence rules rather than by the person reporting the result.
+    """
+    cands = []
+    if os.path.isabs(name) or os.sep in name:
+        cands.append(name)
+    else:
+        for d in dirs():
+            cands += [os.path.join(d, name),
+                      os.path.join(d, name if name.endswith(".json") else name + ".json")]
+    for c in cands:
+        if os.path.exists(c):
+            return c, f"named outright: {os.path.basename(c)}"
+    looked = ", ".join(dirs()) or "(no searching directory found)"
+    return None, (f"no profile named {name!r} — looked in {looked}. "
+                  f"List what exists with: python3 union/phy_profile.py --list")
+
+
 def load(node=None, pick=None, band=None, near_mhz=None, ant=None,
-         subdev=None, args=None):
+         subdev=None, args=None, path=None):
     """-> (values, path, why). values maps modem option -> value.
 
     A value is looked up in the chosen option first, then in the shared parts of
     the profile: the carrier belongs to the option, while the detector thresholds
     and the receive gain were measured once and apply to all of them.
+
+    `path` names a profile outright and skips the search entirely. When it is given
+    and cannot be found, that is an ERROR rather than a fallback to whatever the
+    resolver would have picked: someone who names a file is asserting which
+    measurement this run used, and quietly substituting another one would make the
+    run's own record of itself wrong.
     """
-    path, why = find(node, band, near_mhz, ant, subdev, args)
+    if path:
+        p, why = resolve_named(path)
+        if not p:
+            return {}, None, why
+        path_named, why_named = p, why
+    else:
+        path_named = why_named = None
+    path, why = ((path_named, why_named) if path_named
+                 else find(node, band, near_mhz, ant, subdev, args))
     if not path:
         return {}, None, why
     try:
