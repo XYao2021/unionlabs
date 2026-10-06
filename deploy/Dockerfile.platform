@@ -97,6 +97,51 @@ RUN apt-get update \
       > /root/.config/mimeapps.list \
  && echo 'export EDITOR="code -w" VISUAL="code -w"' >> /root/.bashrc
 
+# ── Google Chrome, the desktop's browser ──
+#    The image shipped no browser at all, so Xfce answered every URL by spawning
+#    xfce4-mime-help -- the "nothing here can open this" helper -- which exits
+#    immediately and leaves a zombie. A desktop that silently does nothing when you
+#    click a link reads as a broken desktop.
+#
+#    Chrome because it ships a real .deb for amd64. Ubuntu 22.04's `firefox` and
+#    `chromium-browser` are snap TRANSITIONAL packages: apt installs them without
+#    complaint and they then cannot start, there being no snapd in a container --
+#    a failure that looks like the browser is broken rather than absent.
+#
+#    Two container-specific flags, both carried by a wrapper earlier in PATH exactly
+#    as Code's are, since the desktop runs as root:
+#      --no-sandbox            Chrome refuses to run its sandbox as root.
+#      --disable-dev-shm-usage a container's /dev/shm defaults to 64 MB, too small
+#                              for Chrome's renderers; without this, tabs die with
+#                              no message that points at the cause.
+#    repo_add_once=false stops the .deb's postinst adding Google's apt source: this
+#    image pins its browser to the build, and an expiring third-party key must never
+#    be able to break an unrelated `apt-get update` in a session months from now.
+RUN apt-get update \
+ && echo 'repo_add_once=false' > /etc/default/google-chrome \
+ && curl -fsSL -o /tmp/chrome.deb \
+      "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
+ && apt-get install -y /tmp/chrome.deb \
+ && rm -f /tmp/chrome.deb /etc/apt/sources.list.d/google-chrome.list \
+ && rm -rf /var/lib/apt/lists/* \
+ && printf '#!/bin/sh\nexec /opt/google/chrome/google-chrome --no-sandbox --disable-dev-shm-usage --password-store=basic "$@"\n' \
+      > /usr/local/bin/google-chrome \
+ && chmod +x /usr/local/bin/google-chrome \
+ && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' \
+      /usr/share/applications/google-chrome.desktop \
+ && install -m 755 /usr/share/applications/google-chrome.desktop \
+      /root/Desktop/google-chrome.desktop \
+ && update-alternatives --install /usr/bin/x-www-browser x-www-browser \
+      /usr/local/bin/google-chrome 100 \
+ && update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser \
+      /usr/local/bin/google-chrome 100 \
+ && update-alternatives --set x-www-browser /usr/local/bin/google-chrome \
+ && update-alternatives --set gnome-www-browser /usr/local/bin/google-chrome \
+ && { echo "x-scheme-handler/http=google-chrome.desktop"; \
+      echo "x-scheme-handler/https=google-chrome.desktop"; \
+      echo "text/html=google-chrome.desktop"; } >> /root/.config/mimeapps.list \
+ && echo 'export BROWSER=/usr/local/bin/google-chrome' >> /root/.bashrc
+
 # ── xstartup: TurboVNC 3.x ignores ~/.vnc/xstartup entirely ──
 #    Its vncserver defaults $xstartup to the BUNDLED /opt/TurboVNC/bin/xstartup.turbovnc
 #    unless $xstartup is set in /etc/turbovncserver.conf (verified in the vncserver
