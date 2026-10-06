@@ -15,6 +15,7 @@
 #   # ... or one terminal / one computer PER NODE (--node k implies --role peer):
 #   ./run.sh --algo dl --node 0 --agents 3 --topology ring
 #   ./run.sh --algo dl --node 1 --agents 3 --topology ring --radio serial=30CD424
+#   ./run.sh radio tx | ./run.sh radio rx       # the raw link, no algorithm (= radio.sh)
 #   ./run.sh list                              # list available algorithms + their roles
 #   ./run.sh --help                            # this help + every option
 #
@@ -129,6 +130,21 @@ if [ "${1:-}" = "refresh-workspace" ]; then
   shift
   exec env FORCE=1 bash "$HERE/deploy/workspace/init-workspace.sh" "$@"
 fi
+if [ "${1:-}" = "radio" ]; then
+  # The RAW link, with no algorithm above it: ./run.sh radio tx|rx [options].
+  # Everything else here runs an algorithm over a PHY; this runs the modem alone with
+  # its default message, which is the thing to reach for when you need to know whether
+  # the radios work before asking whether the experiment does.
+  #
+  # It DELEGATES to radio.sh rather than absorbing it. radio.sh is the script people
+  # already have in their notes and in docs/COMMANDS.md, it is what calibration and
+  # auto_link invoke, and it carries per-device defaults plus the profile resolution
+  # for the receive side. Copying that logic to a second place would give the two
+  # copies a chance to disagree, and the first symptom of a disagreement is a link
+  # that works through one entry point and not the other.
+  shift
+  exec "$HERE/radio.sh" "$@"
+fi
 if [ "${1:-}" = "topology" ] || [ "${1:-}" = "topo" ]; then
   # start every node of a topology file that lives on THIS machine, listeners first
   shift
@@ -160,7 +176,11 @@ if [ "${1:-}" = "list" ]; then
   exit 0
 fi
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-  sed -n '2,55p' "$0"; echo; python3 "$RUN" --help; exit 0
+  # Print the WHOLE header block, however long it grows, instead of a line number
+  # that silently truncates it. A fixed range quietly dropped the parameter-source
+  # and PHY-feature sections the moment the header outgrew 55 lines, so --help
+  # stopped mentioning documentation that existed three lines further down.
+  sed -n '2,/^[^#]/p' "$0" | sed '$d'; echo; python3 "$RUN" --help; exit 0
 fi
 
 # What this wrapper adds, and nothing more. --channel ideal and --steps 5 used to be
