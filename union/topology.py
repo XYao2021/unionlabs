@@ -535,13 +535,34 @@ def available():
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2 or not sys.argv[1].strip():
-        print("topologies found:")
+        # List BY NAME, and say which copy would actually run. The folders are
+        # searched in order, so a file in /workspace shadows an identically named one
+        # in the repo -- and listing both as peers invites editing the copy that is
+        # never read. That is not hypothetical: a stale /workspace topology once
+        # outlived several image rebuilds precisely because it looked present and
+        # current in exactly this listing.
+        by_name = {}
         for p in available():
-            print("  " + p)
+            by_name.setdefault(os.path.basename(p)[:-len(".json")], []).append(p)
+        print("topologies found:")
+        shadowed = 0
+        for name in sorted(by_name):
+            paths = by_name[name]
+            winner = paths[0]                   # search_path() order IS precedence
+            print(f"  {name}")
             try:
-                print("      " + load(p).description)
+                print("      " + load(winner).description)
             except TopologyError as e:
                 print(f"      INVALID: {e}")
+            print(f"      {winner}")
+            for other in paths[1:]:
+                shadowed += 1
+                print(f"      (also at {other} — SHADOWED, not read)")
+        if shadowed:
+            print(f"\n  {shadowed} file(s) shadowed by a copy earlier in the search "
+                  f"path.\n  Search order: " + " > ".join(search_path()) +
+                  "\n  Editing a shadowed file changes nothing. To refresh the "
+                  "workspace copies from\n  this checkout: ./run.sh refresh-workspace")
         sys.exit(0)
     try:
         print(load(sys.argv[1]).summary())
