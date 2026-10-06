@@ -877,12 +877,34 @@ def apply_topology(ap, a):
                          f"{', '.join(sorted(media))} at once. A node is attached one "
                          f"way per direction; give those links one medium.")
         all_media = arrives | leaves
-        if all_media != {"lora"} and replies - {"tcp"}:
+        # A WIRELESS REPLY is allowed when the radio that must send it can transmit.
+        # This used to be refused outright, on the grounds that "the RX-only N210
+        # never transmits" -- true of one rig, and written as though it were true of
+        # every rig. Two B210s each have two RF channels, so the reply can go over the
+        # air exactly as the data does: the sink receives on one channel and ACKs on
+        # the other, the source transmits on one and listens for the ACK on the other.
+        # That is the modem's --ack-transport rf, so declaring the down medium
+        # wireless selects it rather than needing a separate flag.
+        #
+        # The check is now about hardware rather than assumption: on a link A -> B the
+        # REPLY travels B -> A, so B is the one that needs a tx radio. A node declaring
+        # no tx block cannot transmit, and that is refused with the specific reason.
+        # Whether the radios can actually do this is NOT re-checked here: topology.py
+        # already refuses a wireless direction whose source has no radio.tx or whose
+        # destination has no radio.rx, per direction, when the file is loaded -- and it
+        # does it with a better message than a second copy here would. A duplicate
+        # guard downstream of a stricter one is unreachable code wearing the costume of
+        # safety; the only thing left to decide is the transport.
+        rf_reply = any(ln.down == "wireless" for ln in in_links + out_links)
+        if rf_reply:
+            # the ACK rides a second RF path on this node's own radio, which is what
+            # the modem means by rf: tx-args == rx-args, different subdev.
+            _set(ap, a, "ack_transport", "rf")
+        if all_media != {"lora"} and (replies - {"tcp", "wireless"}):
             sys.exit(f"--topology {topo.name}: node {nd.id} has a link whose DOWN "
-                     f"direction is {', '.join(sorted(replies - {'tcp'}))}. Every "
-                     f"transport here carries the reply over TCP — the RX-only N210 "
-                     f"never transmits, which is the reason the split exists. Set that "
-                     f"link's down medium to tcp.")
+                     f"direction is {', '.join(sorted(replies - {'tcp', 'wireless'}))}. "
+                     f"A reply travels over tcp, or over the air when both ends can "
+                     f"transmit. Set that link's down medium to tcp.")
         med_in = next(iter(arrives)) if arrives else None
         med_out = next(iter(leaves)) if leaves else None
         uses_rf = "wireless" in all_media

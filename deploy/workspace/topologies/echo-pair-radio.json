@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "name": "echo-pair-radio",
+  "algo": "echo",
+  "description": "The smallest real link: one radio sends a message over the air, the other receives it and answers. Point to point, one hop, nothing else in the way \u2014 the topology to run first on new hardware, and the one to come back to when a bigger experiment misbehaves and you need to know whether the radios are at fault.",
+  "defaults": {
+    "steps": 10,
+    "scheme": "QPSK",
+    "fec": "turbo",
+    "freq_mhz": 915,
+    "samp_rate": 2000000,
+    "symbol_rate": 1000000
+  },
+  "nodes": [
+    {
+      "id": "tx",
+      "role": "tx",
+      "host": "127.0.0.1",
+      "note": "transmit only: it sends the message and waits for the ACK. Its receive side is never configured because it never listens over the air.",
+      "radio": {
+        "device": "b210",
+        "args": "serial=30CD424",
+        "tx": {
+          "ant": "TX/RX",
+          "subdev": "A:A",
+          "gain": 78
+        }
+      }
+    },
+    {
+      "id": "rx",
+      "role": "rx",
+      "host": "127.0.0.1",
+      "note": "receive only: it decodes the message, CRC-checks it, and ACKs over TCP. ports.ack is the socket it BINDS as the sink \u2014 the transmitter dials it.",
+      "ports": {
+        "net": 5700,
+        "ack": 5599
+      },
+      "radio": {
+        "device": "b210",
+        "args": "serial=30CD3F7",
+        "rx": {
+          "ant": "RX2",
+          "subdev": "A:A",
+          "gain": 20
+        }
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": "tx",
+      "to": "rx",
+      "medium": {
+        "up": "wireless",
+        "down": "tcp"
+      },
+      "note": "up: data over the air, TX/RX -> RX2. down: the stop-and-wait ACK comes back over TCP, which is what lets each end own one direction of one radio. An over-the-air ACK is a different thing entirely \u2014 it needs one radio running full duplex on two RF paths at two frequencies, which this layer deliberately does not express; use auto_link.sh / radio.sh --ack-transport rf for that."
+    }
+  ],
+  "note": "BEFORE RUNNING: the serials here are this lab's B210s \u2014 replace them with your own from `uhd_find_devices`, and set each node's host to the machine its radio is attached to (127.0.0.1 for both only when one machine holds both radios). The carrier, rx gain, det-mult and sync-threshold are DEFAULTS; run ./prepare.sh on the rx radio and the measured profile beats them, while anything you type beats both. Success looks like: rx logs a decoded chunk per step with CRC OK, and tx sees its ACK instead of retransmitting. If sync succeeds but CRC fails every time, suspect gain or carrier before suspecting the algorithm."
+}

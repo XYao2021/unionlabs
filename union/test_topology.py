@@ -286,8 +286,38 @@ duplex = wrote("duplex", {"schema": 1, "name": "duplex", "nodes": [
     {"id": "b", "host": "10.0.0.2", "role": "server",
      "radio": {"args": "serial=2", "tx": {}, "rx": {}}}],
     "links": [{"from": "a", "to": "b", "medium": "wireless"}]})
-refuses("a reply asked to go over RF", ["--topology", duplex, "--node", "a"],
-        "carries the reply over TCP")
+# A wireless REPLY is allowed when the radios can actually do it, and selects the
+# modem's rf ACK transport. This was refused outright until 2026-10, on the stated
+# grounds that "the RX-only N210 never transmits" -- a fact about one rig written as
+# though it were a fact about every rig. Both ends here declare tx and rx, so each can
+# run one radio full duplex: data on one RF path, the acknowledgement on the other.
+check("wireless reply selects rf ack",
+      lambda: parse(["--topology", duplex, "--node", "a"])[0].ack_transport, "rf")
+check("wireless reply, other end too",
+      lambda: parse(["--topology", duplex, "--node", "b"])[0].ack_transport, "rf")
+
+# ...and is still refused when the end that must answer cannot transmit. That check
+# lives in topology.py and fires per direction at load time, which is why there is no
+# second copy of it in run_algo: one guard, at the layer that owns the radio schema.
+half = wrote("half-duplex", {"schema": 1, "name": "half-duplex", "nodes": [
+    {"id": "a", "host": "10.0.0.1", "role": "client",
+     "radio": {"args": "serial=1", "tx": {}, "rx": {}}},
+    {"id": "b", "host": "10.0.0.2", "role": "server",
+     "radio": {"args": "serial=2", "rx": {}}}],          # no tx: cannot acknowledge
+    "links": [{"from": "a", "to": "b", "medium": "wireless"}]})
+refuses("wireless reply needs a transmitter", ["--topology", half, "--node", "a"],
+        "no radio.tx")
+
+# a TCP reply under a wireless uplink stays tcp — the split still exists, it is just
+# no longer the only option
+split = wrote("split-medium", {"schema": 1, "name": "split-medium", "nodes": [
+    {"id": "a", "host": "10.0.0.1", "role": "client",
+     "radio": {"args": "serial=1", "tx": {}}},
+    {"id": "b", "host": "10.0.0.2", "role": "server", "ports": {"ack": 5599},
+     "radio": {"args": "serial=2", "rx": {}}}],
+    "links": [{"from": "a", "to": "b", "medium": {"up": "wireless", "down": "tcp"}}]})
+check("tcp reply stays tcp",
+      lambda: parse(["--topology", split, "--node", "a"])[0].ack_transport, "tcp")
 
 dup = wrote("dup-port", {"schema": 1, "name": "dup-port", "nodes": [
     {"id": "a", "host": "127.0.0.1", "ports": {"net": 5700}},
