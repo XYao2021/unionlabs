@@ -406,6 +406,34 @@ def _profile_backend_check():
                                     "with the in-process backend")
 
 
+def _topology_ownership_check():
+    """With /workspace shared across machines, every container reads the SAME topology
+    file, so each must start only the nodes whose RADIOS it actually holds. Host
+    matching cannot do that -- a pod hostname is a fresh string per session, and nodes
+    written as host 127.0.0.1 make every container start every node. Walks it with a
+    fake uhd_find_devices, by serial (B210, no IP) and by address (X310)."""
+    print(f"    {'topology node ownership':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable,
+                        os.path.join(HERE, "test_topology_ownership.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) ownership paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines():
+        if "FAIL" in line:
+            print(f"      {line.strip()}")
+    return ("topology ownership", "a container no longer starts exactly the nodes "
+                                  "whose radios it holds")
+
+
 def _phy_features_check():
     """phy_features.py derives power, SNR, occupied bandwidth, IQ quality, CFO and
     EVM from one IQ capture. Those numbers are what an evaluation reports, so the
@@ -598,6 +626,10 @@ def main():
         failures.append(bad)
 
     bad = _phy_features_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _topology_ownership_check()
     if bad:
         failures.append(bad)
 
