@@ -113,6 +113,16 @@ def main():
         out = run_topology("echo-pair-radio", b_both)
         check("one bench with both B210s owns both", started(out), ["rx", "tx"])
 
+        # AN ADDRESS CLAIM IS WARNED ABOUT, a serial claim is not. 192.168.40.2 is
+        # UHD's default for an X310, so two machines each with one on its own isolated
+        # subnet both answer to it: matching on an address is right on one bench and
+        # ambiguous across a testbed, and nothing at run time can tell which this is.
+        out = run_topology("echo-pair-x310", rx_box)
+        check("address claim warns", "claimed by ADDRESS" in out, True)
+        check("...and says why it matters", "unique only within one host" in out, True)
+        out = run_topology("echo-pair-radio", b_tx)
+        check("serial claim does not warn", "claimed by ADDRESS" in out, False)
+
         # a pure-TCP topology names no radio, so host matching must still decide it;
         # radio ownership must not quietly break every radio-free experiment
         out = run_topology("fl-star-tcp", none_box)

@@ -2,7 +2,7 @@
   "schema": 1,
   "name": "echo-pair-x310",
   "algo": "echo",
-  "description": "Two X310s on their own radio subnets, one transmitting and one receiving at 2.4 GHz with the ACK returning over TCP. The topology form of the two radio.sh commands people type by hand — written out once so the carrier, gains and connectors stop being retyped per run, and so the pair can be started with one command per machine.",
+  "description": "Two X310s on their own radio subnets, one transmitting and one receiving at 2.4 GHz with the ACK returning over TCP. The topology form of the two radio.sh commands people type by hand \u2014 written out once so the carrier, gains and connectors stop being retyped per run, and so the pair can be started with one command per machine.",
   "defaults": {
     "channel": "usrp",
     "steps": 10,
@@ -16,11 +16,16 @@
       "id": "tx",
       "role": "tx",
       "host": "127.0.0.1",
-      "note": "transmits only. freq_mhz here is the carrier prepare.sh recommended on the RECEIVER — a transmitter is never surveyed, because its own noise says nothing about what the far end hears, so this number is copied from the rx node's survey rather than measured here.",
+      "note": "transmits only. freq_mhz here is the carrier prepare.sh recommended on the RECEIVER \u2014 a transmitter is never surveyed, because its own noise says nothing about what the far end hears, so this number is copied from the rx node's survey rather than measured here.",
       "radio": {
         "device": "x310",
         "addr": "192.168.30.2",
-        "tx": { "ant": "TX/RX", "subdev": "A:0", "gain": 31.5, "freq_mhz": 2400 }
+        "tx": {
+          "ant": "TX/RX",
+          "subdev": "A:0",
+          "gain": 31.5,
+          "freq_mhz": 2400
+        }
       }
     },
     {
@@ -28,11 +33,19 @@
       "role": "rx",
       "host": "127.0.0.1",
       "note": "receives and acknowledges over TCP. ports.ack is the socket it BINDS as the sink; the transmitter dials it. Run prepare.sh against THIS radio: det-mult and sync-threshold are not expressible in a topology on purpose, so they can only arrive from the survey or from a flag you type.",
-      "ports": { "net": 5700, "ack": 5599 },
+      "ports": {
+        "net": 5700,
+        "ack": 5599
+      },
       "radio": {
         "device": "x310",
         "addr": "192.168.40.2",
-        "rx": { "ant": "RX2", "subdev": "A:0", "gain": 10, "freq_mhz": 2400 }
+        "rx": {
+          "ant": "RX2",
+          "subdev": "A:0",
+          "gain": 10,
+          "freq_mhz": 2400
+        }
       }
     }
   ],
@@ -40,9 +53,12 @@
     {
       "from": "tx",
       "to": "rx",
-      "medium": { "up": "wireless", "down": "tcp" },
-      "note": "data over the air at 2400, ACK back over TCP. For an over-the-air ACK instead, give each node a second RF block on another subdev and carrier and set down to wireless — see echo-pair-wireless."
+      "medium": {
+        "up": "wireless",
+        "down": "tcp"
+      },
+      "note": "data over the air at 2400, ACK back over TCP. For an over-the-air ACK instead, give each node a second RF block on another subdev and carrier and set down to wireless \u2014 see echo-pair-wireless."
     }
   ],
-  "note": "THE CYCLE THIS BELONGS TO. (1) ./prepare.sh --device x310 --args addr=192.168.40.2 --band vert2450 on the RECEIVER: it sweeps the band and publishes carriers plus det-mult and sync-threshold into searching/. (2) read the carriers it found — searching/freqs-<timestamp>.json lists available_mhz — and write the chosen one into freq_mhz on BOTH nodes here, since the transmitter has no survey of its own to read. (3) ./run.sh --topology echo-pair-x310 --node rx, then --node tx, on whichever machine owns each radio. The carrier and gains come from this file; det-mult and sync-threshold come from the rx survey; anything you type beats both. BEFORE RUNNING set host on each node to the machine its radio is attached to — 127.0.0.1 for both only when one machine holds both X310s. The 192.168.30.2 / 192.168.40.2 addresses are the RADIOS, not the hosts."
+  "note": "THE CYCLE THIS BELONGS TO. (1) ./prepare.sh --device x310 --args addr=192.168.40.2 --band vert2450 on the RECEIVER: it sweeps the band and publishes carriers plus det-mult and sync-threshold into searching/. (2) read the carriers it found \u2014 searching/freqs-<timestamp>.json lists available_mhz \u2014 and write the chosen one into freq_mhz on BOTH nodes here, since the transmitter has no survey of its own to read. (3) ./run.sh --topology echo-pair-x310 --node rx, then --node tx, on whichever machine owns each radio. The carrier and gains come from this file; det-mult and sync-threshold come from the rx survey; anything you type beats both. BEFORE RUNNING set host on each node to the machine its radio is attached to \u2014 127.0.0.1 for both only when one machine holds both X310s. The 192.168.30.2 / 192.168.40.2 addresses are the RADIOS, not the hosts. IF THIS FILE IS SHARED ACROSS MACHINES, name each radio by serial instead (\"serial\": \"...\" in place of \"addr\"): 192.168.40.2 is UHD's default for an X310, so a second machine's X310 answers to the same address and both containers would claim the same node. A serial is unique across the testbed; an address is unique only within one host. run.sh topology warns when a node was claimed by address."
 }

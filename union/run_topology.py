@@ -76,12 +76,27 @@ def local_radio_ids():
 
 
 def node_radio_id(nd):
-    """The identifier of the radio a node claims -- the value of serial=/addr= in its
-    args -- or None when the node has no radio at all (a pure-TCP node, which only
-    host matching can place)."""
+    """-> (identifier, kind) for the radio a node claims, or (None, None) for a node
+    with no radio (a pure-TCP node, which only host matching can place).
+
+    SERIAL IS PREFERRED, and the preference is not cosmetic. An address identifies a
+    radio only WITHIN one host: 192.168.40.2 is UHD's default for an X310, so two
+    machines each with an X310 on its own isolated subnet both have one at exactly
+    that address. Across containers sharing a topology, matching on it makes both
+    claim the same node -- the duplicate-node failure this whole mechanism exists to
+    prevent, re-entering by another door. A serial is burned into the hardware and is
+    unique across the testbed, so it is the only identifier that means the same thing
+    in every container. UHD accepts serial= for networked radios too, so a node can
+    always be named that way.
+    """
     args = (getattr(nd, "radio", None) or {}).get("args") or ""
-    m = re.search(r"(?:serial|addr)=([^,\s]+)", args)
-    return m.group(1).strip() if m else None
+    m = re.search(r"serial=([^,\s]+)", args)
+    if m:
+        return m.group(1).strip(), "serial"
+    m = re.search(r"addr=([^,\s]+)", args)
+    if m:
+        return m.group(1).strip(), "addr"
+    return None, None
 
 
 def pump(prefix, stream, log, colour):
@@ -116,16 +131,18 @@ def main():
     mine = local_addresses()
     radios = local_radio_ids()
     want = [n.strip() for n in a.only.split(",") if n.strip()]
-    nodes, skipped, why = [], [], {}
+    nodes, skipped, why, by_addr = [], [], {}, []
     for nd in topo.nodes:
         if want and nd.id not in want:
             continue
-        rid = node_radio_id(nd)
+        rid, kind = node_radio_id(nd)
         # The RADIO decides first. A shared /workspace means every container reads the
         # same file, and the only thing that distinguishes them is the hardware each
         # one can actually see -- not the hostname, which is a fresh pod id per session.
         if rid and rid in radios:
             why[nd.id] = f"its radio {rid} is attached here"
+            if kind == "addr":
+                by_addr.append((nd.id, rid))
             nodes.append(nd)
         elif a.all:
             why[nd.id] = "--all"
@@ -144,7 +161,7 @@ def main():
         sys.exit(f"\nno node of {topo.name} belongs to this container."
                  f"\n  radios attached here: {seen}"
                  f"\n  nodes want: " + ", ".join(
-                     f"{nd.id}->{node_radio_id(nd) or ('host ' + str(nd.host))}"
+                     f"{nd.id}->{node_radio_id(nd)[0] or ('host ' + str(nd.host))}"
                      for nd in topo.nodes) +
                  f"\nRun each node where its radio is, or pass --all to start them here.")
     # Downstream first. A node is only reachable once the node it dials is listening, so
@@ -170,6 +187,17 @@ def main():
     if skipped:
         print(f"{YEL}skipping{OFF} (another container owns these): "
               + ", ".join(f"{nd.id} ({r})" for nd, r in skipped))
+    if by_addr:
+        # Claiming a node by address is right on one machine and ambiguous across
+        # several, and nothing at run time can tell which situation this is -- so say
+        # it once rather than either staying silent or refusing a setup that is fine.
+        print(f"{YEL}note{OFF} claimed by ADDRESS, not serial: "
+              + ", ".join(f"{n} ({a})" for n, a in by_addr)
+              + "\n     An address is unique only within one host — 192.168.40.2 is "
+                "UHD's default\n     for an X310, so another container's radio may "
+                "answer to it too, and both\n     would claim this node. Name these "
+                "nodes by serial= in the topology if the\n     file is shared across "
+                "machines.")
 
     procs, pumps = [], []
     colours = (GREEN, YEL, DIM, RED)
