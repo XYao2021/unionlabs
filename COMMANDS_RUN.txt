@@ -1,0 +1,115 @@
+==============================================================================
+ COMMANDS_RUN — the command pairs actually used on this rig
+==============================================================================
+ Start the RECEIVER first in every pair. The source dials/listens for the ACK,
+ so a transmitter started first just burns its retry budget.
+==============================================================================
+
+
+------------------------------------------------------------------------------
+ 1. TWO X310s — data over the air, ACK over the air  (--ack-transport rf)
+------------------------------------------------------------------------------
+ Each box runs ONE radio full duplex: data on one antenna port, ACK on the
+ other, at two different carriers. That is why --tx-args and --rx-args name the
+ SAME radio on each box — the modem requires it and refuses otherwise.
+
+   data 2400 MHz   source TX/RX  ->  sink RX2
+   ACK  2450 MHz   sink   TX/RX  ->  source RX2
+
+# ── SINK box (the X310 at .40.2) — start this first ──
+./radio.sh rx --device x310 \
+  --args addr=192.168.40.2 --rx-args addr=192.168.40.2 --tx-args addr=192.168.40.2 \
+  --rx-subdev A:0 --rx-ant RX2   --rx-freq 2400e6 --rx-gain 10 \
+  --tx-subdev A:0 --tx-ant TX/RX --tx-freq 2450e6 --tx-gain 31.5 \
+  --role sink_arq --ack-transport rf \
+  --det-mult 30 --sync-threshold 10 --scheme QPSK --bytes-length 8000
+
+# ── SOURCE box (the X310 at .30.2) ──
+./radio.sh tx --device x310 \
+  --args addr=192.168.30.2 --tx-args addr=192.168.30.2 --rx-args addr=192.168.30.2 \
+  --tx-subdev A:0 --tx-ant TX/RX --tx-freq 2400e6 --tx-gain 31.5 \
+  --rx-subdev A:0 --rx-ant RX2   --rx-freq 2450e6 --rx-gain 10 \
+  --role source_arq --ack-transport rf --max-attempts 0 \
+  --det-mult 30 --sync-threshold 10 --scheme QPSK --bytes-length 8000
+
+ NOTES
+  * The carriers MIRROR. source --tx-freq == sink --rx-freq (data); source
+    --rx-freq == sink --tx-freq (ACK). Cross one pair and the data flows while
+    the ACK silently never arrives — the only symptom is retransmission.
+  * 2400/2450 is 50 MHz apart. The pair that was known to work used 5330/5430,
+    100 MHz apart. If the data decodes but no ACK arrives, widen the separation
+    before suspecting anything else: each receiver may be hearing its own
+    transmitter.
+  * det-mult and sync-threshold here are the DATA path's. The ACK direction is a
+    second link with its own noise floor and has no symptoms of its own until the
+    source starts retransmitting. Run prepare.sh on BOTH radios, once per receive
+    band, so each direction's detector comes from a survey.
+  * No --ack-host / --ack-port: there is no socket. That is the point.
+
+
+ ------------------------------------------------------------------------------
+ 2. TWO B210s on ONE machine — data over the air, ACK over TCP  (as run)
+------------------------------------------------------------------------------
+
+# ── SINK (B210 30CD3F7) — start this first ──
+./radio.sh rx --device b210 --args serial=30CD3F7 \
+  --rx-subdev A:B --rx-ant TX/RX --rx-freq 915e6 \
+  --role sink_arq --ack-transport tcp --ack-port 5599 --scheme QPSK
+
+# ── SOURCE (B210 30CD424) ──
+./radio.sh tx --device b210 --args serial=30CD424 \
+  --tx-subdev A:A --tx-ant TX/RX --tx-freq 915e6 --tx-gain 50 \
+  --role source_arq --ack-transport tcp \
+  --ack-host 127.0.0.1 --ack-port 5599 --max-attempts 0 --scheme QPSK
+
+ NOTES
+  * --rx-ant TX/RX, not RX2. docs/COMMANDS.md documents 3F7's RF B as cabled to
+    RX2; on this rig the antenna is on the TX/RX connector. A receiver pointed at
+    an empty connector reports nothing at all -- no error, no warning -- so this
+    is the FIRST thing to check when the RX side is silent.
+  * --rx-subdev A:B is also required: 3F7 is on RF B, and the modem's default
+    A:A has nothing on it.
+  * NO --bytes-length. The default is 125 bytes per chunk on both ends, and it
+    must match. 8000 is the largest MESSAGE (64 chunks x 125), not a chunk size --
+    setting --bytes-length 8000 inflates the detector's minimum burst gate
+    (energy_packet_size = 0.75 x det_sps x total_syms) to tens of thousands of
+    samples, and nothing clears it. Watch the [MAIN] Auto-size line.
+  * No --det-mult, --sync-threshold or --rx-gain: a surveyed radio takes those
+    plus the carrier from prepare.sh's profile, and anything typed still wins.
+    Do NOT carry the X310 pair's --det-mult 30 over -- it was measured on a
+    different radio in a different band.
+  * --tx-gain 50, not the wrapper's 78: the two radios sit ~10 cm apart and 78
+    overloads the front end. The symptom of too MUCH signal looks like too
+    little -- sync succeeds, EVM pins high, CRC fails.
+  * --ack-host 127.0.0.1 is right because both processes run in the SAME
+    container. Two containers on one host do not share loopback; across pods use
+    the sink's address from ./run.sh ports.
+  * Both sides announce the socket. The sink must print "[SINK-ARQ] ACK socket
+    connected" and the source "[SOURCE-ARQ] ACK socket connected to ...". The
+    source retries ~18 s then gives up. Sink first, always.
+
+------------------------------------------------------------------------------
+ 3. Both of the above, as topology files instead of flags
+------------------------------------------------------------------------------
+ The same wiring declared once, started with one command per machine. Each
+ container runs only the nodes whose radios it can actually see.
+
+./run.sh topologies                        # list, and see which file each name reads
+./run.sh topology echo-pair-x310           # X310 pair, ACK over TCP
+./run.sh topology echo-pair-wireless       # full-duplex pair, ACK over the air
+./run.sh topology echo-pair-radio          # B210 pair, ACK over TCP
+
+
+------------------------------------------------------------------------------
+ 4. Quieting the logs
+------------------------------------------------------------------------------
+ --quiet-phy silences the per-block chatter ([MODULATION] [DEMODULATION]
+ [FILTER] [DETECTOR] [AGC] [DIFF_ENCODE] [PSD]) and nothing else. [ACQ], CRC,
+ ARQ progress, clip guard, RX timeouts, [BER], [ERROR] always print.
+
+./radio.sh rx ... --quiet-phy
+
+ Without rebuilding the modem, the shell does it too — tee first, so nothing is
+ lost when something goes wrong:
+
+./radio.sh rx ... | tee run.log | grep -vE '\[(MODULATION|DEMODULATION|FILTER|DETECTOR|AGC|DIFF_ENCODE|PSD)\]'
