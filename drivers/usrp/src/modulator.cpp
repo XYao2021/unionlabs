@@ -29,6 +29,7 @@
 # include "modulator_extended.hpp"   // string_to_mod_type(), PI4QPSKModulator, APSK helpers
 # include "transceiver.hpp"
 # include "viz.hpp"
+# include "phy_log.hpp"
 
 // Constructor IMPLMENTATION
 // Modulator::Modulator(ModulationType type) : mod_type(type) {  // called a memeber initializer list mod_type before the constructor body runs
@@ -107,7 +108,7 @@ void Modulator::create_constellation()
             create_qpsk_constellation();
             break;
         default:
-            std::cout << "[CONSTELLATION] Unknown Modulation Scheme!\n";
+            PHY_CHATTER << "[CONSTELLATION] Unknown Modulation Scheme!\n";
     }
 }
 
@@ -380,9 +381,9 @@ std::vector<std::complex<float>> Modulator::differential_encode(
     encoded.reserve(symbols.size());
 
     // // ========== ADD DEBUG ==========
-    // std::cout << "[DIFF_ENCODE] Starting symbol: " << constellation[0] << std::endl;
-    // std::cout << "[DIFF_ENCODE] Input symbol[0]: " << symbols[0] << std::endl;
-    // std::cout << "[DIFF_ENCODE] Input symbol[1]: " << symbols[1] << std::endl;
+    // PHY_CHATTER << "[DIFF_ENCODE] Starting symbol: " << constellation[0] << std::endl;
+    // PHY_CHATTER << "[DIFF_ENCODE] Input symbol[0]: " << symbols[0] << std::endl;
+    // PHY_CHATTER << "[DIFF_ENCODE] Input symbol[1]: " << symbols[1] << std::endl;
     // // ===============================
 
     // encoded.push_back(pre_symbol);
@@ -393,7 +394,7 @@ std::vector<std::complex<float>> Modulator::differential_encode(
         
         // // ========== ADD DEBUG (first 5 iterations) ==========
         // if (i < 20) {
-        //     std::cout << "[DIFF_ENCODE] i=" << i 
+        //     PHY_CHATTER << "[DIFF_ENCODE] i=" << i 
         //               << " | pre=" << pre_symbol 
         //               << " | input=" << symbols[i]
         //               << " | output=" << current_symbol << std::endl;
@@ -411,7 +412,7 @@ std::vector<std::complex<float>> Modulator::differential_decode(const std::vecto
     std::cout << "[DIFFERENTIAL] differential_decode(): input size = " << symbols.size() << std::endl;
 
     if (symbols.size() < 2) {
-        std::cout << "[DEBUG] input too small, returning empty\n";
+        PHY_CHATTER << "[DEBUG] input too small, returning empty\n";
         return {};
     }
 
@@ -443,7 +444,7 @@ std::vector<std::complex<float>> Modulator::modulate(const std::vector<uint8_t>&
         // Check bounds
         if (index < constellation.size()){
             symbols.push_back(constellation[index]); 
-            // std::cout << "[MODULATE DEBUG]" << constellation[index] << std::endl;
+            // PHY_CHATTER << "[MODULATE DEBUG]" << constellation[index] << std::endl;
         } else {
             // Shouldn't happen with proper implementation
             std::cerr << "[WARNING] Invalid symbol index " << index << std::endl;
@@ -606,7 +607,7 @@ void modulation_thread(MutexFIFO<std::vector<uint8_t>>& fifo,
     DrainGate gate;
     while (gate.keep_going(stop_sign, fifo)){
         // Debugging printout
-        // std::cout << "[MODULATION] Number " << tried_time << " Input FIFO size: " << fifo.size() << std::endl;
+        // PHY_CHATTER << "[MODULATION] Number " << tried_time << " Input FIFO size: " << fifo.size() << std::endl;
 
         if (!fifo.pop(bits)){
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -658,12 +659,12 @@ void modulation_thread(MutexFIFO<std::vector<uint8_t>>& fifo,
         fifo_out.push({message_block_id, symbols});
         // save_block_to_txt(symbols, message_block_id, "modulated");
 
-        std::cout << "[MODULATION] Modulated message size is " << symbols.size() << std::endl;
+        PHY_CHATTER << "[MODULATION] Modulated message size is " << symbols.size() << std::endl;
     
         message_block_id += 1;
 
     }
-    std::cout << "[MODULATION] Thread stopped gracefully." << std::endl;
+    PHY_CHATTER << "[MODULATION] Thread stopped gracefully." << std::endl;
 }
 
 void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& fifo,
@@ -689,7 +690,7 @@ void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
     DrainGate gate;
     while (gate.keep_going(stop_sign, fifo)){
         // Debugging printout
-        // std::cout << "[MODULATION] Number " << tried_time << " Input FIFO size: " << fifo.size() << std::endl;
+        // PHY_CHATTER << "[MODULATION] Number " << tried_time << " Input FIFO size: " << fifo.size() << std::endl;
 
         if (!fifo.pop(symbols)){
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -697,7 +698,7 @@ void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
             continue;
         }
 
-        // std::cout << "[DEMODULATION] Original bits length is: " << symbols.second.size() << std::endl;
+        // PHY_CHATTER << "[DEMODULATION] Original bits length is: " << symbols.second.size() << std::endl;
         tried_time = 0;
         viz::capture("rx_symbols", symbols.second);   // RX constellation (equalized)
         if (is_pi4) {
@@ -726,10 +727,10 @@ void demodulation_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
         // std::cout << std::endl;
 
         // std::string message = decode_message_block(bits);
-        std::cout << "[DEMODULATION] The demodulated success number " << message_block_id << " | " << bits.size() << std::endl;
+        PHY_CHATTER << "[DEMODULATION] The demodulated success number " << message_block_id << " | " << bits.size() << std::endl;
         std::cout << std::endl;
 
-        // std::cout << "[DEMODULATION] Output FIFO size: " << fifo_out.size() << std::endl;
+        // PHY_CHATTER << "[DEMODULATION] Output FIFO size: " << fifo_out.size() << std::endl;
     }
-    std::cout << "[DEMODULATION] Thread stopped gracefully." << std::endl;
+    PHY_CHATTER << "[DEMODULATION] Thread stopped gracefully." << std::endl;
 }

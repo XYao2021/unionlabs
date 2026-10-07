@@ -34,6 +34,7 @@
 #include "viz.hpp"
 #include <fftw3.h>
 #include <fstream>
+#include "phy_log.hpp"
 
 // OverlapSave filter class
 // Set up FFT objects and filter's frequency response
@@ -405,7 +406,7 @@ void pulse_shaping_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::co
     DrainGate gate;
     while (gate.keep_going(stop_sign, modulation_fifo)){
         // Debugging printout
-        // std::cout << "[FILTER] Number " << tried_time << " FIFO size: " << modulation_fifo.size() << std::endl;
+        // PHY_CHATTER << "[FILTER] Number " << tried_time << " FIFO size: " << modulation_fifo.size() << std::endl;
 
         if (!modulation_fifo.pop(message)){
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -426,7 +427,7 @@ void pulse_shaping_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::co
 
         int num_symbols = symbols.size();
 
-        // std::cout << "[FILTER] Block " << block_id << " has length " << num_symbols << std::endl;
+        // PHY_CHATTER << "[FILTER] Block " << block_id << " has length " << num_symbols << std::endl;
 
         // Build the Polyphase filter if there is no one defined.
         if (applied_filter == nullptr) {
@@ -471,7 +472,7 @@ void pulse_shaping_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::co
         //     filtered.erase(filtered.begin(), filtered.begin() + skip_now);
         //     samples_to_skip -= skip_now;
             
-        //     std::cout << "[MATCH FILTER] Block " << block_id << ": Removed " << skip_now 
+        //     PHY_CHATTER << "[MATCH FILTER] Block " << block_id << ": Removed " << skip_now 
         //               << " delay samples, " << samples_to_skip << " remaining" << std::endl;
         // }
 
@@ -502,7 +503,7 @@ void pulse_shaping_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::co
 
         viz::capture("tx_wave", filtered, 2000);   // TX pulse-shaped waveform
         filtered_fifo.push({block_id, filtered});
-        // std::cout << "[FILTER] Output FIFO size: " << filtered_fifo.size() << std::endl;
+        // PHY_CHATTER << "[FILTER] Output FIFO size: " << filtered_fifo.size() << std::endl;
 
         processed_blocks++;
     }
@@ -511,7 +512,7 @@ void pulse_shaping_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::co
         delete applied_filter;
     }
 
-    std::cout << "[FILTER] Filter stopped. Processed " << processed_blocks << " blocks. " << std::endl;
+    PHY_CHATTER << "[FILTER] Filter stopped. Processed " << processed_blocks << " blocks. " << std::endl;
 }
 
 void match_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& modulation_fifo,
@@ -533,7 +534,7 @@ void match_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
     // single-rate (U=D=1). The incoming (U,D) args are ignored for the RX MF.
     const int os = std::max(1, (int)std::lround(sample_rate / symbol_rate));  // RX samples/symbol
     const int fU = 1, fD = 1;                                                  // single-rate filtering
-    std::cout << "[MATCH FILTER] matched RRC at " << os
+    PHY_CHATTER << "[MATCH FILTER] matched RRC at " << os
               << " samples/symbol (single-rate, sample_rate/symbol_rate="
               << (sample_rate/symbol_rate) << ")\n";
 
@@ -578,7 +579,7 @@ void match_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
     DrainGate gate;
     while (gate.keep_going(stop_sign, modulation_fifo)){
         // Debugging printout
-        // std::cout << "[FILTER] Number " << tried_time << " FIFO size: " << modulation_fifo.size() << std::endl;
+        // PHY_CHATTER << "[FILTER] Number " << tried_time << " FIFO size: " << modulation_fifo.size() << std::endl;
 
         if (!modulation_fifo.pop(message)){
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -602,7 +603,7 @@ void match_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
         int num_symbols = symbols.size();
         cumulative_input_samples += num_symbols;
 
-        // std::cout << "[FILTER] Block " << block_id << " has length " << num_symbols << std::endl;
+        // PHY_CHATTER << "[FILTER] Block " << block_id << " has length " << num_symbols << std::endl;
 
         // Build the Polyphase filter if there is no one defined.
         if (applied_filter == nullptr) {
@@ -652,7 +653,7 @@ void match_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
         //     filtered.erase(filtered.begin(), filtered.begin() + skip_now);
         //     samples_to_skip -= skip_now;
             
-        //     std::cout << "[MATCH FILTER] Block " << block_id << ": Removed " << skip_now 
+        //     PHY_CHATTER << "[MATCH FILTER] Block " << block_id << ": Removed " << skip_now 
         //               << " delay samples, " << samples_to_skip << " remaining" << std::endl;
         // }
 
@@ -686,7 +687,7 @@ void match_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
         if (filtered.size() > 0) {
             filtered_fifo.push({block_id, filtered});
         }
-        // std::cout << "[FILTER] Output FIFO size: " << filtered_fifo.size() << std::endl;
+        // PHY_CHATTER << "[FILTER] Output FIFO size: " << filtered_fifo.size() << std::endl;
 
         processed_blocks++;
     }
@@ -695,6 +696,6 @@ void match_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
         delete applied_filter;
     }
 
-    std::cout << "[FILTER] Filter stopped. Processed " << processed_blocks << " blocks. " << std::endl;
+    PHY_CHATTER << "[FILTER] Filter stopped. Processed " << processed_blocks << " blocks. " << std::endl;
 }
 

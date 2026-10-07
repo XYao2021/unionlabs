@@ -26,6 +26,7 @@
 #include "viz.hpp"
 #include "lora.hpp"
 #include <filesystem>
+#include "phy_log.hpp"
 
 namespace po = boost::program_options;
 
@@ -48,6 +49,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool        stop_on_complete = true;   // role rx: stop as soon as every chunk verified
     bool        marl_report     = false;   // role rx: emit a machine line per CRC-OK burst (MARL AP)
     bool        skip_rate_check = false;   // bypass the rate-chain consistency check
+    bool        quiet_phy       = false;   // silence per-block pipeline chatter (see phy_log.hpp)
     std::string tx_mode         = "burst"; // burst (finite, gaps) | continuous (until Ctrl-C)
     std::string message_type    = "bytes"; // bytes | random | sine | cosine
     std::string message_str;               // override text for --message-type bytes
@@ -112,6 +114,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "TCP ACK: socket port")
         ("skip-rate-check", po::value<bool>(&skip_rate_check)->default_value(false)->implicit_value(true),
                      "bypass the startup rate-chain consistency check (run even if rates mismatch)")
+        ("quiet-phy", po::value<bool>(&quiet_phy)->default_value(false)->implicit_value(true),
+                     "silence the per-block pipeline chatter ([MODULATION] [DEMODULATION] "
+                     "[FILTER] [DETECTOR] [AGC] [DIFF_ENCODE] [PSD] -- one or more lines per "
+                     "block per stage, saying only that a block passed through). Diagnosis is "
+                     "never silenced: [ACQ], CRC, ARQ progress, clip guard, RX timeouts, "
+                     "[BER], [ERROR] and [WARNING] always print")
         ("viz", po::value<bool>(&viz_on)->default_value(true),
                      "capture TX/RX signals and auto-save the plot to "
                      "<viz-dir>/<scheme>/figure.png (default true; --viz false disables)")
@@ -483,6 +491,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         }
     }
     po::notify(vm);
+
+    // Set before any pipeline thread starts, and never written again, so the threads
+    // need no synchronisation to read it. Chatter only -- see phy_log.hpp for which
+    // lines this covers and why diagnosis is deliberately not among them.
+    phylog::quiet() = quiet_phy;
 
     if (vm.count("help")) {
         std::cout << desc << "\n";

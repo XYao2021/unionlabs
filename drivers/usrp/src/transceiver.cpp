@@ -49,6 +49,7 @@
 # include <fstream>
 # include <sstream>
 # include "viz.hpp"
+# include "phy_log.hpp"
 
 // ---------------------------------------------------- Helper functions for transceiver -------------------------------------------//
 void save_block_to_txt(const std::vector<std::complex<float>>& recv_block,
@@ -127,7 +128,7 @@ void compute_instant_energy(size_t num_recv_samples, size_t recv_block_id, std::
     float avg_power_db = 10.0f * std::log10(avg_power + 1e-20f);
 
     // Short, one-line printout
-    std::cout << "[AGC] Block " << recv_block_id << ": Power=" << avg_power_db 
+    PHY_CHATTER << "[AGC] Block " << recv_block_id << ": Power=" << avg_power_db 
             << " dB, Max=" << max_mag << std::endl;
 }
 
@@ -195,10 +196,10 @@ void PSD(const std::vector<std::complex<float>>& samples,
 {
     int N = samples.size();
     
-    std::cout << "[PSD] Calculating PSD..." << std::endl;
-    std::cout << "[PSD]   Input samples: " << N << std::endl;
-    std::cout << "[PSD]   FFT size: " << fft_size << std::endl;
-    std::cout << "[PSD]   Sample rate: " << sample_rate / 1e6 << " MHz" << std::endl;
+    PHY_CHATTER << "[PSD] Calculating PSD..." << std::endl;
+    PHY_CHATTER << "[PSD]   Input samples: " << N << std::endl;
+    PHY_CHATTER << "[PSD]   FFT size: " << fft_size << std::endl;
+    PHY_CHATTER << "[PSD]   Sample rate: " << sample_rate / 1e6 << " MHz" << std::endl;
 
     if (N < fft_size) {
         std::cerr << "[PSD] ERROR: Not enough samples (" << N 
@@ -214,7 +215,7 @@ void PSD(const std::vector<std::complex<float>>& samples,
 
     // Welch's method parameters
     int num_blocks = N / fft_size;
-    std::cout << "[PSD]   Number of blocks: " << num_blocks << std::endl;
+    PHY_CHATTER << "[PSD]   Number of blocks: " << num_blocks << std::endl;
     
     if (num_blocks == 0) {
         std::cerr << "[PSD] ERROR: No complete blocks!" << std::endl;
@@ -236,7 +237,7 @@ void PSD(const std::vector<std::complex<float>>& samples,
         window_power += window[i] * window[i];
     }
     
-    std::cout << "[PSD]   Window power sum: " << window_power << std::endl;
+    PHY_CHATTER << "[PSD]   Window power sum: " << window_power << std::endl;
 
     // Process each block
     for (int block = 0; block < num_blocks; block++) {
@@ -272,7 +273,7 @@ void PSD(const std::vector<std::complex<float>>& samples,
     
     double scale_factor = 1.0 / (window_power * sample_rate);
     
-    std::cout << "[PSD]   Scale factor: " << scale_factor << std::endl;
+    PHY_CHATTER << "[PSD]   Scale factor: " << scale_factor << std::endl;
 
     // Find max PSD for normalization to 0 dB
     double max_psd = 0.0;
@@ -283,7 +284,7 @@ void PSD(const std::vector<std::complex<float>>& samples,
         }
     }
     
-    std::cout << "[PSD]   Max PSD (linear): " << max_psd << std::endl;
+    PHY_CHATTER << "[PSD]   Max PSD (linear): " << max_psd << std::endl;
     
     if (max_psd <= 0.0) {
         std::cerr << "[PSD] ERROR: Max PSD is zero or negative!" << std::endl;
@@ -312,7 +313,7 @@ void PSD(const std::vector<std::complex<float>>& samples,
     outfile << "# Frequency (MHz) PSD (dB)" << std::endl;
     
     double frequency_resolution = sample_rate / fft_size;
-    std::cout << "[PSD]   Freq resolution: " << frequency_resolution / 1e3 
+    PHY_CHATTER << "[PSD]   Freq resolution: " << frequency_resolution / 1e3 
               << " kHz" << std::endl;
 
     if (frequency_resolution <= 0.0) {
@@ -339,8 +340,8 @@ void PSD(const std::vector<std::complex<float>>& samples,
     
     outfile.close();
 
-    std::cout << "[PSD] ✓ PSD saved to: " << filename << std::endl;
-    std::cout << "[PSD]   Frequency range: " 
+    PHY_CHATTER << "[PSD] ✓ PSD saved to: " << filename << std::endl;
+    PHY_CHATTER << "[PSD]   Frequency range: " 
               << -sample_rate/2e6 << " to " << sample_rate/2e6 << " MHz" << std::endl;
 
     // Cleanup
@@ -365,7 +366,7 @@ void PSD_Simple(const std::vector<std::complex<float>>& samples,
         fft_size = 2048;
     }
     
-    std::cout << "[PSD_Simple] Using FFT size: " << fft_size << std::endl;
+    PHY_CHATTER << "[PSD_Simple] Using FFT size: " << fft_size << std::endl;
     
     PSD(samples, sample_rate, fft_size, filename);
 }
@@ -878,13 +879,13 @@ void EnergyDetection_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex
 
     DrainGate gate;
     while (gate.keep_going(stop_sign, input_fifo)){
-        // std::cout << "[DETECTOR] Input FIFO size: " << input_fifo.size() << std::endl;
+        // PHY_CHATTER << "[DETECTOR] Input FIFO size: " << input_fifo.size() << std::endl;
         if (!input_fifo.pop(message)){
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             wait_times++;
             continue;
         }
-        // std::cout << "[DETECTOR] Input FIFO size: " << input_fifo.size() << std::endl;
+        // PHY_CHATTER << "[DETECTOR] Input FIFO size: " << input_fifo.size() << std::endl;
         std::vector<std::complex<float>> symbols = message.second;
         std::vector<std::complex<float>> output;
         // compute_instant_energy(symbols.size(), pushed_packets, symbols);
@@ -906,7 +907,7 @@ void EnergyDetection_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex
             std::cout << "[AFTER ENERGY DETECTION] Stage ENERGY DETECTION: Number= " << pushed_packets << " RMS=" << rms << " Peak=" << peak << std::endl;
 
         }
-        // std::cout << "[DETECTOR] Output FIFO size: " << output_fifo.size() << std::endl;
+        // PHY_CHATTER << "[DETECTOR] Output FIFO size: " << output_fifo.size() << std::endl;
     }
     std::cout << "[DETECTION THREAD] Stopped" << std::endl;
 }
@@ -925,7 +926,7 @@ void AGC_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& 
 
     DrainGate gate;
     while (gate.keep_going(stop_sign, received_fifo)){
-        // std::cout << "[AGC] The input FIFO size: " << received_fifo.size() << std::endl;
+        // PHY_CHATTER << "[AGC] The input FIFO size: " << received_fifo.size() << std::endl;
 
         if (!received_fifo.pop(message)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -957,7 +958,7 @@ void AGC_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& 
         }
         // compute_instant_energy(message.second.size(), message.first, message.second);
         if (AGC == "Feed"){
-            // std::cout << "[AGC] FeedFoward AGC applied!"<< std::endl;
+            // PHY_CHATTER << "[AGC] FeedFoward AGC applied!"<< std::endl;
             std::vector<std::complex<float>> agc_message = FF_AGC.process(message.second);
             viz::capture("rx_wave", agc_message, 2000);   // RX burst waveform
             agc_fifo.push({message.first, agc_message});
@@ -974,13 +975,13 @@ void AGC_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& 
             // std::cout << std::endl;
         }
         else if (AGC == "Closed"){
-            // std::cout << "[AGC] ClosedLoop AGC applied!" << std::endl;
+            // PHY_CHATTER << "[AGC] ClosedLoop AGC applied!" << std::endl;
             std::vector<std::complex<float>> agc_message = CL_AGC.process(message.second);
             agc_fifo.push({message.first, agc_message});
         } 
         else {
             std::cerr << "[AGC] Unrecognized AGC type";
         }
-        // std::cout << "[AGC] The AGCed FIFO size is " << agc_fifo.size() << std::endl;
+        // PHY_CHATTER << "[AGC] The AGCed FIFO size is " << agc_fifo.size() << std::endl;
     }
 }
