@@ -16,24 +16,56 @@
       "id": "tx",
       "role": "tx",
       "host": "127.0.0.1",
-      "note": "transmits the message on RF A and LISTENS for the ACK on RF B. Both blocks are on the same radio and must be: the modem's rf ACK requires one device driving both paths (tx-args == rx-args), which is why the subdevs differ and the frequencies do not collide.",
+      "note": "transmits the message on RF A and LISTENS for the ACK on RF B. Both blocks are on the same radio and must be: the modem's rf ACK requires one device driving both paths (tx-args == rx-args), which is why the subdevs differ and the frequencies do not collide. freq_mhz is a CANDIDATE LIST: the survey picks the first entry it measured as usable, so this file needs no editing when the band moves. The two directions have SEPARATE pools on purpose -- share one and, with no survey to separate them, both sides take its first entry and the RF ACK collapses onto a single carrier, which cannot work.",
       "radio": {
         "device": "b210",
         "args": "serial=30CD424",
-        "tx": { "ant": "TX/RX", "subdev": "A:A", "gain": 70, "freq_mhz": 915 },
-        "rx": { "ant": "RX2", "subdev": "A:B", "gain": 40, "freq_mhz": 925 }
+        "tx": {
+          "ant": "TX/RX",
+          "subdev": "A:A",
+          "gain": 70,
+          "freq_mhz": [
+            915,
+            905
+          ]
+        },
+        "rx": {
+          "ant": "RX2",
+          "subdev": "A:B",
+          "gain": 40,
+          "freq_mhz": [
+            925,
+            935
+          ]
+        }
       }
     },
     {
       "id": "rx",
       "role": "rx",
       "host": "127.0.0.1",
-      "note": "mirror image: RECEIVES the message on RF A at 915 and ACKs on RF B at 925. The frequencies match the transmitter's by construction — each direction has its own carrier, which is what makes the link full duplex rather than half.",
+      "note": "mirror image: RECEIVES the message on RF A at 915 and ACKs on RF B at 925. The frequencies match the transmitter's by construction — each direction has its own carrier, which is what makes the link full duplex rather than half. freq_mhz is a CANDIDATE LIST: the survey picks the first entry it measured as usable, so this file needs no editing when the band moves. The two directions have SEPARATE pools on purpose -- share one and, with no survey to separate them, both sides take its first entry and the RF ACK collapses onto a single carrier, which cannot work.",
       "radio": {
         "device": "b210",
         "args": "serial=30CD3F7",
-        "rx": { "ant": "RX2", "subdev": "A:A", "gain": 40, "freq_mhz": 915 },
-        "tx": { "ant": "TX/RX", "subdev": "A:B", "gain": 70, "freq_mhz": 925 }
+        "rx": {
+          "ant": "RX2",
+          "subdev": "A:A",
+          "gain": 40,
+          "freq_mhz": [
+            915,
+            905
+          ]
+        },
+        "tx": {
+          "ant": "TX/RX",
+          "subdev": "A:B",
+          "gain": 70,
+          "freq_mhz": [
+            925,
+            935
+          ]
+        }
       }
     }
   ],
@@ -41,9 +73,12 @@
     {
       "from": "tx",
       "to": "rx",
-      "medium": { "up": "wireless", "down": "wireless" },
+      "medium": {
+        "up": "wireless",
+        "down": "wireless"
+      },
       "note": "up carries the data at 915, down carries the stop-and-wait ACK at 925. Declaring the down medium wireless is what selects --ack-transport rf; it is refused unless the replying node declares a tx block, because a radio that cannot transmit cannot acknowledge."
     }
   ],
-  "note": "BEFORE RUNNING: replace the two serials with your own from `uhd_find_devices`, and set each node's host to the machine its radio is attached to — 127.0.0.1 for both only when one machine holds both radios. TWO CARRIERS, not one: data at 915 and ACK at 925 here, and the separation has to be wide enough that each receiver does not hear its own transmitter. Run ./prepare.sh on BOTH radios, once per receive band, so the detector settings for each direction come from a survey rather than these defaults. If the data decodes but no ACK ever arrives, check the ACK direction first — it is a second link with its own antenna, gain and carrier, and it is the half that has no symptoms of its own until the transmitter starts retransmitting. ACK over TCP instead is echo-pair-radio."
+  "note": "THE CYCLE. (1) ./prepare.sh on EVERY radio that receives, with the --subdev/--ant it will receive on: with an RF ACK that is BOTH boxes (the sink hears the data, the source hears the ACK), so both get surveyed -- on the ACK path too, not just the data one. (2) run it: ./run.sh --topology echo-pair-wireless --node rx, then --node tx, on whichever machine owns each radio. No carrier has to be copied anywhere: each side's freq_mhz is a candidate list and the survey chooses. A TRANSMIT carrier is resolved from the RECEIVER's survey, because only the receiver measured the air it has to hear in -- so both ends land on the same number instead of each ranking the list by its own measurement. Anything you type still wins, and a typed --freq applies to BOTH directions, which collapses the split an RF ACK needs. If the surveys rule out every candidate the run refuses and prints what IS usable. BEFORE RUNNING set host on each node to the machine its radio is attached to; the serials name the radios, not the hosts."
 }

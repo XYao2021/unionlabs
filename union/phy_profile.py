@@ -475,6 +475,50 @@ def _spans(path):
     return sorted(out)
 
 
+def choose_candidate(candidates, node=None, band=None, ant=None, subdev=None,
+                     args=None):
+    """Pick, from a topology's CANDIDATE LIST, the first carrier this radio measured
+    as usable. -> (mhz, why); mhz None means the survey rules every candidate out.
+
+    A topology that pins one number has to be edited whenever the band moves, and
+    the number it pins was copied by hand from a survey -- so it is a measurement
+    with no provenance, going stale silently. A candidate list says what the
+    experiment will ACCEPT and lets the measurement choose among them, which is the
+    one division that keeps both honest: the author states intent, the survey states
+    fact, and neither has to be re-typed when the other changes.
+
+    Order in the list is preference, not fallback: the first usable one wins, so a
+    file can rank by what the experiment wants while staying correct about the air.
+    """
+    cands = []
+    for c in candidates:
+        try:
+            cands.append(float(c))
+        except (TypeError, ValueError):
+            return None, f"candidate {c!r} is not a frequency in MHz"
+    if not cands:
+        return None, "the candidate list is empty"
+    path, why = find(node, band, None, ant, subdev, args)
+    if not path:
+        # No survey is not an error: it is the ordinary state before anyone has run
+        # prepare.sh, and refusing here would make a candidate list unusable exactly
+        # when it is most convenient. Take the author's first preference and SAY that
+        # nothing measured confirmed it.
+        return cands[0], f"no survey for this radio ({why}) — took the first candidate"
+    base = os.path.basename(path)
+    spans = _spans(path)
+    if not spans:
+        return cands[0], f"{base} records no usable ranges — took the first candidate"
+    for c in cands:
+        for lo, hi in spans:
+            if lo <= c <= hi:
+                return c, f"{base}: inside the measured {lo:g}-{hi:g} MHz"
+    where = ", ".join(f"{lo:g}-{hi:g}" for lo, hi in spans)
+    return None, (f"{base} rules out every candidate "
+                  f"({', '.join(f'{c:g}' for c in cands)} MHz). What it measured as "
+                  f"usable: {where} MHz. Add a candidate inside that, or re-survey.")
+
+
 def all_profiles():
     """Every profile published into the shared workspace, from every node."""
     seen = {}

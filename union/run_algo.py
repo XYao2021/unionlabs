@@ -240,6 +240,85 @@ def tx_mhz(a):
     return a.freq if v is None else v
 
 
+def _phy_profile_module():
+    """phy_profile, imported the way run_algo has to import its siblings, or None."""
+    try:
+        import phy_profile as pp
+        return pp
+    except ImportError:
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from union import phy_profile as pp
+            return pp
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def pick_freq(a, value, args=None, ant=None, subdev=None, label="carrier"):
+    """A topology carrier is a NUMBER, or a candidate list the survey chooses from.
+
+    [915, 925] means "whichever of these this radio measured as usable, preferring
+    the first". That is the division that stops a topology going stale: the file says
+    what the experiment will accept, the survey says what the air allows, and neither
+    number has to be copied into the other by hand.
+
+    A number passes through untouched, so every existing file behaves exactly as it
+    did.
+    """
+    if value is None or isinstance(value, (int, float)):
+        return value
+    cands = list(value)
+    if getattr(a, "no_phy_profile", False):
+        print(f"[topology] {label}: --no-phy-profile, so no survey was consulted — "
+              f"took {cands[0]:g} MHz, the first of {len(cands)} candidates")
+        return cands[0]
+    pp = _phy_profile_module()
+    if pp is None or not hasattr(pp, "choose_candidate"):
+        print(f"[topology] {label}: cannot read surveys here — took {cands[0]:g} MHz, "
+              f"the first of {len(cands)} candidates")
+        return cands[0]
+    mhz, why = pp.choose_candidate(cands, band=getattr(a, "phy_profile_band", None),
+                                   ant=ant, subdev=subdev, args=args)
+    if mhz is None:
+        # The author listed what the experiment accepts and the measurement accepts
+        # none of it. Proceeding would put the link on a carrier the survey says is
+        # occupied, which is the silent-failure this whole mechanism exists to avoid,
+        # so say which candidates were rejected and what IS usable.
+        sys.exit(f"--topology: {label} — {why}")
+    print(f"[topology] {label}: {mhz:g} MHz from candidates "
+          f"[{', '.join(f'{c:g}' for c in cands)}] — {why}")
+    return mhz
+
+
+def _tx_carrier_path(topo, nd):
+    """Whose survey decides what this node TRANSMITS on. -> (args, ant, subdev, node-id)
+
+    A transmit carrier belongs to the RECEIVER. Only the receiver measured the air it
+    has to hear in; a transmitter's own noise floor says nothing about the far end, and
+    prepare.sh refuses to survey a transmitter for exactly that reason. So a candidate
+    list on a tx side is resolved against the PEER's receive survey.
+
+    This is what makes a candidate list safe across two containers. Resolved against
+    each box's own survey, the two ends rank the same list by different measurements
+    and land on different carriers -- the author wrote one list, both boxes obeyed it,
+    and they still cannot hear each other. A shared /workspace means either box can
+    read the other's survey, so both sides resolve the data carrier from the sink's
+    measurement and the ACK carrier from the source's, and they agree by construction.
+    """
+    for ln in topo.links_of(nd):
+        peer = None
+        if ln.a.id == nd.id:
+            peer = ln.b                      # the data hop: the far end receives it
+        elif ln.b.id == nd.id and ln.down == "wireless":
+            peer = ln.a                      # an RF ACK travels back to the source
+        if peer is not None and peer.radio and peer.can_rx():
+            return ((peer.radio or {}).get("args"), peer.side("rx", "ant"),
+                    peer.side("rx", "subdev"), peer.id)
+    return (None, None, None, None)
+
+
 def check_freq_units(a):
     """These flags are MHz here and Hz in radio.sh, under the SAME names.
 
@@ -255,6 +334,29 @@ def check_freq_units(a):
         if v is not None and v >= 1e6:
             sys.exit(f"{flag} {v:g} looks like Hz, but run.sh takes MHz "
                      f"(radio.sh is the one that takes Hz). Use {flag} {v / 1e6:g}.")
+
+
+def warn_rf_ack_one_carrier(a):
+    """An RF acknowledgement needs TWO carriers. One radio transmitting and receiving
+    at the same frequency swamps its own receiver -- the ACK path hears the data burst
+    this node is sending, not the far end, however much isolation the two connectors
+    have. So this configuration cannot work, and it is reachable by accident: give both
+    directions the same candidate pool and, with no survey to separate them, each side
+    takes the pool's first entry and the two collapse onto one frequency.
+
+    Warned rather than refused, like the band check: this is a research testbed, and
+    being told plainly beats being stopped.
+    """
+    if getattr(a, "ack_transport", None) != "rf":
+        return                              # a TCP ACK is a socket; one carrier is fine
+    if rx_mhz(a) != tx_mhz(a):
+        return
+    print(f"[run_algo] WARNING: the ACK returns over RF, but this node transmits and "
+          f"receives on the SAME carrier ({rx_mhz(a):g} MHz). One radio cannot hear the "
+          f"far end through its own transmission, so no acknowledgement will arrive.\n"
+          f"              Give the two directions different frequencies — --rx-freq / "
+          f"--tx-freq, or a separate candidate pool per side in the topology "
+          f"(data [915, 905], ack [925, 935]), not one pool shared by both.")
 
 
 def check_band(freq_mhz, kind, flag="--freq"):
@@ -843,9 +945,16 @@ def apply_topology(ap, a):
         print(f"[run_algo] NOTE: this file was written for --algo {topo.algo}, "
               f"running it with --algo {a.algo}")
 
+    freq_candidates = None
     for key, dest in TOPO_DEFAULTS.items():         # experiment-wide knobs
         if key in topo.defaults:
-            _set(ap, a, dest, topo.defaults[key])
+            v = topo.defaults[key]
+            # A candidate list has to wait for the node: a survey is per signal path,
+            # and which path this is depends on the radio this node owns.
+            if key == "freq_mhz" and isinstance(v, (list, tuple)):
+                freq_candidates = list(v)
+                continue
+            _set(ap, a, dest, v)
     _set(ap, a, "agents", len(topo.nodes))
     base = _peer_base_port(topo)
     if base is not None:
@@ -856,6 +965,11 @@ def apply_topology(ap, a):
     a.topology = topo.edge_spec()
 
     if a.node is None:                              # a whole-network run in one process
+        if freq_candidates is not None:
+            # no node, so no signal path to narrow by -- the survey still answers if
+            # this box has exactly one
+            _set(ap, a, "freq", pick_freq(a, freq_candidates,
+                                          label="defaults carrier"))
         return topo
     try:
         nd = topo.node(a.node)
@@ -1035,7 +1149,18 @@ def apply_topology(ap, a):
         # 915 and ACK at 925, and resolved to the source transmitting at 915 while the
         # sink listened at 925. Nothing is received and nothing says why -- the two
         # numbers are both in the file, both correct, and only one of them arrived.
-        rx_side, tx_side = nd.side("rx", "freq_mhz"), nd.side("tx", "freq_mhz")
+        rx_side = pick_freq(a, nd.side("rx", "freq_mhz"), args=args,
+                            ant=nd.side("rx", "ant"), subdev=nd.side("rx", "subdev"),
+                            label=f"node {nd.id} receive carrier")
+        p_args, p_ant, p_sub, p_id = _tx_carrier_path(topo, nd)
+        tx_side = pick_freq(
+            a, nd.side("tx", "freq_mhz"),
+            args=p_args or args,
+            ant=p_ant if p_args else nd.side("tx", "ant"),
+            subdev=p_sub if p_args else nd.side("tx", "subdev"),
+            label=(f"node {nd.id} transmit carrier (what {p_id} measured, since {p_id} "
+                   f"is the end that must hear it)" if p_args
+                   else f"node {nd.id} transmit carrier"))
         # A TYPED --freq means "this carrier, here" and has to reach BOTH directions,
         # so it suppresses the file's per-side numbers rather than landing in a third
         # dest that leaves one side on the file's value. Without this, --freq on a
@@ -1053,7 +1178,9 @@ def apply_topology(ap, a):
             _set(ap, a, "tx_freq", tx_side)
         # and the common carrier, for everything that asks for one number: a one-way
         # link, a TCP ACK, the band check, the simulated PHYs.
-        freq = nd.side("tx", "freq_mhz") or nd.side("rx", "freq_mhz")
+        # the RESOLVED sides, not the raw field: a candidate list reaching this would
+        # put a list where a carrier in MHz belongs
+        freq = tx_side or rx_side
         _set(ap, a, "freq", freq)
         # a run that really drives a USRP should say so, so the band check and the
         # simulation-only warnings apply to it
@@ -1066,6 +1193,15 @@ def apply_topology(ap, a):
                           ("power", "lora_power")):
             if key in nd.lora:
                 _set(ap, a, dest, nd.lora[key])
+    # the experiment-wide candidate list, now that the node's radio is known. _set
+    # defers to anything already chosen, so a per-side list or number still wins.
+    if freq_candidates is not None:
+        side = "rx" if (nd.radio and nd.can_rx()) else "tx"
+        _set(ap, a, "freq", pick_freq(a, freq_candidates,
+                                      args=(nd.radio or {}).get("args"),
+                                      ant=nd.side(side, "ant") if nd.radio else None,
+                                      subdev=nd.side(side, "subdev") if nd.radio else None,
+                                      label="defaults carrier"))
     return topo
 
 
@@ -1352,6 +1488,7 @@ def main():
     # A peer named with @ is resolved through the shared workspace before anything
     # tries to dial it, then we say how another machine reaches US.
     check_freq_units(a)
+    warn_rf_ack_one_carrier(a)
     resolve_peer_hosts(a)
     announce_ports(a)
     warn_unpinned_carrier(a, topo)

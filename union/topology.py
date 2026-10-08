@@ -89,6 +89,37 @@ def _known(d, allowed, what):
                             f"(known: {', '.join(sorted(allowed))})")
 
 
+def _freq_field(v, where):
+    """A carrier is one number, or a CANDIDATE LIST the survey chooses from.
+
+    [915, 925] means "any of these, preferring the first that this radio measured as
+    usable". Refuse a malformed list here, at load, rather than letting a string or an
+    empty list reach the arithmetic that multiplies it by 1e6 -- a list times a float
+    raises somewhere with no file name in the message, and the file is the thing that
+    is wrong.
+    """
+    if v is None:
+        return
+    if isinstance(v, bool):
+        raise TopologyError(f"{where}: {v!r} is not a frequency in MHz")
+    if isinstance(v, (int, float)):
+        if v <= 0:
+            raise TopologyError(f"{where}: {v!r} is not a positive frequency in MHz")
+        return
+    if isinstance(v, (list, tuple)):
+        if not v:
+            raise TopologyError(f"{where}: the candidate list is empty — give at least "
+                                f"one frequency in MHz, or drop the field to let the "
+                                f"survey decide")
+        for c in v:
+            if isinstance(c, bool) or not isinstance(c, (int, float)) or c <= 0:
+                raise TopologyError(f"{where}: candidate {c!r} is not a positive "
+                                    f"frequency in MHz")
+        return
+    raise TopologyError(f"{where}: {v!r} is neither a frequency in MHz nor a list of "
+                        f"candidates like [915, 925]")
+
+
 class Node:
     """One node: what it is, where it runs, what it listens on, what radio it owns."""
 
@@ -146,6 +177,8 @@ class Node:
                                               # direction (our N210 is receive-only)
                 s = _dict(radio[side], f"node {self.id}: radio.{side}")
                 _known(s, self.SIDE, f"node {self.id}: radio.{side}")
+                _freq_field(s.get("freq_mhz"),
+                            f"node {self.id}: radio.{side}.freq_mhz")
                 self.radio[side] = s          # {} means "yes, with the usual defaults"
             if not self.can_tx() and not self.can_rx():
                 raise TopologyError(f"node {self.id}: radio has neither a tx nor an rx "
@@ -254,6 +287,8 @@ class Topology:
         self.algo = raw.get("algo")
         self.description = raw.get("description", "")
         self.defaults = _dict(raw.get("defaults"), "defaults")
+        # same field, same two shapes, wherever it is written
+        _freq_field(self.defaults.get("freq_mhz"), "defaults.freq_mhz")
         nodes = raw.get("nodes")
         if not isinstance(nodes, list) or len(nodes) < 1:
             raise TopologyError("topology needs a nodes[] list")
