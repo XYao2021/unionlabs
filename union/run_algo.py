@@ -643,6 +643,51 @@ TOPO_DEFAULTS = {"channel": "channel", "steps": "steps", "scheme": "scheme",
                  "ack_transport": "ack_transport", "ack_timeout": "ack_timeout"}
 
 
+# Modem options a topology may set in "defaults". They are NOT in TOPO_DEFAULTS
+# because they have no run_algo flag of their own: they reach the C++ modem through
+# --usrp-set, so they are injected there rather than assigned to a namespace dest.
+#
+# det_mult and sync_threshold were deliberately inexpressible here, on the reasoning
+# that they are MEASUREMENTS and belong to the survey. That reasoning holds for where
+# the numbers come from and not for where they may be written: a rig whose detector
+# values are known and stable should be able to state them once, beside the gains and
+# connectors they go with, instead of being retyped on every command. The survey is
+# still consulted and still wins over nothing -- the order is unchanged,
+#     typed --usrp-set  >  topology defaults  >  survey  >  modem's own default
+# so a file that states them overrides a measurement, exactly as a file already
+# overrides a measured carrier.
+TOPO_MODEM = ("det_mult", "sync_threshold", "bytes_length")
+
+
+def _inject_modem_defaults(ap, a, pairs):
+    """Put a topology's modem defaults onto --usrp-set, where the modem reads them.
+
+    Gated on the backend that actually starts the modem process. The in-process pyphy
+    backend REFUSES --usrp-set outright, so injecting there would turn "my topology
+    names a detector threshold" into "this topology cannot run at all" -- the same
+    trap the surveyed det_mult fell into, and the reason apply_phy_profile checks the
+    backend too.
+    """
+    if not pairs:
+        return
+    if getattr(a, "usrp_backend", None) != "radio":
+        print(f"[topology] not applying {', '.join(sorted(pairs))}: these configure the "
+              f"C++ modem, which only runs under --usrp-backend radio. This run uses "
+              f"{getattr(a, 'usrp_backend', None) or 'no'} backend, where they would be "
+              f"refused rather than ignored.")
+        return
+    # Appended AFTER anything the survey injected, because _kv_pairs builds a dict and
+    # the last occurrence of a key wins -- which is what makes the file beat the
+    # measurement. Keys the experimenter typed are skipped so they still beat both.
+    typed = getattr(a, "_typed_usrp", set())
+    add = [f"{k}={v}" for k, v in sorted(pairs.items()) if k not in typed]
+    if add:
+        a.usrp_set = list(getattr(a, "usrp_set", []) or []) + add
+        print(f"[topology] modem: {' '.join(add)}")
+    for k in sorted(set(pairs) & typed):
+        print(f"[topology] {k}: kept what you typed, not the file's {pairs[k]}")
+
+
 def _typed_flags(ap, argv=None):
     """Which settings did the experimenter actually TYPE? A flag whose value happens to
     equal the parser default is still a choice ('--steps 5' when 5 is the default), so
@@ -976,6 +1021,18 @@ def apply_topology(ap, a):
         print(f"[run_algo] NOTE: this file was written for --algo {topo.algo}, "
               f"running it with --algo {a.algo}")
 
+    # An unrecognised "defaults" key used to be dropped in silence: the loop below only
+    # looks for keys it knows, so a typo -- or a real modem option someone reasonably
+    # expected to work -- configured nothing and said nothing. Name it instead.
+    _known_defaults = set(TOPO_DEFAULTS) | set(TOPO_MODEM) | {"medium"}
+    unknown = [k for k in topo.defaults if k not in _known_defaults]
+    if unknown:
+        sys.exit(f"--topology {topo.name}: defaults has no setting called "
+                 f"{', '.join(repr(k) for k in sorted(unknown))}. It would have been "
+                 f"ignored silently, so it is refused here instead. Known: "
+                 f"{', '.join(sorted(_known_defaults))}. Anything else the modem "
+                 f"accepts goes on --usrp-set (see docs/PARAMETERS.md).")
+    modem_defaults = {k: topo.defaults[k] for k in TOPO_MODEM if k in topo.defaults}
     freq_candidates = None
     for key, dest in TOPO_DEFAULTS.items():         # experiment-wide knobs
         if key in topo.defaults:
@@ -1001,6 +1058,7 @@ def apply_topology(ap, a):
             # this box has exactly one
             _set(ap, a, "freq", pick_freq(a, freq_candidates,
                                           label="defaults carrier"))
+        _inject_modem_defaults(ap, a, modem_defaults)
         return topo
     try:
         nd = topo.node(a.node)
@@ -1233,6 +1291,7 @@ def apply_topology(ap, a):
                                       ant=nd.side(side, "ant") if nd.radio else None,
                                       subdev=nd.side(side, "subdev") if nd.radio else None,
                                       label="defaults carrier"))
+    _inject_modem_defaults(ap, a, modem_defaults)
     return topo
 
 
@@ -1509,6 +1568,10 @@ def main():
     a.role_index = a.hub_index = None
     a._typed = _typed_flags(ap)         # what was actually typed, vs what merely defaulted
     a._from_profile = set()             # ...and what a survey filled in, which a topology may overwrite
+    # Captured BEFORE any layer injects: once the survey and the topology have appended
+    # their own --usrp-set entries, "what was typed" is no longer recoverable from it.
+    a._typed_usrp = {kv.split("=", 1)[0].strip().replace("-", "_")
+                     for kv in (getattr(a, "usrp_set", []) or []) if "=" in kv}
 
     # the wiring file, when --topology names one: it fills in everything about THIS node
     # that was not typed on the command line (role, ports, hosts, radio, medium).

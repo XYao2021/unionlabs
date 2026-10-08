@@ -46,6 +46,8 @@ def parse(argv, algo="fl"):
     a = ap.parse_args(["--algo", algo] + argv)
     a.role_index = a.hub_index = None
     a._typed = R._typed_flags(ap, argv)
+    a._typed_usrp = {kv.split("=", 1)[0].strip().replace("-", "_")
+                     for kv in (getattr(a, "usrp_set", []) or []) if "=" in kv}
     topo = R.apply_topology(ap, a)
     if a.node is not None:
         a.node = int(a.node)
@@ -377,6 +379,70 @@ refuses("--node that is not in the file", ["--topology", "fl-star-tcp", "--node"
         "is not in")
 refuses("a topology file that is absent", ["--topology", "no-such-topology", "--node", "0"],
         "no topology")
+
+# ── modem options stated in the file, not retyped per run ────────────────────
+# det_mult / sync_threshold / bytes_length have no run_algo flag: they reach the C++
+# modem through --usrp-set. A topology may now state them, so a rig's known detector
+# settings live beside the gains and connectors they belong with. An unrecognised
+# defaults key used to configure nothing and say nothing, which is how someone would
+# discover this was unsupported: by a run that quietly used the modem's defaults.
+modem = wrote("modem-defaults", {
+    "schema": 1, "name": "modem-defaults", "algo": "echo",
+    "defaults": {"channel": "usrp", "scheme": "QPSK", "waveform": "sc",
+                 "det_mult": 30, "sync_threshold": 10, "bytes_length": 1000},
+    "nodes": [
+        {"id": "src", "role": "tx",
+         "radio": {"device": "x310", "addr": "192.168.30.2",
+                   "tx": {"ant": "TX/RX", "subdev": "A:0", "gain": 25,
+                          "freq_mhz": 2400}}},
+        {"id": "snk", "role": "rx", "ports": {"ack": 5599},
+         "radio": {"device": "x310", "addr": "192.168.40.2",
+                   "rx": {"ant": "RX2", "subdev": "A:0", "gain": 20,
+                          "freq_mhz": 2400}}}],
+    "links": [{"from": "src", "to": "snk",
+               "medium": {"up": "wireless", "down": "tcp"}}]})
+
+
+def usrp_set(argv):
+    a, _ = parse(argv, algo="echo")
+    return sorted(getattr(a, "usrp_set", []) or [])
+
+
+check("defaults -> --usrp-set",
+      lambda: usrp_set(["--topology", modem, "--node", "snk",
+                        "--usrp-backend", "radio"]),
+      ["bytes_length=1000", "det_mult=30", "sync_threshold=10"])
+# the in-process backend REFUSES --usrp-set, so injecting there would stop the run
+# starting at all -- the trap the surveyed det_mult already fell into once. A wireless
+# link selects the radio backend by itself, so the case that can actually break is a
+# file carrying modem defaults over a medium that never starts the modem.
+tcp_modem = wrote("modem-tcp", {
+    "schema": 1, "name": "modem-tcp", "algo": "echo",
+    "defaults": {"det_mult": 30, "bytes_length": 1000},
+    "nodes": [{"id": "a", "role": "client", "host": "127.0.0.1"},
+              {"id": "b", "role": "server", "ports": {"net": 5700}}],
+    "links": [{"from": "a", "to": "b", "medium": "tcp"}]})
+check("...not on a backend that cannot take them",
+      lambda: usrp_set(["--topology", tcp_modem, "--node", "a"]), [])
+# and a typed value still beats the file, like every other setting
+check("typed --usrp-set still wins",
+      lambda: [x for x in usrp_set(["--topology", modem, "--node", "snk",
+                                    "--usrp-backend", "radio",
+                                    "--usrp-set", "sync_threshold=25"])
+               if "sync_threshold" in x],
+      ["sync_threshold=25"])
+check("single carrier reaches the modem",
+      lambda: parse(["--topology", modem, "--node", "snk"], algo="echo")[0].waveform,
+      "sc")
+
+mistyped = wrote("mistyped-default", {
+    "schema": 1, "name": "mistyped-default", "algo": "echo",
+    "defaults": {"det-mlt": 9},
+    "nodes": [{"id": "a", "role": "client", "host": "127.0.0.1"},
+              {"id": "b", "role": "server", "ports": {"net": 5700}}],
+    "links": [{"from": "a", "to": "b"}]})
+refuses("a defaults key nothing reads", ["--topology", mistyped, "--node", "a"],
+        "has no setting called", algo="echo")
 
 # ══ summary ══════════════════════════════════════════════════════════════════
 bad = [label for label, ok in results if not ok]
