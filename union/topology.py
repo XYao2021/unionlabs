@@ -104,36 +104,58 @@ def is_placeholder(v):
 
 
 def _freq_field(v, where):
-    """A carrier is one number, or a CANDIDATE LIST the survey chooses from.
+    """Validate a carrier and return it NORMALISED: a float, a list of floats, a
+    placeholder, or None.
 
-    [915, 925] means "any of these, preferring the first that this radio measured as
-    usable". Refuse a malformed list here, at load, rather than letting a string or an
-    empty list reach the arithmetic that multiplies it by 1e6 -- a list times a float
-    raises somewhere with no file name in the message, and the file is the thing that
-    is wrong.
+    A carrier is one number, or a CANDIDATE LIST the survey chooses from --
+    [915, 925] means "any of these, preferring the first this radio measured as
+    usable".
+
+    A QUOTED number is accepted and coerced, because the blank a generated draft
+    leaves is itself a quoted string:
+
+        "freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION"
+
+    and the obvious way to fill that in is to replace the text between the quotes,
+    which leaves "2450". Refusing that is technically right and practically useless --
+    the value is unambiguous, and the alternative is an error about a file that looks
+    correct. Normalising here rather than at the point of use matters: a string
+    reaching the candidate code would be iterated character by character.
+
+    Anything else is refused at LOAD, with the file and field named, rather than
+    reaching the arithmetic that multiplies it by 1e6 -- which raises somewhere with
+    no file name in the message, and the file is the thing that is wrong.
     """
     if v is None:
-        return
+        return None
     if is_placeholder(v):
-        return                            # a draft's blank; the run refuses it by name
-    if isinstance(v, bool):
-        raise TopologyError(f"{where}: {v!r} is not a frequency in MHz")
-    if isinstance(v, (int, float)):
-        if v <= 0:
-            raise TopologyError(f"{where}: {v!r} is not a positive frequency in MHz")
-        return
+        return v                          # a draft's blank; the run refuses it by name
+
+    def one(x, what):
+        if isinstance(x, bool):
+            raise TopologyError(f"{what}: {x!r} is not a frequency in MHz")
+        if isinstance(x, str):
+            try:
+                x = float(x.strip())
+            except ValueError:
+                raise TopologyError(
+                    f"{what}: {x!r} is not a frequency in MHz. A number here needs no "
+                    f"quotes -- 2450 or 2462.5, not \"2450\" -- and a list of "
+                    f"candidates looks like [2450, 2462.5].")
+        if not isinstance(x, (int, float)):
+            raise TopologyError(f"{what}: {x!r} is neither a frequency in MHz nor a "
+                                f"list of candidates like [915, 925]")
+        if x <= 0:
+            raise TopologyError(f"{what}: {x!r} is not a positive frequency in MHz")
+        return float(x)
+
     if isinstance(v, (list, tuple)):
         if not v:
             raise TopologyError(f"{where}: the candidate list is empty — give at least "
                                 f"one frequency in MHz, or drop the field to let the "
                                 f"survey decide")
-        for c in v:
-            if isinstance(c, bool) or not isinstance(c, (int, float)) or c <= 0:
-                raise TopologyError(f"{where}: candidate {c!r} is not a positive "
-                                    f"frequency in MHz")
-        return
-    raise TopologyError(f"{where}: {v!r} is neither a frequency in MHz nor a list of "
-                        f"candidates like [915, 925]")
+        return [one(c, f"{where}: candidate") for c in v]
+    return one(v, where)
 
 
 class Node:
@@ -200,8 +222,9 @@ class Node:
                                               # direction (our N210 is receive-only)
                 s = _dict(radio[side], f"node {self.id}: radio.{side}")
                 _known(s, self.SIDE, f"node {self.id}: radio.{side}")
-                _freq_field(s.get("freq_mhz"),
-                            f"node {self.id}: radio.{side}.freq_mhz")
+                if "freq_mhz" in s:
+                    s["freq_mhz"] = _freq_field(
+                        s["freq_mhz"], f"node {self.id}: radio.{side}.freq_mhz")
                 self.radio[side] = s          # {} means "yes, with the usual defaults"
             if not self.can_tx() and not self.can_rx():
                 raise TopologyError(f"node {self.id}: radio has neither a tx nor an rx "
@@ -311,7 +334,9 @@ class Topology:
         self.description = raw.get("description", "")
         self.defaults = _dict(raw.get("defaults"), "defaults")
         # same field, same two shapes, wherever it is written
-        _freq_field(self.defaults.get("freq_mhz"), "defaults.freq_mhz")
+        if "freq_mhz" in self.defaults:
+            self.defaults["freq_mhz"] = _freq_field(
+                self.defaults["freq_mhz"], "defaults.freq_mhz")
         nodes = raw.get("nodes")
         if not isinstance(nodes, list) or len(nodes) < 1:
             raise TopologyError("topology needs a nodes[] list")

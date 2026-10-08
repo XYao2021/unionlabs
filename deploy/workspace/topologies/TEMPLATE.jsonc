@@ -9,9 +9,10 @@
 //
 //  FILL IN
 //    ack_wireless   false -> reply over TCP; snk.host is what src dials.
-//                   true  -> reply over the air on each node's SECOND RF
-//                            block. Carriers must differ and that subdev
-//                            must exist on the hardware.
+//                   true  -> reply over the air on the node's OTHER antenna
+//                            port: transmit on TX/RX, listen on RX2, same
+//                            subdev. The two carriers must differ, and no
+//                            host is read at all in this mode.
 //    serial         both radios, from uhd_find_devices on each box.
 //    freq_mhz       from `python3 union/phy_profile.py --common`. Same on
 //                   both nodes for the data direction; a DIFFERENT one for
@@ -53,7 +54,7 @@
         "serial": "REPLACE_ME_SOURCE_ID",
         "tx": { "ant": "TX/RX", "subdev": "A:0", "gain": 25,
                 "freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION" },
-        "rx": { "ant": "RX2", "subdev": "B:0", "gain": 20,
+        "rx": { "ant": "RX2", "subdev": "A:0", "gain": 20,
                 "freq_mhz": "REPLACE_ME_WITH_ACK_FREQ_OPTION" }
       }
     },
@@ -67,7 +68,7 @@
         "serial": "REPLACE_ME_SINK_ID",
         "rx": { "ant": "RX2", "subdev": "A:0", "gain": 20,
                 "freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION" },
-        "tx": { "ant": "TX/RX", "subdev": "B:0", "gain": 25,
+        "tx": { "ant": "TX/RX", "subdev": "A:0", "gain": 25,
                 "freq_mhz": "REPLACE_ME_WITH_ACK_FREQ_OPTION" }
       }
     }

@@ -429,9 +429,15 @@ def publish_topology_draft(profile, d, stamp):
     ack_hint = f"// pick a DIFFERENT one: {opt_list}"
 
     tx_subdev, tx_gain = _TX_DEFAULTS.get(device, ("A:0", 25))
-    ack_subdev = {"b210": "A:B"}.get(device, "B:0")
+    # THE SECOND RF PATH IS THE SECOND ANTENNA PORT, not a second daughterboard.
+    # One X310 daughterboard is full duplex and brings out two connectors -- TX/RX to
+    # transmit, RX2 to receive -- which is the arrangement the working commands on this
+    # rig already used. Defaulting to B:0 asked for a board that is usually not fitted
+    # and, on a radio with antennas only on the first port, cannot work at all.
+    # A B210 is different: its two channels A:A and A:B are the natural split.
     rx_ant, rx_subdev = radio.get("ant"), radio.get("subdev")
     rx_gain = radio.get("gain_db")
+    ack_subdev = "A:B" if device == "b210" else (rx_subdev or "A:0")
 
     # ── the header: what the survey found, above the file rather than inside it ──
     # The explanation used to live in `note` fields holding paragraphs, which is what
@@ -460,10 +466,12 @@ def publish_topology_draft(profile, d, stamp):
           "//",
           "//    ack_wireless   false -> the reply comes back over TCP, and snk.host",
           "//                            is the address the source dials.",
-          "//                   true  -> the reply comes back over the air, on the",
-          "//                            SECOND RF block of each node. The two",
-          "//                            carriers must differ, and that subdev has",
-          "//                            to exist on the hardware.",
+          "//                   true  -> the reply comes back over the air on the",
+          "//                            node's OTHER antenna port: it transmits on",
+          "//                            TX/RX and listens on RX2, same subdev, which",
+          "//                            is what one full-duplex daughterboard gives",
+          "//                            you. The two carriers must differ. No host is",
+          "//                            read at all in this mode.",
           "//    freq_mhz       one of the carriers above, the SAME on both nodes.",
           "//                   A list instead of one number lets the survey pick,",
           "//                   which keeps the file from going stale.",

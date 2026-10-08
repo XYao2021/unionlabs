@@ -195,8 +195,23 @@ def main():
               ["device", "rx", "serial", "tx"])
         check("sink has both directions",
               sorted(k for k in snk["radio"] if k in ("tx", "rx")), ["rx", "tx"])
-        check("the reply path uses a DIFFERENT subdev",
-              src["radio"]["rx"]["subdev"] != src["radio"]["tx"]["subdev"], True)
+        # The second RF path is the second ANTENNA PORT, not a second daughterboard:
+        # one X310 board is full duplex and brings out TX/RX and RX2. Defaulting to
+        # B:0 asked for a board that is usually not fitted, and on a radio with
+        # antennas only on the first port it cannot work at all.
+        check("both directions share the surveyed subdev",
+              (src["radio"]["tx"]["subdev"], src["radio"]["rx"]["subdev"]),
+              ("A:0", "A:0"))
+        check("...and are separated by the antenna port",
+              (src["radio"]["tx"]["ant"], src["radio"]["rx"]["ant"]),
+              ("TX/RX", "RX2"))
+        # a B210 is the exception: its two channels are the natural split
+        b210 = dict(full, radio=dict(full["radio"], device="b210", subdev="A:A"))
+        _, db = read_draft(prepare_phy.publish_topology_draft(
+            b210, d, "2026-10-08_03-00-00"))
+        bsrc = [n for n in db["nodes"] if n["id"] == "src"][0]
+        check("a B210 splits across its two channels",
+              bsrc["radio"]["rx"]["subdev"], "A:B")
 
         # the one switch that chooses how the reply travels
         check("ack_wireless is offered, defaulting to TCP",

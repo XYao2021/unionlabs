@@ -435,6 +435,48 @@ check("single carrier reaches the modem",
       lambda: parse(["--topology", modem, "--node", "snk"], algo="echo")[0].waveform,
       "sc")
 
+# ── what counts as a carrier ─────────────────────────────────────────────────
+# A QUOTED number is accepted and coerced, because the blank a generated draft
+# leaves is itself a quoted string ("freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION") and
+# the obvious edit is to replace the text between the quotes. Refusing "2450" is
+# technically right and practically useless. Normalising at LOAD matters too: a
+# string reaching the candidate code would be iterated character by character.
+def freq_file(v):
+    return wrote(f"freq-{str(v).replace(' ', '')[:12]}", {
+        "schema": 1, "name": "freqform", "algo": "echo",
+        "defaults": {"channel": "usrp"},
+        "nodes": [
+            {"id": "a", "role": "tx",
+             "radio": {"device": "x310", "serial": "AAA",
+                       "tx": {"ant": "TX/RX", "subdev": "A:0", "freq_mhz": v}}},
+            {"id": "b", "role": "rx", "ports": {"ack": 5599},
+             "radio": {"device": "x310", "serial": "BBB",
+                       "rx": {"ant": "RX2", "subdev": "A:0", "freq_mhz": 2462.5}}}],
+        "links": [{"from": "a", "to": "b",
+                   "medium": {"up": "wireless", "down": "tcp"}}]})
+
+
+def freq_of(v):
+    return tp.load(freq_file(v)).node("a").side("tx", "freq_mhz")
+
+
+check("an integer carrier", lambda: freq_of(2450), 2450.0)
+check("a float carrier", lambda: freq_of(2462.5), 2462.5)
+check("a QUOTED integer is coerced", lambda: freq_of("2450"), 2450.0)
+check("a quoted float is coerced", lambda: freq_of("2462.5"), 2462.5)
+check("whitespace around it is tolerated", lambda: freq_of(" 2450 "), 2450.0)
+check("a candidate list of numbers", lambda: freq_of([2462.5, 2450]), [2462.5, 2450.0])
+check("a candidate list of quoted numbers",
+      lambda: freq_of(["2450", 2462.5]), [2450.0, 2462.5])
+check("a draft's blank passes through", lambda: freq_of("REPLACE_ME_X"), "REPLACE_ME_X")
+refuses("a carrier that is not a number",
+        ["--topology", freq_file("abc"), "--node", "a"],
+        "A number here needs no quotes", algo="echo")
+refuses("a carrier of zero", ["--topology", freq_file(0), "--node", "a"],
+        "not a positive frequency", algo="echo")
+refuses("true is not a carrier", ["--topology", freq_file(True), "--node", "a"],
+        "is not a frequency in MHz", algo="echo")
+
 # ── // comments, so a topology can explain itself above the JSON ─────────────
 # JSON has no comments and this schema refuses unknown keys, so explanation had
 # nowhere to live but inside the data -- `note` fields holding paragraphs, which is

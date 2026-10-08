@@ -1213,7 +1213,12 @@ def apply_topology(ap, a):
             # A CLIENT: transmits to the next node and reads its reply
             hub = out_links[0].b
             _set(ap, a, "link", family[med_out])
-            if not hub.host and not _typed(ap, a, "net_host"):
+            # ...but only when a socket is actually opened. With the data over the air
+            # and the reply over the air too, nothing is dialled: telling someone to
+            # pass --net-host for a connection that will never be made reads as a
+            # missing setting, and the obvious response is to go and invent an address.
+            dials = "tcp" in (med_out, next(iter(replies), None))
+            if dials and not hub.host and not _typed(ap, a, "net_host"):
                 print(f"[run_algo] NOTE: {hub.id} has no host in {topo.name}, so {nd.id} "
                       f"will dial 127.0.0.1. That is right for both on one machine; pass "
                       f"--net-host <address> when {hub.id} is somewhere else (a session "
