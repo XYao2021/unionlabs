@@ -540,7 +540,10 @@ def publish_topology_draft(profile, d, stamp):
         out = topology_dir()
     except OSError:
         out = d                                 # unwritable: beside the survey is fine
-    path = os.path.join(out, f"draft-{id_val}-{stamp}.json")
+    # .jsonc because the file carries a // header: an editor decides whether comments
+    # are legal by extension, and VS Code marks every one of them in a .json file as an
+    # error. topology.py searches both, so --topology draft-<id>-<stamp> still resolves.
+    path = os.path.join(out, f"draft-{id_val}-{stamp}.jsonc")
     # Hints go BESIDE the blank, not only in the header: the field is where someone
     # is looking when they are about to type, and topologies take // comments now.
     hints = [
@@ -688,7 +691,7 @@ def main():
         print(f"[prepare]   replace REPLACE_ME_SOURCE_ID (uhd_find_devices on the "
               f"transmitting box), then:")
         print(f"[prepare]   ./run.sh --algo echo --topology "
-              f"{os.path.basename(path)[:-len('.json')]} --node snk")
+              f"{os.path.splitext(os.path.basename(path))[0]} --node snk")
         return 0
     if a.node is None:
         # Same identity rule as discover-node.py and union/phy_profile.py, so what

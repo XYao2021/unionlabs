@@ -538,14 +538,23 @@ def search_path():
     return out
 
 
+# .jsonc for files that carry a // header, .json for everything else.
+# Not cosmetic: an editor decides whether comments are legal by EXTENSION, and VS Code
+# -- which ships in this image -- marks every comment in a .json file as an error. The
+# file loads fine either way, so the squiggles are purely a lie about the file being
+# broken, and a generated file that an editor calls broken will be edited into
+# something that is. Both are searched, so nothing that exists has to be renamed.
+EXTS = (".json", ".jsonc")
+
+
 def resolve(name):
     """A path, or a bare name looked up in the topology folders. Returns None if the
     string is not a file anywhere — the caller then reads it as ring/full/an edge list."""
     if not name:
         return None
     cand = [name]
-    if not name.endswith(".json"):
-        cand.append(name + ".json")
+    if not name.endswith(EXTS):
+        cand += [name + e for e in EXTS]
     for c in cand:
         if os.path.sep in c or c.startswith("."):
             if os.path.isfile(c):
@@ -670,7 +679,7 @@ def available():
     for d in search_path():
         if os.path.isdir(d):
             for f in sorted(os.listdir(d)):
-                if f.endswith(".json"):
+                if f.endswith(EXTS):
                     out.append(os.path.join(d, f))
     return out
 
@@ -686,7 +695,10 @@ if __name__ == "__main__":
         # current in exactly this listing.
         by_name = {}
         for p in available():
-            by_name.setdefault(os.path.basename(p)[:-len(".json")], []).append(p)
+            # splitext, not a fixed -5: ".jsonc" is six characters, and slicing off
+            # five leaves a name ending in a dot that matches nothing
+            stem = os.path.splitext(os.path.basename(p))[0]
+            by_name.setdefault(stem, []).append(p)
         print("topologies found:")
         shadowed = 0
         for name in sorted(by_name):

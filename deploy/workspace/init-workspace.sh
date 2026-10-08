@@ -121,7 +121,9 @@ if [ -d "$HERE/algorithms" ]; then
 fi
 
 # ── the example wirings: track the image, protect edits ──
-for f in "$HERE"/topologies/*.json; do
+# .json and .jsonc: a topology carrying a // header uses .jsonc so an editor does not
+# call it broken, and a glob that misses them would seed an incomplete set in silence.
+for f in "$HERE"/topologies/*.json "$HERE"/topologies/*.jsonc; do
   [ -e "$f" ] || continue
   reseed file "$f" "$ROOT/topologies/$(basename "$f")" "topologies/$(basename "$f")"
 done

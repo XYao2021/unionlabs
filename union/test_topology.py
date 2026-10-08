@@ -488,6 +488,31 @@ refuses("a comment header keeps line numbers", ["--topology", broken, "--node", 
 check("TEMPLATE parses with its header",
       lambda: [nd.id for nd in tp.load("TEMPLATE").nodes], ["src", "snk"])
 
+# ── .jsonc, so an editor does not call a commented topology broken ───────────
+# An editor decides whether comments are legal by EXTENSION: VS Code marks every
+# comment in a .json file as an error, and a generated file an editor calls broken
+# gets edited into something that is. Both extensions resolve, so nothing that
+# already exists has to be renamed.
+jc = os.path.join(TMP, "ext-demo.jsonc")
+with open(jc, "w") as fh:
+    fh.write('''// a header an editor will accept here
+{ "schema": 1, "name": "ext-demo", "algo": "echo",
+  "nodes": [ { "id": "a", "role": "client", "host": "127.0.0.1" },
+             { "id": "b", "role": "server", "ports": { "net": 5700 } } ],
+  "links": [ { "from": "a", "to": "b" } ] }
+''')
+check("a .jsonc topology loads by path", lambda: len(tp.load(jc).nodes), 2)
+check("...and by bare name, with the extension inferred",
+      lambda: os.path.basename(tp.resolve(os.path.join(TMP, "ext-demo"))),
+      "ext-demo.jsonc")
+check("the listing name keeps no stray dot",
+      lambda: os.path.splitext(os.path.basename(jc))[0], "ext-demo")
+# the shipped template is .jsonc and still answers to its bare name
+check("TEMPLATE resolves without its extension",
+      lambda: os.path.basename(tp.resolve("TEMPLATE")), "TEMPLATE.jsonc")
+check("...and both extensions are searched",
+      lambda: tp.EXTS, (".json", ".jsonc"))
+
 # ── ack_wireless: one switch for how the reply travels ───────────────────────
 # A draft carries the wiring for BOTH reply paths, so choosing between them by
 # editing every link's medium is the kind of edit that gets half-done. The switch

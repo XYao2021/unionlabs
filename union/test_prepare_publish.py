@@ -154,14 +154,16 @@ def main():
         header, draft = read_draft(dpath)
         check("draft lands in topologies/, with every other topology",
               os.path.dirname(dpath), tdir)
-        check("draft is named by radio and time",
+        # .jsonc, because the file carries a // header and an editor judges comment
+        # legality by extension -- VS Code flags every one in a .json as an error
+        check("draft is named by radio and time, as .jsonc",
               os.path.basename(dpath),
-              "draft-327D82F-2026-10-08_00-00-00.json")
+              "draft-327D82F-2026-10-08_00-00-00.jsonc")
         # the name INSIDE must match the filename, or the lister shows two entries
         # with one label and the shadowing report becomes nonsense
         check("inner name matches the filename",
               draft["name"],
-              os.path.basename(dpath)[:-len(".json")])
+              os.path.splitext(os.path.basename(dpath))[0])
 
         snk = [n for n in draft["nodes"] if n["id"] == "snk"][0]
         src = [n for n in draft["nodes"] if n["id"] == "src"][0]
@@ -306,7 +308,7 @@ def main():
         # measurement rather than to when someone happened to regenerate it
         d2 = prepare_phy.publish_topology_draft(got, sd, stamp)
         check("draft carries the survey's stamp", os.path.basename(d2),
-              "draft-3620E8D-2026-10-07_23-37-23.json")
+              "draft-3620E8D-2026-10-07_23-37-23.jsonc")
         # unfiltered, the newest of ALL surveys wins
         _, any_stamp = prepare_phy.newest_profile(sd)
         check("unfiltered takes the newest of all", any_stamp, "2026-10-08_09-00-00")
