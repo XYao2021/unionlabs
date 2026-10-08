@@ -79,6 +79,7 @@ def check(flag, argv, get, want, needs_pyphy=False):
 # ── the USRP link: every knob must land in the sdr_system config ────────────
 print("\n  USRP link  (--role tx, the real-radio path)")
 L = lambda a: R.build_link(a, "tx")                     # noqa: E731
+_AP_NOOP = object()                                     # apply_quiet_phy reads only `a`
 check("--modulation",   ["--modulation", "16-QAM"],       lambda a: L(a).cfg["scheme"],        "16-QAM")
 check("--scheme",       ["--scheme", "8-PSK"],            lambda a: L(a).cfg["scheme"],        "8-PSK")
 check("--fec ldpc",     ["--fec", "ldpc"],                lambda a: (L(a).cfg["fec"], L(a).cfg.get("fec_type")), (True, "ldpc"))
@@ -96,6 +97,17 @@ check("--ack-port",     ["--ack-port", "5610"],           lambda a: L(a).cfg["ac
 check("--tx-gain",      ["--tx-gain", "61"],              lambda a: L(a).tx_gain,              61.0)
 check("--rx-gain",      ["--rx-gain", "22"],              lambda a: L(a).rx_gain,              22.0)
 check("--ack-transport",["--ack-transport", "rf"],        lambda a: L(a).cfg["ack_transport"], "rf")
+# --quiet-phy is a C++ modem option, so it travels as --usrp-set does. It was added to
+# main.cpp but never to sdr.py's registry, which is generated from `sdr_system --help`
+# -- so the flag existed, radio.sh could pass it (it calls the binary directly), and
+# from here _usrp_extra refused it as an unknown key. Rebuilding regenerated the
+# registry; this is the check that the whole chain stays joined up.
+check("--quiet-phy",    ["--quiet-phy", "--channel", "usrp", "--usrp-backend", "radio"],
+      lambda a: (R.apply_quiet_phy(_AP_NOOP, a), L(a).cfg.get("quiet_phy"))[1], True)
+# ...and it must NOT be injected on the in-process backend, which refuses --usrp-set
+# outright: asking for quieter logs would stop the run from starting at all.
+check("--quiet-phy (pyphy)", ["--quiet-phy", "--channel", "usrp"],
+      lambda a: (R.apply_quiet_phy(_AP_NOOP, a), L(a).cfg.get("quiet_phy"))[1], None)
 check("--ack-timeout",  ["--ack-timeout", "1234"],        lambda a: L(a).cfg["timeout"],       1234)
 check("--max-attempts", ["--max-attempts", "7"],          lambda a: L(a).max_attempts,         7)
 check("--arq",          ["--arq", "stop-and-wait"],       lambda a: L(a).arq,                  "stop-and-wait")

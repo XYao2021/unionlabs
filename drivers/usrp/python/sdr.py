@@ -29,6 +29,7 @@ OPTIONS = {
     "ack-host": (True, '127.0.0.1', "TCP ACK: host/IP of the sink that the source connects to (default localhost)"),
     "ack-port": (True, '5599', "TCP ACK: socket port"),
     "skip-rate-check": (True, '0', "bypass the startup rate-chain consistency check (run even if rates mismatch)"),
+    "quiet-phy": (True, '0', "silence the per-block pipeline chatter ([MODULATION] [DEMODULATION] [FILTER] [DETECTOR] [AGC] [DIFF_ENCODE] [PSD] -- one or more lines per block per stage, saying only that a block passed through). Diagnosis is never silenced: [ACQ], CRC, ARQ progress, clip guard, RX timeouts, [BER], [ERROR] and [WARNING] always print"),
     "viz": (True, '1', "capture TX/RX signals and auto-save the plot to <viz-dir>/<scheme>/figure.png (default true; --viz false disables)"),
     "viz-dir": (True, 'results/phy_outputs', "base directory for --viz output, relative to the working directory (a per-modulation subfolder is made). Defaults under results/ so a run does not scatter output across the repo root."),
     "timeout": (True, '3000', "ACK timeout in ms (source)"),
@@ -144,6 +145,7 @@ PY2CPP = {
     "ack_host": "ack-host",
     "ack_port": "ack-port",
     "skip_rate_check": "skip-rate-check",
+    "quiet_phy": "quiet-phy",
     "viz": "viz",
     "viz_dir": "viz-dir",
     "timeout": "timeout",
@@ -271,6 +273,7 @@ class SDR:
                  ack_host=_UNSET, # =127.0.0.1  TCP ACK: host/IP of the sink that the source connects to...
                  ack_port=_UNSET, # =5599  TCP ACK: socket port
                  skip_rate_check=_UNSET, # =0  bypass the startup rate-chain consistency check (run even...
+                 quiet_phy=_UNSET, # =0  silence the per-block pipeline chatter ([MODULATION]...
                  viz=_UNSET, # =1  capture TX/RX signals and auto-save the plot to <viz-...
                  viz_dir=_UNSET, # =results/phy_outputs  base directory for --viz output, relative to the working...
                  timeout=_UNSET, # =3000  ACK timeout in ms (source)
@@ -386,6 +389,7 @@ class SDR:
             ack_host=ack_host,
             ack_port=ack_port,
             skip_rate_check=skip_rate_check,
+            quiet_phy=quiet_phy,
             viz=viz,
             viz_dir=viz_dir,
             timeout=timeout,

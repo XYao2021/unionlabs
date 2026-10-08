@@ -336,6 +336,37 @@ def check_freq_units(a):
                      f"(radio.sh is the one that takes Hz). Use {flag} {v / 1e6:g}.")
 
 
+def apply_quiet_phy(ap, a):
+    """--quiet-phy silences the C++ modem's per-block chatter.
+
+    It reaches the modem the way every modem option does, through --usrp-set, which
+    is why this is four lines rather than a new plumbing path. But it is injected ONLY
+    where the modem process actually runs: the in-process pyphy backend REFUSES
+    --usrp-set outright (rightly -- an option that cannot arrive must not look
+    applied), so injecting it there would turn "I asked for quieter logs" into "the
+    run will not start", which is the shape of a bug this file has already paid for
+    once with det_mult.
+
+    On that backend the chatter does not exist in the first place: pyphy calls the DSP
+    blocks directly and never enters the pipeline loops those prints live in. So there
+    is nothing to silence, and saying so is more useful than silently doing nothing.
+    """
+    if not getattr(a, "quiet_phy", False):
+        return
+    kind = CHANNEL_ALIASES.get(a.channel, a.channel)
+    if kind != "usrp" or getattr(a, "usrp_backend", None) != "radio":
+        print(f"[run_algo] --quiet-phy does nothing on this run: the per-block chatter "
+              f"comes from the C++ modem PROCESS, which runs under --channel usrp "
+              f"--usrp-backend radio (or radio.sh). This run is "
+              f"{kind}/{getattr(a, 'usrp_backend', None) or 'n/a'}, where those lines "
+              f"are never printed — use --no-phy-features for the [PHY-FEAT] lines.")
+        return
+    named = {kv.split("=", 1)[0].strip().replace("-", "_")
+             for kv in (getattr(a, "usrp_set", []) or []) if "=" in kv}
+    if "quiet_phy" not in named:            # an explicit --usrp-set wins, as always
+        a.usrp_set = list(getattr(a, "usrp_set", []) or []) + ["quiet_phy=true"]
+
+
 def warn_rf_ack_one_carrier(a):
     """An RF acknowledgement needs TWO carriers. One radio transmitting and receiving
     at the same frequency swamps its own receiver -- the ACK path hears the data burst
@@ -1338,6 +1369,12 @@ def build_parser():
                     help="centre frequency in MHz (default 915). Both PHYs use it, and "
                          "both directions, unless --rx-freq/--tx-freq split them. The "
                          "US ISM band is 902-928 MHz and a value outside it is flagged.")
+    ap.add_argument("--quiet-phy", action="store_true",
+                    help="silence the C++ modem's per-block chatter ([FILTER], "
+                         "[MODULATION], [DEMODULATION], [AGC], [DETECTOR] — one or more "
+                         "lines per block per stage). Diagnosis still prints: [ACQ], "
+                         "CRC, ARQ progress, clip guard, RX timeouts, [BER], [ERROR]. "
+                         "Only the radio backend runs the process that prints them.")
     ap.add_argument("--rx-freq", type=float, default=None, metavar="MHz",
                     help="carrier to RECEIVE on, when it differs from --freq. With an "
                          "RF acknowledgement the two directions use different "
@@ -1488,6 +1525,7 @@ def main():
     # A peer named with @ is resolved through the shared workspace before anything
     # tries to dial it, then we say how another machine reaches US.
     check_freq_units(a)
+    apply_quiet_phy(ap, a)
     warn_rf_ack_one_carrier(a)
     resolve_peer_hosts(a)
     announce_ports(a)

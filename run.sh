@@ -110,14 +110,15 @@
 # appear when the real modem process runs -- radio.sh, or --usrp-backend radio -- and
 # do NOT appear under the default in-process pyphy backend, which calls the DSP blocks
 # directly and never enters the pipeline loops those prints live in.
-#   ./radio.sh rx ... --quiet-phy      silence the per-block chatter
+#   ./radio.sh rx ... --quiet-phy                         silence the chatter
+#   ./run.sh --channel usrp --usrp-backend radio ... --quiet-phy      same, from here
 # --quiet-phy silences CHATTER only ([FILTER]/[MODULATION]/[DEMODULATION]/[AGC]/
 # [DETECTOR] block-and-FIFO lines); DIAGNOSIS always prints ([ACQ] peaks, [CRC],
 # [SOURCE]/[SINK] ARQ, [USRP TX/RX] warnings, [ERROR], [BER]), because a switch that
-# can hide an error is worse than a noisy log. It reaches the modem through radio.sh,
-# which invokes the binary directly; it is NOT yet wired into sdr.py's option table,
-# so --usrp-set quiet_phy=true does not work from here. Use [PHY-FEAT] above for the
-# numbers on the radio-free path. (For the record
+# can hide an error is worse than a noisy log. Only the radio backend starts the
+# process that prints them, so on any other backend the flag says it does nothing
+# rather than appearing to work. Use [PHY-FEAT] above for the numbers on the
+# radio-free path. (For the record
 # there is no [SYNC] tag -- sync logs under [ACQ], [TimingRecovery], [CFO_thread],
 # [PhaseEstimator] -- and demodulation is [DEMODULATION], not [DEMOD].)
 #
