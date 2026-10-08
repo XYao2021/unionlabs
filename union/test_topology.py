@@ -435,6 +435,59 @@ check("single carrier reaches the modem",
       lambda: parse(["--topology", modem, "--node", "snk"], algo="echo")[0].waveform,
       "sc")
 
+# ── // comments, so a topology can explain itself above the JSON ─────────────
+# JSON has no comments and this schema refuses unknown keys, so explanation had
+# nowhere to live but inside the data -- `note` fields holding paragraphs, which is
+# what made a generated file read as generated output rather than as a topology.
+def wrote_raw(name, text):
+    q = os.path.join(TMP, name + ".json")
+    with open(q, "w") as fh:
+        fh.write(text)
+    return q
+
+
+commented = wrote_raw("commented", """// a header above the file
+// explaining what it is
+{
+  "schema": 1, "name": "commented", "algo": "echo",   // trailing comments too
+  "defaults": { "channel": "usrp" },
+  "nodes": [
+    { "id": "a", "role": "client", "host": "127.0.0.1" },
+    { "id": "b", "role": "server", "ports": { "net": 5700 } }
+  ],
+  "links": [ { "from": "a", "to": "b" } ]
+}
+""")
+check("a commented topology loads", lambda: len(tp.load(commented).nodes), 2)
+check("...and a trailing comment does not eat the line",
+      lambda: tp.load(commented).algo, "echo")
+
+# a // INSIDE a value must survive: cutting at the first // anywhere would eat a
+# URL or a UNC path, and the result would usually still parse -- silent corruption
+slashes = wrote_raw("slashes", """// header
+{ "schema": 1, "name": "slashes", "algo": "echo",
+  "description": "see http://example.com//docs for why",
+  "nodes": [ { "id": "a", "role": "client", "host": "127.0.0.1" },
+             { "id": "b", "role": "server", "ports": { "net": 5700 } } ],
+  "links": [ { "from": "a", "to": "b" } ] }
+""")
+check("// inside a value survives",
+      lambda: tp.load(slashes).description, "see http://example.com//docs for why")
+
+# a JSON error must still name the line the file actually has, so comment lines are
+# blanked rather than deleted
+broken = wrote_raw("broken", """// one
+// two
+{ "schema": 1, "name": "broken",
+  "nodes": [ { "id": "a" ]
+""")
+refuses("a comment header keeps line numbers", ["--topology", broken, "--node", "a"],
+        "line 4", algo="echo")
+
+# the shipped TEMPLATE is a real topology, header and all
+check("TEMPLATE parses with its header",
+      lambda: [nd.id for nd in tp.load("TEMPLATE").nodes], ["src", "snk"])
+
 # ── a DRAFT lives in topologies/ but must not RUN ────────────────────────────
 # prepare.sh writes one at the end of a survey with the far end left as a placeholder.
 # It belongs with every other topology so it is found by name; what stops it being a

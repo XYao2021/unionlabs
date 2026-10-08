@@ -1,9 +1,35 @@
+// -----------------------------------------------------------------------
+//  TEMPLATE — copy this, rename it, replace both REPLACE_ME serials.
+//  A two-node radio pair: data over the air, ACK back over TCP.
+//
+//  NOT RUNNABLE AS IT STANDS. A run refuses a file with a REPLACE_ME in it,
+//  and ./run.sh topologies marks it DRAFT, so it cannot start by accident.
+//
+//  FILL IN
+//    1. Both serials — `uhd_find_devices` on each box. Prefer serial over
+//       addr: 192.168.40.2 is UHD's default for an X310, so two machines
+//       answer to it and both containers would claim the same node.
+//    2. freq_mhz — `python3 union/phy_profile.py --common` after
+//       prepare.sh lists the spectrum every surveyed radio can use. Give
+//       SEVERAL, best first: the survey picks the first it still measures
+//       as usable, so the file does not go stale.
+//    3. subdev / ant must match what prepare.sh surveyed, or the
+//       measurement is filed where nothing looks for it.
+//
+//  After prepare.sh you do not need this file at all: the survey writes a
+//  draft with the receive side already filled in. See
+//  ./prepare.sh --topology-only.
+//
+//  For an ACK over the air: set down to wireless and give each node a
+//  second RF block on a DIFFERENT subdev with its own carrier pool. An RF
+//  ACK is the second RF path; one subdev doing both means the transmitter
+//  swamps its own receiver.
+// -----------------------------------------------------------------------
 {
   "schema": 1,
   "name": "TEMPLATE",
   "algo": "echo",
-  "description": "Copy this, rename it, replace every REPLACE_ME. A two-node radio pair: data over the air, ACK back over TCP. Not runnable as it stands — the serials are placeholders.",
-  "note": "NOT RUNNABLE UNTIL THE SERIALS ARE REPLACED. FILL IN: (1) the two serials, from `uhd_find_devices` on each box. (2) freq_mhz candidates, from `python3 union/phy_profile.py --common` after prepare.sh — list several, best first; the survey picks the first one it measured as usable, so this file does not go stale. (3) subdev/ant must match what prepare.sh surveyed, or the measurement is filed where nothing looks for it. Then: ./run.sh topologies <name> to check it, --print-plan to see what resolved, ./run.sh --algo echo --topology <name> --node snk (receiver first).",
+  "description": "Starting point for a two-node radio pair: data over the air, ACK over TCP.",
   "defaults": {
     "channel": "usrp",
     "scheme": "QPSK",
@@ -19,42 +45,22 @@
     {
       "id": "src",
       "role": "tx",
-      "note": "transmits only. Its carrier resolves from the RECEIVER's survey — a transmitter is never surveyed, because its own noise says nothing about what the far end hears.",
       "radio": {
         "device": "x310",
         "serial": "REPLACE_ME_SOURCE_SERIAL",
-        "tx": {
-          "ant": "TX/RX",
-          "subdev": "A:0",
-          "gain": 25,
-          "freq_mhz": [
-            2404.5,
-            2422.5,
-            2440.5
-          ]
-        }
+        "tx": { "ant": "TX/RX", "subdev": "A:0", "gain": 25,
+                "freq_mhz": [2404.5, 2422.5, 2440.5] }
       }
     },
     {
       "id": "snk",
       "role": "rx",
-      "note": "receives and ACKs over TCP. ports.ack is the socket it BINDS; the source dials it. Run prepare.sh against THIS radio.",
-      "ports": {
-        "ack": 5599
-      },
+      "ports": { "ack": 5599 },
       "radio": {
         "device": "x310",
         "serial": "REPLACE_ME_SINK_SERIAL",
-        "rx": {
-          "ant": "RX2",
-          "subdev": "A:0",
-          "gain": 20,
-          "freq_mhz": [
-            2404.5,
-            2422.5,
-            2440.5
-          ]
-        }
+        "rx": { "ant": "RX2", "subdev": "A:0", "gain": 20,
+                "freq_mhz": [2404.5, 2422.5, 2440.5] }
       }
     }
   ],
@@ -62,11 +68,7 @@
     {
       "from": "src",
       "to": "snk",
-      "medium": {
-        "up": "wireless",
-        "down": "tcp"
-      },
-      "note": "For an ACK over the air instead, set down to wireless and give EACH node a second RF block on a DIFFERENT subdev and its own carrier pool (data [2404.5, 2422.5], ack [2440.5, 2422.5]). An RF ACK is the second RF path — same subdev for both directions means the transmitter swamps its own receiver."
+      "medium": { "up": "wireless", "down": "tcp" }
     }
   ]
 }

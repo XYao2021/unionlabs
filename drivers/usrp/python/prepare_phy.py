@@ -420,29 +420,55 @@ def publish_topology_draft(profile, d, stamp):
                          "for a topology to choose between")
 
     tx_subdev, tx_gain = _TX_DEFAULTS.get(device, ("A:0", 25))
-    placeholder = ("sync_threshold is a PLACEHOLDER until a link is actually run "
-                   "(nothing triggered the detector during a receive-only survey) — "
-                   "watch the [ACQ] Peak correlation lines and set it below the true "
-                   "peak but above the noise."
-                   if profile.get("sync_threshold_measured") is False else
-                   "sync_threshold was measured against a real burst.")
+    # ── the header: what the survey found, above the file rather than inside it ──
+    # The explanation used to live in `note` fields holding paragraphs, which is what
+    # made the file read as generated output rather than as a topology. Comments keep
+    # the body clean and put the carriers where someone opening the file looks first.
+    W = 74
+    H = ["// " + "-" * (W - 3),
+         f"//  draft-{id_val}-{stamp}",
+         f"//  Written by prepare.sh from the survey of {device} {args}",
+         f"//  on {radio.get('subdev')} / {radio.get('ant')}, band "
+         f"{radio.get('band')}, measured {stamp}.",
+         "//",
+         "//  CARRIERS THE SURVEY MEASURED AS USABLE   (freq_mhz below, best first)"]
+    for o in order:
+        c = o.get("carrier_mhz")
+        if c is None:
+            continue
+        bw = o.get("band_mhz") or []
+        where = f"clear {bw[0]:g}-{bw[1]:g} MHz" if len(bw) == 2 else "clear"
+        wide = o.get("width_mhz")
+        H.append(f"//      {c:>9.5g} MHz   {where}"
+                 + (f"   ({wide:g} MHz wide)" if wide else ""))
+    H += ["//  Listed as candidates, not pinned: the survey picks the first one it",
+          "//  still measures as usable, so this file does not go stale.",
+          "//",
+          "//  TO FINISH",
+          "//    1. Replace REPLACE_ME_SOURCE_ID with the far radio's serial",
+          "//       (uhd_find_devices on that box).",
+          "//    2. The transmit side below is radio.sh's default for this device,",
+          "//       NOT a measurement -- a receive-only survey sees nothing about",
+          "//       transmitting. Check ant / subdev / gain against the rig."]
+    if profile.get("sync_threshold_measured") is False:
+        H += ["//    3. sync_threshold is a PLACEHOLDER: nothing triggered the",
+              "//       detector during a receive-only survey. Watch the [ACQ] Peak",
+              "//       correlation lines and set it below the true peak but above",
+              "//       the noise."]
+    H += ["//",
+          "//  The receive side is from the survey and should not need editing.",
+          "//  For an ACK over the air: set the link's down medium to wireless and",
+          "//  give each node a second RF block on a DIFFERENT subdev with its own",
+          "//  carrier pool -- one subdev doing both means the transmitter swamps",
+          "//  its own receiver.",
+          "// " + "-" * (W - 3)]
 
     draft = {
         "schema": 1,
         "name": f"draft-{id_val}-{stamp}",
         "algo": "echo",
-        "description": (f"Draft written by prepare.sh from the {stamp} survey of "
-                        f"{device} {id_val}. Replace REPLACE_ME_SOURCE_ID, then run."),
-        "note": ("GENERATED, NOT RUNNABLE YET. (1) Replace REPLACE_ME_SOURCE_ID with "
-                 "the far radio's serial — `uhd_find_devices` on that box. (2) Check "
-                 "the transmit side: subdev/ant/gain there are this wrapper's defaults "
-                 "for the device, NOT measurements, because a receive-only survey sees "
-                 "nothing about transmitting. (3) freq_mhz is a candidate list, "
-                 "recommended first; the survey picks the first one it measured as "
-                 f"usable, so this file does not go stale. {placeholder} "
-                 "The receive side is filled in from the survey and should not need "
-                 "editing. Run it by path, or copy it into "
-                 "/workspace/experiments/topologies/ and name it there."),
+        "description": (f"{device} pair from the {stamp} survey of {id_val}: data "
+                        f"over the air, ACK over TCP."),
         "defaults": {
             "channel": "usrp",
             "scheme": "QPSK",
@@ -454,13 +480,10 @@ def publish_topology_draft(profile, d, stamp):
         },
         "nodes": [
             {"id": "src", "role": "tx",
-             "note": "the far end. Its carrier resolves from THIS survey, because the "
-                     "receiver is the end that has to hear it.",
              "radio": {"device": device, "serial": "REPLACE_ME_SOURCE_ID",
                        "tx": {"ant": "TX/RX", "subdev": tx_subdev, "gain": tx_gain,
                               "freq_mhz": cands}}},
             {"id": "snk", "role": "rx",
-             "note": f"the surveyed radio. Measured {stamp}.",
              "ports": {"ack": 5599},
              "radio": {"device": device, id_key: id_val,
                        "rx": {"ant": radio.get("ant"), "subdev": radio.get("subdev"),
@@ -468,12 +491,7 @@ def publish_topology_draft(profile, d, stamp):
         ],
         "links": [
             {"from": "src", "to": "snk",
-             "medium": {"up": "wireless", "down": "tcp"},
-             "note": "data over the air, ACK over TCP. For an ACK over the air, set "
-                     "down to wireless and give each node a second RF block on a "
-                     "DIFFERENT subdev with its own carrier pool — an RF ACK is the "
-                     "second RF path, and one subdev doing both means the transmitter "
-                     "swamps its own receiver."},
+             "medium": {"up": "wireless", "down": "tcp"}},
         ],
     }
     # the detector values the survey derived, where a topology can now state them
@@ -488,6 +506,7 @@ def publish_topology_draft(profile, d, stamp):
     path = os.path.join(out, f"draft-{id_val}-{stamp}.json")
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:
+        fh.write("\n".join(H) + "\n")
         json.dump(draft, fh, indent=2)
         fh.flush()
         os.fsync(fh.fileno())

@@ -536,6 +536,44 @@ def looks_like_file(name):
     return not EDGE_LIST.match(t)
 
 
+def strip_comments(text):
+    """Drop // comment lines, so a topology can carry a header explaining itself.
+
+    JSON has no comments and this schema refuses unknown keys, so the only place
+    explanation could previously live was inside the data -- `note` fields holding
+    paragraphs, which is what made a generated file read as a generated file rather
+    than as a topology. A header above the JSON keeps the body clean.
+
+    Both a whole line and a trailing comment work, because anyone given a file with a
+    // header will reasonably try // beside a value too, and a rule that silently
+    refuses half of what it looks like it supports is worse than no rule.
+
+    STRING-AWARE, which is the only part that needs care: a // inside a value -- a
+    URL, a UNC path -- must survive, and cutting at the first // anywhere would eat it
+    and usually still parse, so the corruption would be silent. This tracks quoting
+    (and backslash escapes) and cuts only outside a string.
+
+    Lines are blanked rather than removed so a JSON error still reports the line
+    number the file on disk actually has.
+    """
+    out = []
+    for line in text.splitlines():
+        in_str = esc = False
+        cut = None
+        for i, c in enumerate(line):
+            if esc:
+                esc = False
+            elif in_str and c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = not in_str
+            elif not in_str and c == "/" and line[i + 1:i + 2] == "/":
+                cut = i
+                break
+        out.append(line if cut is None else line[:cut].rstrip())
+    return "\n".join(out)
+
+
 def load(name):
     path = resolve(name)
     if path is None:
@@ -543,10 +581,11 @@ def load(name):
             f"no topology {name!r} — looked in {', '.join(search_path())}. "
             f"Built-in graphs are ring and full, or give an edge list like 0-1,1-2.")
     with open(path) as fh:
-        try:
-            raw = json.load(fh)
-        except ValueError as e:
-            raise TopologyError(f"{path}: not valid JSON — {e}")
+        text = fh.read()
+    try:
+        raw = json.loads(strip_comments(text))
+    except ValueError as e:
+        raise TopologyError(f"{path}: not valid JSON — {e}")
     return Topology(raw, path=path)
 
 

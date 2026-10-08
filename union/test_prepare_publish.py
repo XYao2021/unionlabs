@@ -139,17 +139,28 @@ def main():
         tdir = os.path.join(d, "topologies")
         os.makedirs(tdir, exist_ok=True)
         os.environ["UNION_TOPOLOGY_DIR"] = tdir
+        # topology.py's stripper, because the draft carries a // header now: the
+        # explanation lives above the JSON so the body reads like a topology, and a
+        # test that parses it with plain json.load is testing the wrong contract.
+        sys.path.insert(0, os.path.join(REPO, "union"))
+        import topology as tp
+
+        def read_draft(path):
+            with open(path) as fh:
+                text = fh.read()
+            return text, json.loads(tp.strip_comments(text))
+
         dpath = prepare_phy.publish_topology_draft(full, d, "2026-10-08_00-00-00")
+        header, draft = read_draft(dpath)
         check("draft lands in topologies/, with every other topology",
               os.path.dirname(dpath), tdir)
-        draft = json.load(open(dpath))
         check("draft is named by radio and time",
               os.path.basename(dpath),
               "draft-327D82F-2026-10-08_00-00-00.json")
         # the name INSIDE must match the filename, or the lister shows two entries
         # with one label and the shadowing report becomes nonsense
         check("inner name matches the filename",
-              json.load(open(dpath))["name"],
+              draft["name"],
               os.path.basename(dpath)[:-len(".json")])
 
         snk = [n for n in draft["nodes"] if n["id"] == "snk"][0]
@@ -171,8 +182,19 @@ def main():
         check("det_mult reaches defaults", draft["defaults"].get("det_mult"), 30.0)
         check("sync_threshold reaches defaults",
               draft["defaults"].get("sync_threshold"), 15)
-        check("an unmeasured threshold says so",
-              "PLACEHOLDER" in draft["note"], True)
+        # the header carries the survey's findings, which is what someone opening
+        # the file reads first -- and the body stays free of prose
+        check("header lists every measured carrier",
+              all(f"{c:g} MHz" in header for c in (2404.5, 2422.5, 2440.5)), True)
+        check("header shows the window each sits in",
+              "clear 2421-2424 MHz" in header, True)
+        check("an unmeasured threshold says so in the header",
+              "PLACEHOLDER" in header, True)
+        check("the body carries no prose notes",
+              [k for k in ("note",) if k in draft]
+              + [k for nd in draft["nodes"] for k in ("note",) if k in nd], [])
+        check("the header is comments, so the body is plain JSON",
+              header.lstrip().startswith("//"), True)
         # only the far end is left to a person
         check("the transmitter is a placeholder",
               src["radio"].get("serial"), "REPLACE_ME_SOURCE_ID")
@@ -189,8 +211,6 @@ def main():
               placeholders(draft), [".nodes.radio.serial"])
 
         # IT MUST LOAD. Round-trip through the real loader with the placeholder filled.
-        sys.path.insert(0, os.path.join(REPO, "union"))
-        import topology as tp
         ready = os.path.join(d, "ready.json")
         with open(ready, "w") as fh:
             fh.write(json.dumps(draft).replace("REPLACE_ME_SOURCE_ID", "F5B2C30"))
@@ -211,8 +231,8 @@ def main():
 
         # an addr-only radio keeps its address rather than inventing a serial
         byaddr = dict(full, radio=dict(full["radio"], args="addr=192.168.40.2"))
-        da = json.load(open(prepare_phy.publish_topology_draft(
-            byaddr, d, "2026-10-08_01-00-00")))
+        _, da = read_draft(prepare_phy.publish_topology_draft(
+            byaddr, d, "2026-10-08_01-00-00"))
         sa = [n for n in da["nodes"] if n["id"] == "snk"][0]
         check("addr radio keeps addr", sa["radio"].get("addr"), "192.168.40.2")
         check("...and no serial key is faked", "serial" in sa["radio"], False)
