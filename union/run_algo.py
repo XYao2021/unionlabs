@@ -228,7 +228,36 @@ def _check_keys(pairs, known, phy, hint):
 US_ISM_MHZ = (902.0, 928.0)         # the band both radios are licensed to use here
 
 
-def check_band(freq_mhz, kind):
+def rx_mhz(a):
+    """The carrier this node receives on: its own if one was given, else the common one."""
+    v = getattr(a, "rx_freq", None)
+    return a.freq if v is None else v
+
+
+def tx_mhz(a):
+    """...and the one it transmits on. Equal to rx_mhz in every single-carrier run."""
+    v = getattr(a, "tx_freq", None)
+    return a.freq if v is None else v
+
+
+def check_freq_units(a):
+    """These flags are MHz here and Hz in radio.sh, under the SAME names.
+
+    radio.sh passes --rx-freq straight to the C++ modem, which wants Hz: every worked
+    example in COMMANDS_RUN and docs/ reads --rx-freq 2400e6. Typing that at run.sh
+    would ask for 2.4 billion MHz, and a carrier that absurd is not a choice anyone
+    made -- UHD would refuse it much later, naming a tune failure rather than a unit.
+    So refuse it here, where the number is still recognisable as the Hz someone meant.
+    """
+    for flag, dest in (("--freq", "freq"), ("--rx-freq", "rx_freq"),
+                       ("--tx-freq", "tx_freq")):
+        v = getattr(a, dest, None)
+        if v is not None and v >= 1e6:
+            sys.exit(f"{flag} {v:g} looks like Hz, but run.sh takes MHz "
+                     f"(radio.sh is the one that takes Hz). Use {flag} {v / 1e6:g}.")
+
+
+def check_band(freq_mhz, kind, flag="--freq"):
     """The carrier is the experimenter's to choose, but not every choice is legal where
     the hardware lives. Warn rather than refuse: EU868 boards and other-region setups are
     real, and this is a research testbed, not a certification tool."""
@@ -236,7 +265,7 @@ def check_band(freq_mhz, kind):
     if lo <= freq_mhz <= hi:
         return
     where = {868.0: "EU 863-870", 433.0: "EU/Asia 433"}.get(round(freq_mhz), None)
-    print(f"[run_algo] WARNING: --freq {freq_mhz:g} MHz is OUTSIDE the US ISM band "
+    print(f"[run_algo] WARNING: {flag} {freq_mhz:g} MHz is OUTSIDE the US ISM band "
           f"({lo:g}-{hi:g} MHz)"
           + (f" — that is the {where} band" if where else "")
           + f". Legal only with the right hardware and region; a US {kind} radio should "
@@ -357,7 +386,9 @@ def _radio_link(a, transport):
                              tx_ant=a.tx_ant, rx_ant=a.rx_ant,
                              extra_cfg=_usrp_extra(a),
                              down_host=a.down_host, down_port=a.down_port,
-                             freq_hz=a.freq * 1e6, samp_rate=a.samp_rate,
+                             freq_hz=a.freq * 1e6,
+                             rx_freq_hz=rx_mhz(a) * 1e6, tx_freq_hz=tx_mhz(a) * 1e6,
+                             samp_rate=a.samp_rate,
                              symbol_rate=a.symbol_rate, fec=a.fec,
                              tx_gain=a.tx_gain, rx_gain=a.rx_gain,
                              ack_transport=a.ack_transport, ack_timeout_ms=a.ack_timeout,
@@ -997,6 +1028,31 @@ def apply_topology(ap, a):
             _set(ap, a, "rx_ant", nd.side("rx", "ant"))
             _set(ap, a, "rx_subdev", nd.side("rx", "subdev"))
             _set(ap, a, "rx_gain", nd.side("rx", "gain"))
+        # Per DIRECTION, because an RF ACK returns on its own carrier and the file
+        # says so per side. These used to collapse into one `freq` as
+        #     freq = tx.freq_mhz or rx.freq_mhz
+        # which silently discarded the other side: echo-pair-wireless declares data at
+        # 915 and ACK at 925, and resolved to the source transmitting at 915 while the
+        # sink listened at 925. Nothing is received and nothing says why -- the two
+        # numbers are both in the file, both correct, and only one of them arrived.
+        rx_side, tx_side = nd.side("rx", "freq_mhz"), nd.side("tx", "freq_mhz")
+        # A TYPED --freq means "this carrier, here" and has to reach BOTH directions,
+        # so it suppresses the file's per-side numbers rather than landing in a third
+        # dest that leaves one side on the file's value. Without this, --freq on a
+        # topology run moved only the transmit side and the node tuned its two
+        # directions to two different experimenters' intentions.
+        if _typed(ap, a, "freq"):
+            if rx_side and tx_side and rx_side != tx_side:
+                print(f"[run_algo] WARNING: {topo.name} gives this node a carrier per "
+                      f"direction (rx {rx_side:g} / tx {tx_side:g}), but --freq "
+                      f"{a.freq:g} was typed and applies to both — which collapses the "
+                      f"split an RF acknowledgement depends on. Use --rx-freq/--tx-freq "
+                      f"to move one side only.")
+        else:
+            _set(ap, a, "rx_freq", rx_side)
+            _set(ap, a, "tx_freq", tx_side)
+        # and the common carrier, for everything that asks for one number: a one-way
+        # link, a TCP ACK, the band check, the simulated PHYs.
         freq = nd.side("tx", "freq_mhz") or nd.side("rx", "freq_mhz")
         _set(ap, a, "freq", freq)
         # a run that really drives a USRP should say so, so the band check and the
@@ -1031,13 +1087,20 @@ def print_plan(a, topo):
               ("net", None if peer else f"{a.net_host}:{a.net_port}"),
               ("hop in", getattr(a, "up_medium", None)),
               ("hop out", getattr(a, "down_medium", None)),
-              ("ack", f"{a.ack_host}:{a.ack_port}" if radio else None),
+              # an RF acknowledgement opens no socket, so printing a host:port for it
+              # names a thing that does not exist and hides the thing that does
+              ("ack", (("rf — no socket, returns on the rx carrier"
+                        if getattr(a, "ack_transport", None) == "rf"
+                        else f"{a.ack_host}:{a.ack_port}") if radio else None)),
               ("down", f"{a.down_host}:{a.down_port}" if a.down_host else None),
-              ("clients", a.clients), ("freq-MHz", a.freq if radio else None),
+              ("clients", a.clients),
+              ("freq-MHz", (f"{a.freq:g}" if rx_mhz(a) == tx_mhz(a)
+                            else f"rx {rx_mhz(a):g}  tx {tx_mhz(a):g}  (split)")
+                           if radio else None),
               ("tx", f"{a.tx_args} ant={a.tx_ant} subdev={a.tx_subdev} "
-                     f"gain={a.tx_gain}" if a.tx_args else None),
+                     f"gain={a.tx_gain} freq={tx_mhz(a):g}MHz" if a.tx_args else None),
               ("rx", f"{a.rx_args} ant={a.rx_ant} subdev={a.rx_subdev} "
-                     f"gain={a.rx_gain}" if a.rx_args else None)]
+                     f"gain={a.rx_gain} freq={rx_mhz(a):g}MHz" if a.rx_args else None)]
     for k, v in fields:
         if v is not None:
             print(f"    {k:<10} {v}")
@@ -1136,8 +1199,18 @@ def build_parser():
                     help="use the profile filed under this key instead of the "
                          "one for this node (see prepare_phy --node).")
     ap.add_argument("--freq", type=float, default=915.0, metavar="MHz",
-                    help="centre frequency in MHz (default 915). Both PHYs use it. The "
+                    help="centre frequency in MHz (default 915). Both PHYs use it, and "
+                         "both directions, unless --rx-freq/--tx-freq split them. The "
                          "US ISM band is 902-928 MHz and a value outside it is flagged.")
+    ap.add_argument("--rx-freq", type=float, default=None, metavar="MHz",
+                    help="carrier to RECEIVE on, when it differs from --freq. With an "
+                         "RF acknowledgement the two directions use different "
+                         "frequencies: on the source this is where the ACK arrives, on "
+                         "the sink it is where the data arrives.")
+    ap.add_argument("--tx-freq", type=float, default=None, metavar="MHz",
+                    help="carrier to TRANSMIT on, when it differs from --freq. On the "
+                         "source that is the data, on the sink the ACK. Must equal the "
+                         "other end's --rx-freq or neither side hears anything.")
     # ── USRP PHY knobs (--channel usrp; drivers/usrp). We assemble this PHY, so
     #    the waveform, the rates, the coding and the gains are all ours to choose. ──
     ap.add_argument("--tx-gain", type=float, default=70.0, help="USRP transmit gain, dB")
@@ -1278,6 +1351,7 @@ def main():
 
     # A peer named with @ is resolved through the shared workspace before anything
     # tries to dial it, then we say how another machine reaches US.
+    check_freq_units(a)
     resolve_peer_hosts(a)
     announce_ports(a)
     warn_unpinned_carrier(a, topo)
@@ -1302,7 +1376,19 @@ def main():
     warn_foreign_flags(a, ap, kind_sel)
     warn_simulation_only_flags(a, ap, kind_sel, a.role or "loopback")
     if kind_sel != "ideal" or a.node is not None or a.role in ("tx", "rx", "relay"):
-        check_band(a.freq, kind_sel if kind_sel != "ideal" else "usrp")
+        kind_band = kind_sel if kind_sel != "ideal" else "usrp"
+        # every carrier this node actually tunes -- an RF ACK on a second frequency is
+        # as subject to the band as the data is, and checking only the common one let
+        # half the link sit outside it unremarked
+        # name the flag the carrier actually came from: "--freq 2450 is outside the
+        # band" sends the reader to a flag they may not have typed when it was
+        # --rx-freq that put the ACK up there.
+        seen = {}
+        for mhz, flag in ((a.freq, "--freq"), (rx_mhz(a), "--rx-freq"),
+                          (tx_mhz(a), "--tx-freq")):
+            seen.setdefault(mhz, flag)
+        for mhz, flag in seen.items():
+            check_band(mhz, kind_band, flag)
 
     factory, how, mod = load_app_factory(a.algo)
     alias2t, t2alias = role_map(mod)

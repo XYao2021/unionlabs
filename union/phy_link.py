@@ -818,7 +818,8 @@ class RadioRoundTrip:
                  scheme="QPSK", waveform="sc",
                  tx_gain=70, rx_gain=30, rx_subdev="A:0", tx_subdev="A:A",
                  rx_ant="RX2", tx_ant="TX/RX", extra_cfg=None, chunk=125,
-                 down_host=None, down_port=None, freq_hz=915e6, samp_rate=2e6,
+                 down_host=None, down_port=None, freq_hz=915e6,
+                 rx_freq_hz=None, tx_freq_hz=None, samp_rate=2e6,
                  symbol_rate=1e6, fec="conv", ack_transport="tcp", ack_timeout_ms=3000,
                  max_attempts=50, arq="stop-and-wait"):
         # sdr.py lives in the USRP driver (union/ -> repo -> drivers/usrp/python)
@@ -841,8 +842,17 @@ class RadioRoundTrip:
         # family. So "" means off, and conv|ldpc|turbo means on with that code. ldpc and
         # turbo are soft-native, so they get soft decision as sdr.py recommends.
         fec_type = (fec or "").strip() or None
+        # TWO CARRIERS, not one. An RF acknowledgement comes back on its own
+        # frequency -- the radio is full duplex, RF A carries the data out and RF B
+        # carries the ACK in -- so a single freq_hz driving both sides cannot express
+        # the only ARQ setup that needs no network between the boxes. The source
+        # transmits data at one carrier and listens for the ACK at the other; the sink
+        # does the mirror image. freq_hz stays the default for both, which is the
+        # single-carrier case (TCP ACK, or a plain one-way link) unchanged.
+        rx_hz = float(freq_hz if rx_freq_hz is None else rx_freq_hz)
+        tx_hz = float(freq_hz if tx_freq_hz is None else tx_freq_hz)
         self.cfg = dict(scheme=scheme, waveform=waveform, fec=bool(fec_type),
-                        rx_freq=float(freq_hz), tx_freq=float(freq_hz),
+                        rx_freq=rx_hz, tx_freq=tx_hz,
                         tx_rate=float(samp_rate), rx_rate=float(samp_rate),
                         symbol_rate=float(symbol_rate), rx_ant=rx_ant, tx_ant=tx_ant,
                         rx_subdev=rx_subdev, tx_subdev=tx_subdev, det_mult=3,

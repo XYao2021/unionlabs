@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Which layer decides the carrier -- and does a topology still outrank a survey?
+"""Which layer decides the carrier, and does each DIRECTION get its own?
+
+Two separate failures, both of which end in a receiver that prints nothing.
 
 It stopped doing so, silently. run_algo documents, in three separate comments, the
 order
@@ -27,6 +29,23 @@ Worse, the guard against precisely this failure (warn_unpinned_carrier) stays qu
 when a topology is present, on the reasoning that the file speaks for both ends. The
 bug made that reasoning false, so the one warning that would have named the problem
 was switched off by the condition that caused it.
+
+SECOND: an RF acknowledgement comes back on its own frequency, and the two carriers
+collapsed into one. A topology states them per side -- echo-pair-wireless declares data
+at 915 and the ACK at 925 -- but run_algo reduced the node's radio block to
+
+    freq = nd.side("tx", "freq_mhz") or nd.side("rx", "freq_mhz")
+
+which keeps whichever side it saw first and discards the other, and phy_link then drove
+both rx_freq and tx_freq from that single number. So the source transmitted data at 915
+and listened for the ACK at 915, while the sink listened for data at 925 and sent the
+ACK at 925. Every number in the file was right; only one of them arrived. Both ends
+came up, tuned, and heard nothing -- and the ONE invariant that makes a link possible,
+
+    source tx == sink rx   and   sink tx == source rx
+
+held for neither direction. That invariant is what the mirror checks below assert,
+because it is the property a reader cannot verify by eye across two node blocks.
 
 This drives the REAL path -- run_algo end to end, with a profile on disk and a
 topology file -- because the bug lived in the seam between two layers that every
@@ -101,6 +120,16 @@ def carrier(out):
     return float(m.group(1)) if m else None
 
 
+def sides(out):
+    """The carrier each DIRECTION resolved to, read off the plan's tx/rx rows."""
+    got = {}
+    for side in ("tx", "rx"):
+        m = re.search(rf"^    {side}\s+.*freq=([0-9.]+)MHz", out, re.M)
+        if m:
+            got[side] = float(m.group(1))
+    return got
+
+
 def main():
     checked = failures = 0
 
@@ -163,6 +192,52 @@ def main():
         check("--no-phy-profile -> topology",
               carrier(plan(surveyed, *node, "--no-phy-profile")),
               float(TOPOLOGY_MHZ))
+
+        # ── the RF-ACK pair: one carrier per direction ───────────────────────────
+        # echo-pair-wireless is the only topology where the two differ, which is why
+        # it is the one that exposed the collapse.
+        src = sides(plan(bare, "--topology", "echo-pair-wireless", "--node", "tx"))
+        snk = sides(plan(bare, "--topology", "echo-pair-wireless", "--node", "rx"))
+
+        # 8 | THE INVARIANT. Whatever the numbers are, these two equalities are what
+        #     make the link possible, and neither held before.
+        check("data: source tx == sink rx", src.get("tx"), snk.get("rx"))
+        check("ACK:  sink tx == source rx", snk.get("tx"), src.get("rx"))
+
+        # 9 | ...and they are genuinely two carriers, so the check above cannot be
+        #     passed by collapsing everything onto one frequency again
+        check("source's two directions differ", src.get("tx") != src.get("rx"), True)
+        check("sink's two directions differ", snk.get("tx") != snk.get("rx"), True)
+        check("source transmits the data carrier", src.get("tx"), 915.0)
+        check("source receives the ACK carrier", src.get("rx"), 925.0)
+
+        # 10 | a single-carrier file must NOT acquire a split: echo-pair-x310 ACKs over
+        #      TCP, so both directions stay on one frequency
+        both = sides(plan(bare, "--topology", pinned, "--node", "rx"))
+        check("single-carrier file stays single", both.get("rx"),
+              float(TOPOLOGY_MHZ))
+
+        # 11 | typed per-direction flags, with no file at all
+        out = plan(bare, "--channel", "usrp", "--role", "source_arq",
+                   "--ack-transport", "rf", "--tx-args", "serial=X",
+                   "--rx-args", "serial=X", "--freq", "915", "--rx-freq", "925")
+        d = sides(out)
+        check("--rx-freq splits the directions", (d.get("tx"), d.get("rx")),
+              (915.0, 925.0))
+
+        # 12 | --freq alone still drives both, which is every other run ever typed
+        d = sides(plan(bare, "--channel", "usrp", "--role", "sink_arq",
+                       "--tx-args", "serial=X", "--rx-args", "serial=X",
+                       "--freq", "915"))
+        check("--freq alone drives both", (d.get("tx"), d.get("rx")), (915.0, 915.0))
+
+        # 13 | the unit trap. radio.sh takes these same flag NAMES in Hz, and every
+        #      worked example in COMMANDS_RUN reads --rx-freq 2400e6. Typed at run.sh
+        #      that is 2.4 billion MHz; UHD would refuse it much later and blame a
+        #      tune failure, so it has to be caught while it still looks like Hz.
+        out = plan(bare, "--channel", "usrp", "--rx-freq", "2400e6")
+        check("Hz where MHz is meant is refused", "looks like Hz" in out, True)
+        check("...and says what to type instead", "--rx-freq 2400" in out, True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

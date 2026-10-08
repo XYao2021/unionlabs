@@ -49,6 +49,14 @@
 # lora-backend serial/spi) have no peer inside one process, so they run as the two-host
 # role split (--role tx / --role rx). Older spellings still work: sim=ideal, pyphy=usrp.
 #
+# ONE CARRIER OR TWO. --freq sets both directions, which is every link whose ACK goes
+# over TCP. An RF ACK returns on its OWN frequency, so the two split:
+#     --freq 915                    data and ACK on one carrier
+#     --freq 915 --rx-freq 925      transmit at 915, listen for the ACK at 925
+# The other end must mirror it (its --tx-freq is this one's --rx-freq) or neither hears
+# anything. A topology states them per side and needs no flags. These are MHz here;
+# radio.sh takes the same names in Hz.
+#
 # WHERE A PARAMETER COMES FROM. Three sources, and a fixed precedence so a run can
 # always say why it used a number:
 #
@@ -99,12 +107,17 @@
 # because only there does the modem hold both the sent and the received symbols.
 #
 # THE C++ MODEM'S OWN LOGS ([ACQ] [FILTER] [MODULATION] [DEMODULATION] [AGC] ...)
-# have no flag and never did: they are unconditional std::cout in the modem's
-# threaded pipeline. They appear when the real modem process runs -- radio.sh, or
-# --usrp-backend radio -- and do NOT appear under the default in-process pyphy
-# backend, which calls the DSP blocks directly and never enters the pipeline loops
-# those prints live in. So there is nothing here to switch on; use radio.sh to see
-# them, and [PHY-FEAT] above for the numbers on the radio-free path. (For the record
+# appear when the real modem process runs -- radio.sh, or --usrp-backend radio -- and
+# do NOT appear under the default in-process pyphy backend, which calls the DSP blocks
+# directly and never enters the pipeline loops those prints live in.
+#   ./radio.sh rx ... --quiet-phy      silence the per-block chatter
+# --quiet-phy silences CHATTER only ([FILTER]/[MODULATION]/[DEMODULATION]/[AGC]/
+# [DETECTOR] block-and-FIFO lines); DIAGNOSIS always prints ([ACQ] peaks, [CRC],
+# [SOURCE]/[SINK] ARQ, [USRP TX/RX] warnings, [ERROR], [BER]), because a switch that
+# can hide an error is worse than a noisy log. It reaches the modem through radio.sh,
+# which invokes the binary directly; it is NOT yet wired into sdr.py's option table,
+# so --usrp-set quiet_phy=true does not work from here. Use [PHY-FEAT] above for the
+# numbers on the radio-free path. (For the record
 # there is no [SYNC] tag -- sync logs under [ACQ], [TimingRecovery], [CFO_thread],
 # [PhaseEstimator] -- and demodulation is [DEMODULATION], not [DEMOD].)
 #

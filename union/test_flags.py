@@ -84,6 +84,12 @@ check("--scheme",       ["--scheme", "8-PSK"],            lambda a: L(a).cfg["sc
 check("--fec ldpc",     ["--fec", "ldpc"],                lambda a: (L(a).cfg["fec"], L(a).cfg.get("fec_type")), (True, "ldpc"))
 check("--fec ''",       ["--fec", ""],                    lambda a: L(a).cfg["fec"],           False)
 check("--freq",         ["--freq", "905"],                lambda a: L(a).cfg["tx_freq"],       905e6)
+# ...and it drives BOTH directions, which is the single-carrier case every run used
+check("--freq both ways",["--freq", "905"],               lambda a: (L(a).cfg["tx_freq"], L(a).cfg["rx_freq"]), (905e6, 905e6))
+# An RF ACK returns on its own carrier: the two directions must be separable, or the
+# only ARQ setup needing no network between the boxes cannot be expressed at all.
+check("--rx-freq",      ["--freq","905","--rx-freq","925"], lambda a: (L(a).cfg["tx_freq"], L(a).cfg["rx_freq"]), (905e6, 925e6))
+check("--tx-freq",      ["--freq","905","--tx-freq","925"], lambda a: (L(a).cfg["tx_freq"], L(a).cfg["rx_freq"]), (925e6, 905e6))
 check("--samp-rate",    ["--samp-rate", "4e6"],           lambda a: L(a).cfg["tx_rate"],       4e6)
 check("--symbol-rate",  ["--symbol-rate", "2e6"],         lambda a: L(a).cfg["symbol_rate"],   2e6)
 check("--ack-port",     ["--ack-port", "5610"],           lambda a: L(a).cfg["ack_port"],      5610)
