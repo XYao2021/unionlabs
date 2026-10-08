@@ -618,6 +618,15 @@ hostless = wrote("hostless-rf", {
                "medium": {"up": "wireless", "down": "tcp"}}]})
 check("a wireless reply needs no host at all",
       lambda: tp.placeholders(tp.load(hostless), "snk"), [])
+# ...and the blank must not be CARRIED as an address either: left in place it sits in
+# the config as net_host="FILL_ME", looking like a setting, and reaches bind()/connect()
+# as a literal in any run that does open a socket
+check("a blank host is not treated as an address",
+      lambda: tp.load(hostless).node("snk").host, "")
+check("...but is still reported as a blank",
+      lambda: tp.load(hostless).node("snk").host_blank, "FILL_ME")
+check("...and a real host is untouched",
+      lambda: tp.load("fl-star-tcp").node("c0").host_blank, "")
 check("...for either end", lambda: tp.placeholders(tp.load(hostless), "src"), [])
 # flip the reply to TCP and the same unfilled host becomes a real missing fact
 tcpreply = wrote("hostless-tcp", dict(

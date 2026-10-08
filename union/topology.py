@@ -152,7 +152,14 @@ class Node:
         if not self.id:
             raise TopologyError(f"nodes[{index}] has no id")
         self.role = str(raw.get("role") or "peer").strip().lower()
-        self.host = str(raw.get("host") or "").strip()
+        # A BLANK IS NOT AN ADDRESS. Left in place as a literal it reaches bind() or
+        # connect() and fails there naming DNS rather than the file -- and in a run
+        # that opens no socket at all it would simply sit in the config looking like a
+        # real setting (net_host = "FILL_SINK_IP_HERE"). Kept separately so the blank
+        # can still be reported as one.
+        _host = str(raw.get("host") or "").strip()
+        self.host_blank = _host if is_placeholder(_host) else ""
+        self.host = "" if self.host_blank else _host
         self.note = raw.get("note", "")
         ports = _dict(raw.get("ports"), f"node {self.id}: ports")
         _known(ports, self.PORTS, f"node {self.id}: ports")
@@ -517,7 +524,8 @@ class Topology:
                 radio = f"{r['device'] or 'usrp'} {r['args']} [{', '.join(bits)}]"
             ports = ",".join(f"{k}:{v}" for k, v in sorted(nd.ports.items())) or "-"
             out.append(f"  [{nd.index}] {nd.id:<10} role={nd.role:<8} "
-                       f"host={nd.host or '(unset)':<15} ports={ports:<20} {radio}")
+                       f"host={nd.host or nd.host_blank or '(unset)':<15} "
+                       f"ports={ports:<20} {radio}")
             if nd.published():
                 pub = ",".join(f"{k}:{v}" for k, v in sorted(nd.adv_ports.items())) or "-"
                 out.append(f"       {'':<10} others dial {nd.dial_host() or '(unset)'}"
@@ -694,20 +702,20 @@ def placeholders(topo, node=None):
     if node is None:
         for nd in topo.nodes:
             out += _radio_blanks(nd)
-            if _dialled_over_tcp(topo, nd) and is_placeholder(nd.host):
-                out.append(f"node {nd.id}: host = {nd.host}")
+            if _dialled_over_tcp(topo, nd) and nd.host_blank:
+                out.append(f"node {nd.id}: host = {nd.host_blank}")
         return out
 
     nd = topo.node(node)
     out += _radio_blanks(nd)
-    if _dialled_over_tcp(topo, nd) and is_placeholder(nd.host):
-        out.append(f"node {nd.id}: host = {nd.host}")
+    if _dialled_over_tcp(topo, nd) and nd.host_blank:
+        out.append(f"node {nd.id}: host = {nd.host_blank}")
     # the one thing this node reads from another: where to dial it
     for ln in topo.links_of(nd):
         if ln.a.id != nd.id or not (ln.up == "tcp" or ln.down == "tcp"):
             continue
-        if is_placeholder(ln.b.host):
-            out.append(f"node {ln.b.id}: host = {ln.b.host}  "
+        if ln.b.host_blank:
+            out.append(f"node {ln.b.id}: host = {ln.b.host_blank}  "
                        f"(this node dials it for the reply)")
     return out
 
