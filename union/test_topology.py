@@ -435,6 +435,32 @@ check("single carrier reaches the modem",
       lambda: parse(["--topology", modem, "--node", "snk"], algo="echo")[0].waveform,
       "sc")
 
+# ── a DRAFT lives in topologies/ but must not RUN ────────────────────────────
+# prepare.sh writes one at the end of a survey with the far end left as a placeholder.
+# It belongs with every other topology so it is found by name; what stops it being a
+# trap is that a run refuses it. Left to UHD, serial=REPLACE_ME surfaces as "no device
+# found", which sends the reader to the radio, the cabling and the FPGA image.
+draft = wrote("a-draft", {
+    "schema": 1, "name": "a-draft", "algo": "echo",
+    "defaults": {"channel": "usrp"},
+    "nodes": [
+        {"id": "src", "role": "tx",
+         "radio": {"device": "x310", "serial": "REPLACE_ME_SOURCE_ID",
+                   "tx": {"ant": "TX/RX", "subdev": "A:0", "freq_mhz": 2404.5}}},
+        {"id": "snk", "role": "rx", "ports": {"ack": 5599},
+         "radio": {"device": "x310", "serial": "3620E8D",
+                   "rx": {"ant": "RX2", "subdev": "A:0", "freq_mhz": 2404.5}}}],
+    "links": [{"from": "src", "to": "snk",
+               "medium": {"up": "wireless", "down": "tcp"}}]})
+refuses("a draft is refused, not run", ["--topology", draft, "--node", "snk"],
+        "is still a DRAFT", algo="echo")
+refuses("...and it names the field to fill", ["--topology", draft, "--node", "snk"],
+        "radio.args = serial=REPLACE_ME_SOURCE_ID", algo="echo")
+check("the loader can tell a draft from a finished file",
+      lambda: len(tp.placeholders(tp.load(draft))), 1)
+check("...and a finished file has none",
+      lambda: tp.placeholders(tp.load("echo-pair-radio")), [])
+
 mistyped = wrote("mistyped-default", {
     "schema": 1, "name": "mistyped-default", "algo": "echo",
     "defaults": {"det-mlt": 9},

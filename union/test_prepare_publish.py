@@ -133,11 +133,24 @@ def main():
             {"carrier_mhz": 2422.5, "band_mhz": [2421, 2424]},
             {"carrier_mhz": 2440.5, "band_mhz": [2439, 2442]}], use=1,
             sync_threshold=15, sync_threshold_measured=False)
+        # PIN the topology directory. The draft now goes where topologies live, and
+        # the resolver's last fallback is this checkout -- so without this the test
+        # writes drafts into deploy/workspace/topologies/ and they ship.
+        tdir = os.path.join(d, "topologies")
+        os.makedirs(tdir, exist_ok=True)
+        os.environ["UNION_TOPOLOGY_DIR"] = tdir
         dpath = prepare_phy.publish_topology_draft(full, d, "2026-10-08_00-00-00")
+        check("draft lands in topologies/, with every other topology",
+              os.path.dirname(dpath), tdir)
         draft = json.load(open(dpath))
         check("draft is named by radio and time",
               os.path.basename(dpath),
-              "topology-draft-327D82F-2026-10-08_00-00-00.json")
+              "draft-327D82F-2026-10-08_00-00-00.json")
+        # the name INSIDE must match the filename, or the lister shows two entries
+        # with one label and the shadowing report becomes nonsense
+        check("inner name matches the filename",
+              json.load(open(dpath))["name"],
+              os.path.basename(dpath)[:-len(".json")])
 
         snk = [n for n in draft["nodes"] if n["id"] == "snk"][0]
         src = [n for n in draft["nodes"] if n["id"] == "src"][0]
@@ -186,6 +199,15 @@ def main():
             check("the draft is a loadable topology", (len(t.nodes), len(t.links)), (2, 1))
         except tp.TopologyError as e:
             check("the draft is a loadable topology", f"refused: {e}", (2, 1))
+
+        # IT MUST BE RECOGNISABLE AS A DRAFT. Living in topologies/ beside runnable
+        # files, that is the only thing keeping it from being started: a placeholder
+        # reaching UHD reads as "no device found" and blames the radio.
+        check("the draft is detected as a draft",
+              tp.placeholders(tp.load(dpath)),
+              ["node src: radio.args = serial=REPLACE_ME_SOURCE_ID"])
+        check("...and the filled-in copy is not",
+              tp.placeholders(tp.load(ready)), [])
 
         # an addr-only radio keeps its address rather than inventing a serial
         byaddr = dict(full, radio=dict(full["radio"], args="addr=192.168.40.2"))

@@ -314,6 +314,31 @@ def publish_profile(profile, d, node, band, subdev, ant, stamp):
 _TX_DEFAULTS = {"b210": ("A:A", 78), "n210": ("A:0", 25), "x310": ("A:0", 25)}
 
 
+def topology_dir():
+    """Where topology files live, in the same order union/topology.py searches.
+
+    Resolved here rather than by importing union/topology.py: drivers/ is the layer
+    below union/ and must not depend upward on it. The cost of the duplication is this
+    list going stale, so it is deliberately the whole list and in the same order --
+    env override, the shared workspace, then this checkout.
+    """
+    # python/ -> usrp/ -> drivers/ -> the repo: FOUR levels. Three lands on drivers/,
+    # which exists nowhere, so the checkout fallback silently never applied and the
+    # makedirs below took over -- a bug the OSError fallback hid rather than surfaced.
+    repo = os.path.abspath(__file__)
+    for _ in range(4):
+        repo = os.path.dirname(repo)
+    cands = [os.environ.get("UNION_TOPOLOGY_DIR"),
+             "/workspace/experiments/topologies",
+             os.path.join(repo, "deploy", "workspace", "topologies")]
+    cands = [c for c in cands if c]
+    for c in cands:
+        if os.path.isdir(c):
+            return c
+    os.makedirs(cands[0], exist_ok=True)        # nothing exists yet: make the first
+    return cands[0]
+
+
 def publish_topology_draft(profile, d, stamp):
     """Write a ready-to-edit TOPOLOGY for the pair this radio is the RECEIVER of.
 
@@ -330,10 +355,13 @@ def publish_topology_draft(profile, d, stamp):
     transcription this project removed from the carrier itself by making freq_mhz a
     candidate list, and which was still being done for every other field.
 
-    Written into searching/ beside the profile and the frequency list rather than into
-    topologies/, because topologies/ is what `./run.sh topologies` offers as runnable
-    and a draft with a REPLACE_ME in it is not. It can still be run straight from here
-    by path once the placeholder is filled.
+    Written into topologies/, where every other topology lives, so it is found by name
+    (`./run.sh --topology draft-<serial>`) and by `./run.sh topologies` rather than
+    having to be known about. A draft sitting among runnable files would be a trap, so
+    two things carry it: the lister marks it DRAFT and names the fields still to fill,
+    and a run REFUSES it until they are filled. `d` is kept in the signature because
+    the caller passes the survey directory for every other output; it is used only as
+    the fallback when no topologies directory can be resolved.
     """
     os.makedirs(d, exist_ok=True)
     radio = profile.get("radio") or {}
@@ -367,7 +395,7 @@ def publish_topology_draft(profile, d, stamp):
 
     draft = {
         "schema": 1,
-        "name": f"draft-{id_val}",
+        "name": f"draft-{id_val}-{stamp}",
         "algo": "echo",
         "description": (f"Draft written by prepare.sh from the {stamp} survey of "
                         f"{device} {id_val}. Replace REPLACE_ME_SOURCE_ID, then run."),
@@ -419,7 +447,11 @@ def publish_topology_draft(profile, d, stamp):
         if profile.get(k) is not None:
             draft["defaults"][k] = profile[k]
 
-    path = os.path.join(d, f"topology-draft-{id_val}-{stamp}.json")
+    try:
+        out = topology_dir()
+    except OSError:
+        out = d                                 # unwritable: beside the survey is fine
+    path = os.path.join(out, f"draft-{id_val}-{stamp}.json")
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:
         json.dump(draft, fh, indent=2)

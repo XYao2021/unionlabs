@@ -1032,6 +1032,18 @@ def apply_topology(ap, a):
                  f"ignored silently, so it is refused here instead. Known: "
                  f"{', '.join(sorted(_known_defaults))}. Anything else the modem "
                  f"accepts goes on --usrp-set (see docs/PARAMETERS.md).")
+    # A DRAFT is not runnable. prepare.sh writes one at the end of a survey with the
+    # far end left as a placeholder, and it lives in topologies/ with everything else --
+    # so the only thing standing between it and a confusing failure is this. Left to
+    # UHD, "serial=REPLACE_ME_SOURCE_ID" surfaces as "no devices found", which sends
+    # the reader to the radio, the cabling and the FPGA image rather than to the one
+    # field they still owe.
+    todo = tp.placeholders(topo)
+    if todo:
+        sys.exit(f"--topology {topo.name} is still a DRAFT: "
+                 f"{'; '.join(todo)}.\n"
+                 f"Fill that in (uhd_find_devices on the other box gives the serial), "
+                 f"then run it again. ./run.sh topologies marks drafts as drafts.")
     modem_defaults = {k: topo.defaults[k] for k in TOPO_MODEM if k in topo.defaults}
     freq_candidates = None
     for key, dest in TOPO_DEFAULTS.items():         # experiment-wide knobs

@@ -557,6 +557,31 @@ def load_if_file(name):
     return load(name)
 
 
+PLACEHOLDER = "REPLACE_ME"
+
+
+def placeholders(topo):
+    """Fields still holding a REPLACE_ME, as 'node <id>: radio.<key>' strings.
+
+    prepare.sh writes a topology at the end of a survey with everything it measured
+    filled in and the far end -- which lives on another box -- left as a placeholder.
+    Such a file belongs in topologies/ with every other topology; what it must not be
+    is RUNNABLE, because a placeholder reaching UHD fails as "no device found" and
+    sends the reader to the radio instead of to the one field they still owe.
+
+    Reported rather than refused at load, so the lister can show a draft as a draft.
+    The refusal belongs where a run starts.
+    """
+    out = []
+    for nd in topo.nodes:
+        radio = nd.radio or {}
+        for key in ("args", "serial", "addr"):
+            v = radio.get(key)
+            if isinstance(v, str) and PLACEHOLDER in v:
+                out.append(f"node {nd.id}: radio.{key} = {v}")
+    return out
+
+
 def available():
     out = []
     for d in search_path():
@@ -586,7 +611,12 @@ if __name__ == "__main__":
             winner = paths[0]                   # search_path() order IS precedence
             print(f"  {name}")
             try:
-                print("      " + load(winner).description)
+                topo = load(winner)
+                todo = placeholders(topo)
+                print("      " + topo.description)
+                if todo:
+                    print(f"      DRAFT — not runnable yet: {len(todo)} field(s) to "
+                          f"fill ({'; '.join(todo)})")
             except TopologyError as e:
                 print(f"      INVALID: {e}")
             print(f"      {winner}")
