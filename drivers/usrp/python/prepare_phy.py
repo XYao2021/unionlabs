@@ -308,6 +308,127 @@ def publish_profile(profile, d, node, band, subdev, ant, stamp):
     return path, removed
 
 
+# Per-device TRANSMIT defaults, matching radio.sh's own table. The survey measures a
+# receiver and so knows nothing about transmitting; these are the wrapper's defaults for
+# the device, not measurements, and the draft says so.
+_TX_DEFAULTS = {"b210": ("A:A", 78), "n210": ("A:0", 25), "x310": ("A:0", 25)}
+
+
+def publish_topology_draft(profile, d, stamp):
+    """Write a ready-to-edit TOPOLOGY for the pair this radio is the RECEIVER of.
+
+    A survey ends holding every number a topology needs but one. It knows the device,
+    the radio's identity, the signal path it listened on, the gain it listened at, the
+    carriers it measured as usable, and the detector values it derived -- and because
+    prepare_phy is receive-only, it knows this radio is the RECEIVING end of whatever
+    link it joins. The single thing it cannot know is the far end's identity, which is
+    on another box.
+
+    So the draft is written with the receiver complete and the transmitter a
+    placeholder, which is the smallest thing a person still has to supply. Authoring
+    the rest by hand meant copying carriers out of a survey into a file -- the exact
+    transcription this project removed from the carrier itself by making freq_mhz a
+    candidate list, and which was still being done for every other field.
+
+    Written into searching/ beside the profile and the frequency list rather than into
+    topologies/, because topologies/ is what `./run.sh topologies` offers as runnable
+    and a draft with a REPLACE_ME in it is not. It can still be run straight from here
+    by path once the placeholder is filled.
+    """
+    os.makedirs(d, exist_ok=True)
+    radio = profile.get("radio") or {}
+    args = radio.get("args") or ""
+    device = (radio.get("device") or "").lower()
+    # serial= if there is one: an address identifies a radio only within one host, and
+    # a shared /workspace means the file is read on boxes where it means someone else's
+    m = re.search(r"serial=([^,\s]+)", args) or re.search(r"addr=([^,\s]+)", args)
+    id_key = "serial" if "serial=" in args else "addr"
+    id_val = m.group(1) if m else "REPLACE_ME_SINK_ID"
+
+    # Preference order: the recommended carrier first, then the rest. The resolver
+    # takes the first candidate it finds inside a measured window, so this makes the
+    # survey's own pick the default without pinning it.
+    opts = profile.get("options") or []
+    use = int(profile.get("use", 0) or 0)
+    order = ([opts[use]] + [o for i, o in enumerate(opts) if i != use]) \
+        if 0 <= use < len(opts) else list(opts)
+    cands = [o["carrier_mhz"] for o in order if o.get("carrier_mhz") is not None]
+    if not cands:
+        raise ValueError("the survey saved no usable carrier, so there is nothing "
+                         "for a topology to choose between")
+
+    tx_subdev, tx_gain = _TX_DEFAULTS.get(device, ("A:0", 25))
+    placeholder = ("sync_threshold is a PLACEHOLDER until a link is actually run "
+                   "(nothing triggered the detector during a receive-only survey) — "
+                   "watch the [ACQ] Peak correlation lines and set it below the true "
+                   "peak but above the noise."
+                   if profile.get("sync_threshold_measured") is False else
+                   "sync_threshold was measured against a real burst.")
+
+    draft = {
+        "schema": 1,
+        "name": f"draft-{id_val}",
+        "algo": "echo",
+        "description": (f"Draft written by prepare.sh from the {stamp} survey of "
+                        f"{device} {id_val}. Replace REPLACE_ME_SOURCE_ID, then run."),
+        "note": ("GENERATED, NOT RUNNABLE YET. (1) Replace REPLACE_ME_SOURCE_ID with "
+                 "the far radio's serial — `uhd_find_devices` on that box. (2) Check "
+                 "the transmit side: subdev/ant/gain there are this wrapper's defaults "
+                 "for the device, NOT measurements, because a receive-only survey sees "
+                 "nothing about transmitting. (3) freq_mhz is a candidate list, "
+                 "recommended first; the survey picks the first one it measured as "
+                 f"usable, so this file does not go stale. {placeholder} "
+                 "The receive side is filled in from the survey and should not need "
+                 "editing. Run it by path, or copy it into "
+                 "/workspace/experiments/topologies/ and name it there."),
+        "defaults": {
+            "channel": "usrp",
+            "scheme": "QPSK",
+            "waveform": "sc",
+            "fec": "turbo",
+            "steps": 10,
+            "max_attempts": 50,
+            "bytes_length": 1000,
+        },
+        "nodes": [
+            {"id": "src", "role": "tx",
+             "note": "the far end. Its carrier resolves from THIS survey, because the "
+                     "receiver is the end that has to hear it.",
+             "radio": {"device": device, "serial": "REPLACE_ME_SOURCE_ID",
+                       "tx": {"ant": "TX/RX", "subdev": tx_subdev, "gain": tx_gain,
+                              "freq_mhz": cands}}},
+            {"id": "snk", "role": "rx",
+             "note": f"the surveyed radio. Measured {stamp}.",
+             "ports": {"ack": 5599},
+             "radio": {"device": device, id_key: id_val,
+                       "rx": {"ant": radio.get("ant"), "subdev": radio.get("subdev"),
+                              "gain": radio.get("gain_db"), "freq_mhz": cands}}},
+        ],
+        "links": [
+            {"from": "src", "to": "snk",
+             "medium": {"up": "wireless", "down": "tcp"},
+             "note": "data over the air, ACK over TCP. For an ACK over the air, set "
+                     "down to wireless and give each node a second RF block on a "
+                     "DIFFERENT subdev with its own carrier pool — an RF ACK is the "
+                     "second RF path, and one subdev doing both means the transmitter "
+                     "swamps its own receiver."},
+        ],
+    }
+    # the detector values the survey derived, where a topology can now state them
+    for k in ("det_mult", "sync_threshold"):
+        if profile.get(k) is not None:
+            draft["defaults"][k] = profile[k]
+
+    path = os.path.join(d, f"topology-draft-{id_val}-{stamp}.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(draft, fh, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+    return path
+
+
 def publish_frequencies(profile, d, stamp):
     """Write the survey's AVAILABLE FREQUENCIES as a small flat JSON named by the
     time they were measured. Returns the path written.
@@ -650,6 +771,20 @@ def main():
         except Exception as e:
             print(f"[prepare] WARNING: could not save the frequency list "
                   f"({e.__class__.__name__}: {e}) — the profile above is unaffected",
+                  file=sys.stderr)
+
+        # A topology, prefilled with everything this survey just established. Last and
+        # non-fatal on purpose: it is a convenience built FROM the measurement, so it
+        # must never be able to cost the measurement, which took minutes on a radio.
+        try:
+            tpath = publish_topology_draft(profile, d, stamp)
+            print(f"[prepare] topology draft: {tpath}")
+            print(f"[prepare]   replace REPLACE_ME_SOURCE_ID (uhd_find_devices on the "
+                  f"transmitting box), then:")
+            print(f"[prepare]   ./run.sh --algo echo --topology {tpath} --node snk")
+        except Exception as e:
+            print(f"[prepare] WARNING: could not write the topology draft "
+                  f"({e.__class__.__name__}: {e}) — the survey above is unaffected",
                   file=sys.stderr)
 
         # Prove it landed. os.replace returning is not evidence the bytes are on

@@ -122,6 +122,87 @@ def main():
         check("empty survey still readable", r3["available_mhz"], [])
         check("empty survey has no recommendation", r3["recommended_mhz"], None)
 
+        # ── the TOPOLOGY DRAFT ───────────────────────────────────────────────
+        # A survey ends holding every number a topology needs except the far end's
+        # identity, so prepare writes the file with the receiver complete. The draft
+        # has to be a VALID topology, not merely valid JSON: it is handed to someone
+        # as a starting point, and a scaffold that topology.py refuses is worse than
+        # no scaffold, because the error arrives after the survey rather than here.
+        full = dict(prof, options=[
+            {"carrier_mhz": 2404.5, "band_mhz": [2402, 2407]},
+            {"carrier_mhz": 2422.5, "band_mhz": [2421, 2424]},
+            {"carrier_mhz": 2440.5, "band_mhz": [2439, 2442]}], use=1,
+            sync_threshold=15, sync_threshold_measured=False)
+        dpath = prepare_phy.publish_topology_draft(full, d, "2026-10-08_00-00-00")
+        draft = json.load(open(dpath))
+        check("draft is named by radio and time",
+              os.path.basename(dpath),
+              "topology-draft-327D82F-2026-10-08_00-00-00.json")
+
+        snk = [n for n in draft["nodes"] if n["id"] == "snk"][0]
+        src = [n for n in draft["nodes"] if n["id"] == "src"][0]
+        # the receive side is the SURVEY's, verbatim — this is the whole point: these
+        # are the four fields people were transcribing by hand
+        check("receiver keeps the surveyed antenna", snk["radio"]["rx"]["ant"], "RX2")
+        check("receiver keeps the surveyed subdev", snk["radio"]["rx"]["subdev"], "A:0")
+        check("receiver keeps the surveyed gain", snk["radio"]["rx"]["gain"], 25)
+        check("receiver named by serial, not address",
+              snk["radio"].get("serial"), "327D82F")
+        # RECOMMENDED FIRST: `use` was 1, so 2422.5 must lead. The resolver takes the
+        # first candidate inside a measured window, so order is the survey's own pick.
+        check("candidates lead with the recommendation",
+              snk["radio"]["rx"]["freq_mhz"], [2422.5, 2404.5, 2440.5])
+        check("both ends offered the same candidates",
+              src["radio"]["tx"]["freq_mhz"], snk["radio"]["rx"]["freq_mhz"])
+        # the detector values, where a topology can now state them
+        check("det_mult reaches defaults", draft["defaults"].get("det_mult"), 30.0)
+        check("sync_threshold reaches defaults",
+              draft["defaults"].get("sync_threshold"), 15)
+        check("an unmeasured threshold says so",
+              "PLACEHOLDER" in draft["note"], True)
+        # only the far end is left to a person
+        check("the transmitter is a placeholder",
+              src["radio"].get("serial"), "REPLACE_ME_SOURCE_ID")
+        # ...and it is the ONLY one: count placeholder FIELDS, not prose mentions, since
+        # the note and description both name it on purpose so a reader knows what to fix
+        def placeholders(obj, path=""):
+            if isinstance(obj, dict):
+                return [x for k, v in obj.items() if k not in ("note", "description")
+                        for x in placeholders(v, f"{path}.{k}")]
+            if isinstance(obj, list):
+                return [x for i, v in enumerate(obj) for x in placeholders(v, path)]
+            return [path] if isinstance(obj, str) and "REPLACE_ME" in obj else []
+        check("...and it is the ONLY field left to a person",
+              placeholders(draft), [".nodes.radio.serial"])
+
+        # IT MUST LOAD. Round-trip through the real loader with the placeholder filled.
+        sys.path.insert(0, os.path.join(REPO, "union"))
+        import topology as tp
+        ready = os.path.join(d, "ready.json")
+        with open(ready, "w") as fh:
+            fh.write(json.dumps(draft).replace("REPLACE_ME_SOURCE_ID", "F5B2C30"))
+        try:
+            t = tp.load(ready)
+            check("the draft is a loadable topology", (len(t.nodes), len(t.links)), (2, 1))
+        except tp.TopologyError as e:
+            check("the draft is a loadable topology", f"refused: {e}", (2, 1))
+
+        # an addr-only radio keeps its address rather than inventing a serial
+        byaddr = dict(full, radio=dict(full["radio"], args="addr=192.168.40.2"))
+        da = json.load(open(prepare_phy.publish_topology_draft(
+            byaddr, d, "2026-10-08_01-00-00")))
+        sa = [n for n in da["nodes"] if n["id"] == "snk"][0]
+        check("addr radio keeps addr", sa["radio"].get("addr"), "192.168.40.2")
+        check("...and no serial key is faked", "serial" in sa["radio"], False)
+
+        # a survey with nothing usable must REFUSE to write a draft, not emit a file
+        # whose candidate list is empty -- that would resolve to no carrier at all
+        try:
+            prepare_phy.publish_topology_draft(prof, d, "2026-10-08_02-00-00")
+            check("no usable carrier -> no draft", "wrote one anyway", "refused")
+        except ValueError:
+            check("no usable carrier -> no draft", "refused", "refused")
+
     if failures:
         print(f"  {failures} of {checked} prepare-publish paths FAILED")
         return 1
