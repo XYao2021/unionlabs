@@ -172,12 +172,35 @@ def main():
         check("receiver keeps the surveyed gain", snk["radio"]["rx"]["gain"], 25)
         check("receiver named by serial, not address",
               snk["radio"].get("serial"), "327D82F")
-        # RECOMMENDED FIRST: `use` was 1, so 2422.5 must lead. The resolver takes the
-        # first candidate inside a measured window, so order is the survey's own pick.
-        check("candidates lead with the recommendation",
-              snk["radio"]["rx"]["freq_mhz"], [2422.5, 2404.5, 2440.5])
-        check("both ends offered the same candidates",
+        # The carrier is a NAMED BLANK, not a pick: a wireless ACK needs two
+        # different carriers and nothing in a survey knows which window is meant for
+        # which direction. The options go in the header and beside the field.
+        check("the data carrier is a named blank",
+              snk["radio"]["rx"]["freq_mhz"], "REPLACE_ME_WITH_FREQ_OPTION")
+        check("both ends name the SAME data blank",
               src["radio"]["tx"]["freq_mhz"], snk["radio"]["rx"]["freq_mhz"])
+        check("the reply carrier is a different blank",
+              snk["radio"]["tx"]["freq_mhz"], "REPLACE_ME_WITH_ACK_FREQ_OPTION")
+        # RECOMMENDED FIRST in the options offered: `use` was 1, so 2422.5 leads
+        check("options are offered best-first",
+              header.index("2422.5") < header.index("2404.5"), True)
+        check("...and beside the field too, for pasting",
+              "pick one: 2422.5 | 2404.5 | 2440.5" in header, True)
+
+        # BOTH directions on BOTH nodes, with their own gain: with a wireless ACK
+        # every node transmits and receives, so one `gain` per node cannot express it
+        check("source has both directions", sorted(src["radio"].keys()),
+              ["device", "rx", "serial", "tx"])
+        check("sink has both directions",
+              sorted(k for k in snk["radio"] if k in ("tx", "rx")), ["rx", "tx"])
+        check("the reply path uses a DIFFERENT subdev",
+              src["radio"]["rx"]["subdev"] != src["radio"]["tx"]["subdev"], True)
+
+        # the one switch that chooses how the reply travels
+        check("ack_wireless is offered, defaulting to TCP",
+              draft["defaults"]["ack_wireless"], False)
+        check("...and is explained beside itself",
+              "true = ACK over the air" in header, True)
         # the detector values, where a topology can now state them
         check("det_mult reaches defaults", draft["defaults"].get("det_mult"), 30.0)
         check("sync_threshold reaches defaults",
@@ -189,7 +212,9 @@ def main():
         check("header shows the window each sits in",
               "clear 2421-2424 MHz" in header, True)
         check("an unmeasured threshold says so in the header",
-              "PLACEHOLDER" in header, True)
+              "sync_threshold is a PLACEHOLDER" in header, True)
+        check("...and says what too low actually does",
+              "locks" in header and "garbage" in header, True)
         check("the body carries no prose notes",
               [k for k in ("note",) if k in draft]
               + [k for nd in draft["nodes"] for k in ("note",) if k in nd], [])
@@ -206,14 +231,24 @@ def main():
                         for x in placeholders(v, f"{path}.{k}")]
             if isinstance(obj, list):
                 return [x for i, v in enumerate(obj) for x in placeholders(v, path)]
-            return [path] if isinstance(obj, str) and "REPLACE_ME" in obj else []
-        check("...and it is the ONLY field left to a person",
-              placeholders(draft), [".nodes.radio.serial"])
+            # the REAL predicate, not a second guess at it: a helper that knew only
+            # about REPLACE_ME silently ignored every FILL_ blank
+            return [path] if tp.is_placeholder(obj) else []
+        # every blank is NAMED, and they are the only things left to a person
+        check("the blanks are exactly the far end, the carriers and the hosts",
+              sorted(set(placeholders(draft))),
+              sorted({".nodes.host", ".nodes.radio.serial",
+                      ".nodes.radio.tx.freq_mhz", ".nodes.radio.rx.freq_mhz"}))
 
         # IT MUST LOAD. Round-trip through the real loader with the placeholder filled.
         ready = os.path.join(d, "ready.json")
         with open(ready, "w") as fh:
-            fh.write(json.dumps(draft).replace("REPLACE_ME_SOURCE_ID", "F5B2C30"))
+            fh.write(json.dumps(draft)
+                     .replace("REPLACE_ME_SOURCE_ID", "F5B2C30")
+                     .replace('"REPLACE_ME_WITH_FREQ_OPTION"', "2422.5")
+                     .replace('"REPLACE_ME_WITH_ACK_FREQ_OPTION"', "2440.5")
+                     .replace('"FILL_SINK_IP_HERE"', '"10.0.0.40"')
+                     .replace('"FILL_SOURCE_HOST_OR_DELETE"', '"10.0.0.30"'))
         try:
             t = tp.load(ready)
             check("the draft is a loadable topology", (len(t.nodes), len(t.links)), (2, 1))
@@ -223,9 +258,18 @@ def main():
         # IT MUST BE RECOGNISABLE AS A DRAFT. Living in topologies/ beside runnable
         # files, that is the only thing keeping it from being started: a placeholder
         # reaching UHD reads as "no device found" and blames the radio.
-        check("the draft is detected as a draft",
+        # loaded with ack_wireless false, the reply blocks are dropped -- so the
+        # blanks that remain are the ones that actually matter for a TCP-ACK run
+        check("the draft is detected as a draft, every blank named",
               tp.placeholders(tp.load(dpath)),
-              ["node src: radio.args = serial=REPLACE_ME_SOURCE_ID"])
+              ["node src: host = FILL_SOURCE_HOST_OR_DELETE",
+               "node src: radio.args = serial=REPLACE_ME_SOURCE_ID",
+               "node src: radio.tx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION",
+               "node snk: host = FILL_SINK_IP_HERE",
+               "node snk: radio.rx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION"])
+        check("...and ack_wireless false drops the unused RF path",
+              (tp.load(dpath).node("src").radio["rx"],
+               tp.load(dpath).node("snk").radio["tx"]), (None, None))
         check("...and the filled-in copy is not",
               tp.placeholders(tp.load(ready)), [])
 

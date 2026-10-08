@@ -1,35 +1,36 @@
 // -----------------------------------------------------------------------
-//  TEMPLATE — copy this, rename it, replace both REPLACE_ME serials.
-//  A two-node radio pair: data over the air, ACK back over TCP.
+//  TEMPLATE — a two-node radio pair, with BOTH reply paths wired.
+//  Copy, rename, fill every blank. A run refuses the file until they are
+//  gone and lists the ones that are left.
 //
-//  NOT RUNNABLE AS IT STANDS. A run refuses a file with a REPLACE_ME in it,
-//  and ./run.sh topologies marks it DRAFT, so it cannot start by accident.
+//  After prepare.sh you do not need this file: the survey writes the same
+//  thing with the receive side already filled in. See
+//  ./prepare.sh --device <dev> --args <id> --topology-only
 //
 //  FILL IN
-//    1. Both serials — `uhd_find_devices` on each box. Prefer serial over
-//       addr: 192.168.40.2 is UHD's default for an X310, so two machines
-//       answer to it and both containers would claim the same node.
-//    2. freq_mhz — `python3 union/phy_profile.py --common` after
-//       prepare.sh lists the spectrum every surveyed radio can use. Give
-//       SEVERAL, best first: the survey picks the first it still measures
-//       as usable, so the file does not go stale.
-//    3. subdev / ant must match what prepare.sh surveyed, or the
-//       measurement is filed where nothing looks for it.
+//    ack_wireless   false -> reply over TCP; snk.host is what src dials.
+//                   true  -> reply over the air on each node's SECOND RF
+//                            block. Carriers must differ and that subdev
+//                            must exist on the hardware.
+//    serial         both radios, from uhd_find_devices on each box.
+//    freq_mhz       from `python3 union/phy_profile.py --common`. Same on
+//                   both nodes for the data direction; a DIFFERENT one for
+//                   the reply. A list instead of one number lets the
+//                   survey pick and keeps the file from going stale.
+//    host           BOTH or NEITHER. Two boxes: each node's own machine.
+//                   One box: delete both lines; the serials already say
+//                   which radio is which.
+//    subdev / ant   must match what prepare.sh surveyed, or the
+//                   measurement is filed where nothing looks for it.
 //
-//  After prepare.sh you do not need this file at all: the survey writes a
-//  draft with the receive side already filled in. See
-//  ./prepare.sh --topology-only.
-//
-//  For an ACK over the air: set down to wireless and give each node a
-//  second RF block on a DIFFERENT subdev with its own carrier pool. An RF
-//  ACK is the second RF path; one subdev doing both means the transmitter
-//  swamps its own receiver.
+//  GAINS are per node and per direction: tx.gain drives the transmitter,
+//  rx.gain the receiver.
 // -----------------------------------------------------------------------
 {
   "schema": 1,
   "name": "TEMPLATE",
   "algo": "echo",
-  "description": "Starting point for a two-node radio pair: data over the air, ACK over TCP.",
+  "description": "Two-node radio pair. Set ack_wireless to choose how the reply comes back.",
   "defaults": {
     "channel": "usrp",
     "scheme": "QPSK",
@@ -37,38 +38,41 @@
     "fec": "turbo",
     "steps": 10,
     "max_attempts": 50,
+    "bytes_length": 1000,
     "det_mult": 30,
     "sync_threshold": 15,
-    "bytes_length": 1000
+    "ack_wireless": false   // true = reply over the air, using the rx/tx blocks below
   },
   "nodes": [
     {
       "id": "src",
       "role": "tx",
+      "host": "FILL_SOURCE_HOST_OR_DELETE",
       "radio": {
         "device": "x310",
-        "serial": "REPLACE_ME_SOURCE_SERIAL",
+        "serial": "REPLACE_ME_SOURCE_ID",
         "tx": { "ant": "TX/RX", "subdev": "A:0", "gain": 25,
-                "freq_mhz": [2404.5, 2422.5, 2440.5] }
+                "freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION" },
+        "rx": { "ant": "RX2", "subdev": "B:0", "gain": 20,
+                "freq_mhz": "REPLACE_ME_WITH_ACK_FREQ_OPTION" }
       }
     },
     {
       "id": "snk",
       "role": "rx",
+      "host": "FILL_SINK_IP_HERE",
       "ports": { "ack": 5599 },
       "radio": {
         "device": "x310",
-        "serial": "REPLACE_ME_SINK_SERIAL",
+        "serial": "REPLACE_ME_SINK_ID",
         "rx": { "ant": "RX2", "subdev": "A:0", "gain": 20,
-                "freq_mhz": [2404.5, 2422.5, 2440.5] }
+                "freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION" },
+        "tx": { "ant": "TX/RX", "subdev": "B:0", "gain": 25,
+                "freq_mhz": "REPLACE_ME_WITH_ACK_FREQ_OPTION" }
       }
     }
   ],
   "links": [
-    {
-      "from": "src",
-      "to": "snk",
-      "medium": { "up": "wireless", "down": "tcp" }
-    }
+    { "from": "src", "to": "snk", "medium": { "up": "wireless", "down": "tcp" } }
   ]
 }

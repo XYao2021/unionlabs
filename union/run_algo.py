@@ -1024,7 +1024,11 @@ def apply_topology(ap, a):
     # An unrecognised "defaults" key used to be dropped in silence: the loop below only
     # looks for keys it knows, so a typo -- or a real modem option someone reasonably
     # expected to work -- configured nothing and said nothing. Name it instead.
-    _known_defaults = set(TOPO_DEFAULTS) | set(TOPO_MODEM) | {"medium"}
+    # ack_wireless is handled by topology.py (it rewrites every link's down medium),
+    # so it reaches nothing here -- but it must still be a KNOWN key or the check
+    # below would refuse the very switch the drafts tell people to use.
+    _known_defaults = (set(TOPO_DEFAULTS) | set(TOPO_MODEM)
+                       | {"medium", "ack_wireless"})
     unknown = [k for k in topo.defaults if k not in _known_defaults]
     if unknown:
         sys.exit(f"--topology {topo.name}: defaults has no setting called "
@@ -1040,10 +1044,11 @@ def apply_topology(ap, a):
     # field they still owe.
     todo = tp.placeholders(topo)
     if todo:
-        sys.exit(f"--topology {topo.name} is still a DRAFT: "
-                 f"{'; '.join(todo)}.\n"
-                 f"Fill that in (uhd_find_devices on the other box gives the serial), "
-                 f"then run it again. ./run.sh topologies marks drafts as drafts.")
+        bullets = "\n".join(f"    {t}" for t in todo)
+        sys.exit(f"--topology {topo.name} is still a DRAFT. "
+                 f"{len(todo)} field(s) still to fill:\n{bullets}\n"
+                 f"The file's own header says what each one wants. "
+                 f"./run.sh topologies marks drafts as drafts.")
     modem_defaults = {k: topo.defaults[k] for k in TOPO_MODEM if k in topo.defaults}
     freq_candidates = None
     for key, dest in TOPO_DEFAULTS.items():         # experiment-wide knobs

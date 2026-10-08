@@ -419,7 +419,20 @@ def publish_topology_draft(profile, d, stamp):
         raise ValueError("the survey saved no usable carrier, so there is nothing "
                          "for a topology to choose between")
 
+    # The DATA carrier and the ACK carrier are chosen by a person, from the windows
+    # the survey measured. A candidate list would let the survey choose, and that is
+    # offered in the header -- but a named blank is the default here because the two
+    # carriers must DIFFER for a wireless ACK, and nothing in a survey knows which of
+    # its windows someone intends for which direction.
+    opt_list = " | ".join(f"{c:g}" for c in cands)
+    data_hint = f"// pick one: {opt_list}   (or [{', '.join(f'{c:g}' for c in cands)}])"
+    ack_hint = f"// pick a DIFFERENT one: {opt_list}"
+
     tx_subdev, tx_gain = _TX_DEFAULTS.get(device, ("A:0", 25))
+    ack_subdev = {"b210": "A:B"}.get(device, "B:0")
+    rx_ant, rx_subdev = radio.get("ant"), radio.get("subdev")
+    rx_gain = radio.get("gain_db")
+
     # ── the header: what the survey found, above the file rather than inside it ──
     # The explanation used to live in `note` fields holding paragraphs, which is what
     # made the file read as generated output rather than as a topology. Comments keep
@@ -428,10 +441,10 @@ def publish_topology_draft(profile, d, stamp):
     H = ["// " + "-" * (W - 3),
          f"//  draft-{id_val}-{stamp}",
          f"//  Written by prepare.sh from the survey of {device} {args}",
-         f"//  on {radio.get('subdev')} / {radio.get('ant')}, band "
-         f"{radio.get('band')}, measured {stamp}.",
+         f"//  on {rx_subdev} / {rx_ant}, band {radio.get('band')}, "
+         f"measured {stamp}.",
          "//",
-         "//  CARRIERS THE SURVEY MEASURED AS USABLE   (freq_mhz below, best first)"]
+         "//  CARRIERS THE SURVEY MEASURED AS USABLE   (best first)"]
     for o in order:
         c = o.get("carrier_mhz")
         if c is None:
@@ -441,34 +454,55 @@ def publish_topology_draft(profile, d, stamp):
         wide = o.get("width_mhz")
         H.append(f"//      {c:>9.5g} MHz   {where}"
                  + (f"   ({wide:g} MHz wide)" if wide else ""))
-    H += ["//  Listed as candidates, not pinned: the survey picks the first one it",
-          "//  still measures as usable, so this file does not go stale.",
-          "//",
-          "//  TO FINISH",
-          "//    1. Replace REPLACE_ME_SOURCE_ID with the far radio's serial",
-          "//       (uhd_find_devices on that box).",
-          "//    2. The transmit side below is radio.sh's default for this device,",
-          "//       NOT a measurement -- a receive-only survey sees nothing about",
-          "//       transmitting. Check ant / subdev / gain against the rig."]
-    if profile.get("sync_threshold_measured") is False:
-        H += ["//    3. sync_threshold is a PLACEHOLDER: nothing triggered the",
-              "//       detector during a receive-only survey. Watch the [ACQ] Peak",
-              "//       correlation lines and set it below the true peak but above",
-              "//       the noise."]
     H += ["//",
-          "//  The receive side is from the survey and should not need editing.",
-          "//  For an ACK over the air: set the link's down medium to wireless and",
-          "//  give each node a second RF block on a DIFFERENT subdev with its own",
-          "//  carrier pool -- one subdev doing both means the transmitter swamps",
-          "//  its own receiver.",
+          "//  FILL IN, top to bottom. Every blank is named, and a run refuses the",
+          "//  file until they are gone -- listing the ones that are left.",
+          "//",
+          "//    ack_wireless   false -> the reply comes back over TCP, and snk.host",
+          "//                            is the address the source dials.",
+          "//                   true  -> the reply comes back over the air, on the",
+          "//                            SECOND RF block of each node. The two",
+          "//                            carriers must differ, and that subdev has",
+          "//                            to exist on the hardware.",
+          "//    freq_mhz       one of the carriers above, the SAME on both nodes.",
+          "//                   A list instead of one number lets the survey pick,",
+          "//                   which keeps the file from going stale.",
+          "//    ..._ACK_FREQ   a DIFFERENT carrier, for the reply. Ignored when",
+          "//                   ack_wireless is false.",
+          "//    serial         the far radio, from uhd_find_devices on its box.",
+          "//    host           BOTH or NEITHER. Two boxes: set each node's host to",
+          "//                   its own machine -- snk.host is what src dials for the",
+          "//                   TCP ACK. One box: delete both host lines; the serials",
+          "//                   already say which radio is which. Setting only one is",
+          "//                   refused, because a TCP reply needs a route home.",
+          "//",
+          "//  GAINS are per node and per direction: tx.gain drives the transmitter,",
+          "//  rx.gain the receiver. Only rx.gain came from the survey; every tx.gain",
+          "//  is radio.sh's default for this device, because a receive-only survey",
+          "//  sees nothing about transmitting. Check them against the rig.",
+          "//",
+          "//  scheme, waveform, fec, bytes_length, det_mult and sync_threshold sit",
+          "//  in defaults, so none of them has to be repeated on the command line.",
           "// " + "-" * (W - 3)]
+    if profile.get("sync_threshold_measured") is False:
+        # The one number in defaults that is NOT a measurement. Worth saying where it
+        # is written, because a threshold below the noise correlation makes the
+        # receiver lock onto noise and decode garbage -- which looks like a broken
+        # link, not like a setting.
+        H[-1:-1] = [
+            "//  sync_threshold is a PLACEHOLDER, not a measurement: nothing",
+            "//  triggered the detector during a receive-only survey. Watch the",
+            "//  [ACQ] Peak correlation lines on a real run and set it below the",
+            "//  true peak but above the noise. Too low and the receiver locks",
+            "//  onto noise and decodes garbage.",
+            "//"]
 
-    draft = {
+    body = {
         "schema": 1,
         "name": f"draft-{id_val}-{stamp}",
         "algo": "echo",
-        "description": (f"{device} pair from the {stamp} survey of {id_val}: data "
-                        f"over the air, ACK over TCP."),
+        "description": (f"{device} pair from the {stamp} survey of {id_val}. "
+                        f"Set ack_wireless to choose how the reply comes back."),
         "defaults": {
             "channel": "usrp",
             "scheme": "QPSK",
@@ -477,37 +511,61 @@ def publish_topology_draft(profile, d, stamp):
             "steps": 10,
             "max_attempts": 50,
             "bytes_length": 1000,
+            "det_mult": profile.get("det_mult", 30),
+            "sync_threshold": profile.get("sync_threshold", 15),
+            "ack_wireless": False,
         },
         "nodes": [
-            {"id": "src", "role": "tx",
-             "radio": {"device": device, "serial": "REPLACE_ME_SOURCE_ID",
-                       "tx": {"ant": "TX/RX", "subdev": tx_subdev, "gain": tx_gain,
-                              "freq_mhz": cands}}},
-            {"id": "snk", "role": "rx",
+            {"id": "src", "role": "tx", "host": "FILL_SOURCE_HOST_OR_DELETE",
+             "radio": {
+                 "device": device, "serial": "REPLACE_ME_SOURCE_ID",
+                 "tx": {"ant": "TX/RX", "subdev": tx_subdev, "gain": tx_gain,
+                        "freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION"},
+                 "rx": {"ant": "RX2", "subdev": ack_subdev, "gain": rx_gain,
+                        "freq_mhz": "REPLACE_ME_WITH_ACK_FREQ_OPTION"}}},
+            {"id": "snk", "role": "rx", "host": "FILL_SINK_IP_HERE",
              "ports": {"ack": 5599},
-             "radio": {"device": device, id_key: id_val,
-                       "rx": {"ant": radio.get("ant"), "subdev": radio.get("subdev"),
-                              "gain": radio.get("gain_db"), "freq_mhz": cands}}},
+             "radio": {
+                 "device": device, id_key: id_val,
+                 "rx": {"ant": rx_ant, "subdev": rx_subdev, "gain": rx_gain,
+                        "freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION"},
+                 "tx": {"ant": "TX/RX", "subdev": ack_subdev, "gain": tx_gain,
+                        "freq_mhz": "REPLACE_ME_WITH_ACK_FREQ_OPTION"}}},
         ],
         "links": [
-            {"from": "src", "to": "snk",
-             "medium": {"up": "wireless", "down": "tcp"}},
+            {"from": "src", "to": "snk", "medium": {"up": "wireless", "down": "tcp"}},
         ],
     }
-    # the detector values the survey derived, where a topology can now state them
-    for k in ("det_mult", "sync_threshold"):
-        if profile.get(k) is not None:
-            draft["defaults"][k] = profile[k]
-
     try:
         out = topology_dir()
     except OSError:
         out = d                                 # unwritable: beside the survey is fine
     path = os.path.join(out, f"draft-{id_val}-{stamp}.json")
+    # Hints go BESIDE the blank, not only in the header: the field is where someone
+    # is looking when they are about to type, and topologies take // comments now.
+    hints = [
+        ("REPLACE_ME_WITH_ACK_FREQ_OPTION", ack_hint),
+        ("REPLACE_ME_WITH_FREQ_OPTION", data_hint),
+        ('"ack_wireless"', "// true = ACK over the air, using the second RF block on "
+                           "each node; false = over TCP"),
+        ('"FILL_SINK_IP_HERE"', "// the address src dials for a TCP ACK. Delete BOTH "
+                                "host lines if the two radios share one box"),
+        ('"FILL_SOURCE_HOST_OR_DELETE"', "// the machine THIS radio is on. Delete BOTH "
+                                         "host lines if the two radios share one box"),
+        ('"REPLACE_ME_SOURCE_ID"', "// uhd_find_devices on the transmitting box"),
+    ]
+    out_lines = []
+    for line in json.dumps(body, indent=2).splitlines():
+        for needle, hint in hints:
+            if needle in line:
+                line = f"{line}   {hint}"
+                break
+        out_lines.append(line)
+
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:
         fh.write("\n".join(H) + "\n")
-        json.dump(draft, fh, indent=2)
+        fh.write("\n".join(out_lines) + "\n")
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)

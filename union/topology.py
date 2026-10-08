@@ -89,6 +89,20 @@ def _known(d, allowed, what):
                             f"(known: {', '.join(sorted(allowed))})")
 
 
+def is_placeholder(v):
+    """Is this value a blank a person still has to fill in?
+
+    Drafts ship with the things only a human knows left as named blanks -- the far
+    radio's serial, which carrier to use, the address the ACK is dialled at. Treating
+    them as data would send each one to a different layer to fail in its own way: an
+    unfilled serial reaches UHD as "no devices found", an unfilled carrier reaches the
+    tuner as a bad frequency, an unfilled host reaches connect() as a DNS error. One
+    predicate, checked once before the run starts, so every blank is reported together
+    in the file's own terms.
+    """
+    return isinstance(v, str) and ("REPLACE_ME" in v or "FILL_" in v)
+
+
 def _freq_field(v, where):
     """A carrier is one number, or a CANDIDATE LIST the survey chooses from.
 
@@ -100,6 +114,8 @@ def _freq_field(v, where):
     """
     if v is None:
         return
+    if is_placeholder(v):
+        return                            # a draft's blank; the run refuses it by name
     if isinstance(v, bool):
         raise TopologyError(f"{where}: {v!r} is not a frequency in MHz")
     if isinstance(v, (int, float)):
@@ -301,6 +317,30 @@ class Topology:
                 raise TopologyError(f"two nodes share the id {nd.id!r}")
             self.by_id[nd.id] = nd
         self.links = self._links(raw.get("links", "ring"))
+        # ONE SWITCH for the reply path, because a draft carries the wiring for both
+        # and choosing between them by editing every link's medium is the kind of edit
+        # that gets half-done. Set here rather than in run_algo so the lister shows the
+        # medium that will actually be used.
+        aw = self.defaults.get("ack_wireless")
+        if aw is not None:
+            if not isinstance(aw, bool):
+                raise TopologyError(
+                    f"defaults.ack_wireless must be true or false, not {aw!r}. true "
+                    f"returns the ACK over the air (each node needs a second RF block "
+                    f"on its own subdev and carrier); false returns it over TCP.")
+            for ln in self.links:
+                ln.down = "wireless" if aw else "tcp"
+            if not aw:
+                # ...and the second RF path is then genuinely UNUSED, not merely
+                # un-chosen. Left in place it still gets configured, so the modem
+                # tunes a subdev that a single-daughterboard X310 does not have and
+                # fails on hardware for a direction this file just said not to use.
+                # Only for files that opted in by writing the switch: a topology
+                # without it keeps every block exactly as authored.
+                for ln in self.links:
+                    for node, side in ((ln.a, "rx"), (ln.b, "tx")):
+                        if node.radio and node.radio.get(side) is not None:
+                            node.radio[side] = None
         self._validate()
 
     # ── links: an explicit list, or the two shorthands the CLI already has ──
@@ -613,11 +653,15 @@ def placeholders(topo):
     """
     out = []
     for nd in topo.nodes:
+        if is_placeholder(nd.host):
+            out.append(f"node {nd.id}: host = {nd.host}")
         radio = nd.radio or {}
-        for key in ("args", "serial", "addr"):
-            v = radio.get(key)
-            if isinstance(v, str) and PLACEHOLDER in v:
-                out.append(f"node {nd.id}: radio.{key} = {v}")
+        if is_placeholder(radio.get("args")):
+            out.append(f"node {nd.id}: radio.args = {radio['args']}")
+        for side in ("tx", "rx"):
+            for k, v in sorted((radio.get(side) or {}).items()):
+                if is_placeholder(v):
+                    out.append(f"node {nd.id}: radio.{side}.{k} = {v}")
     return out
 
 

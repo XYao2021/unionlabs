@@ -488,6 +488,62 @@ refuses("a comment header keeps line numbers", ["--topology", broken, "--node", 
 check("TEMPLATE parses with its header",
       lambda: [nd.id for nd in tp.load("TEMPLATE").nodes], ["src", "snk"])
 
+# ── ack_wireless: one switch for how the reply travels ───────────────────────
+# A draft carries the wiring for BOTH reply paths, so choosing between them by
+# editing every link's medium is the kind of edit that gets half-done. The switch
+# also has to make the unused path genuinely unused: left configured, the modem
+# tunes a subdev a single-daughterboard X310 does not have, and fails on hardware
+# for a direction the file just said not to use.
+def ack_pair(flag):
+    return wrote(f"ackw-{flag}", {
+        "schema": 1, "name": f"ackw-{flag}", "algo": "echo",
+        "defaults": {"channel": "usrp", "ack_wireless": flag},
+        "nodes": [
+            {"id": "src", "role": "tx",
+             "radio": {"device": "x310", "serial": "AAA",
+                       "tx": {"ant": "TX/RX", "subdev": "A:0", "gain": 25,
+                              "freq_mhz": 2404.5},
+                       "rx": {"ant": "RX2", "subdev": "B:0", "gain": 20,
+                              "freq_mhz": 2440.5}}},
+            {"id": "snk", "role": "rx", "ports": {"ack": 5599},
+             "radio": {"device": "x310", "serial": "BBB",
+                       "rx": {"ant": "RX2", "subdev": "A:0", "gain": 20,
+                              "freq_mhz": 2404.5},
+                       "tx": {"ant": "TX/RX", "subdev": "B:0", "gain": 25,
+                              "freq_mhz": 2440.5}}}],
+        "links": [{"from": "src", "to": "snk",
+                   "medium": {"up": "wireless", "down": "tcp"}}]})
+
+
+check("ack_wireless true -> the reply goes over the air",
+      lambda: tp.load(ack_pair(True)).links[0].down, "wireless")
+check("ack_wireless false -> over TCP",
+      lambda: tp.load(ack_pair(False)).links[0].down, "tcp")
+# true keeps both RF paths, because both are needed
+check("true keeps both directions on the source",
+      lambda: tp.load(ack_pair(True)).node("src").radio["rx"] is not None, True)
+# false drops the reply path on BOTH nodes: the transmitter's receive side and the
+# receiver's transmit side are the ACK path, and nothing else uses them
+check("false drops the source's reply receiver",
+      lambda: tp.load(ack_pair(False)).node("src").radio["rx"], None)
+check("false drops the sink's reply transmitter",
+      lambda: tp.load(ack_pair(False)).node("snk").radio["tx"], None)
+check("...but keeps the data path intact",
+      lambda: (tp.load(ack_pair(False)).node("src").radio["tx"]["subdev"],
+               tp.load(ack_pair(False)).node("snk").radio["rx"]["subdev"]),
+      ("A:0", "A:0"))
+# a topology that never mentions the switch is untouched, blocks and all
+check("no switch -> every block kept as authored",
+      lambda: tp.load("echo-pair-wireless").node("tx").radio["rx"] is not None, True)
+refuses("ack_wireless must be a boolean",
+        ["--topology", wrote("ackw-bad", {
+            "schema": 1, "name": "ackw-bad", "algo": "echo",
+            "defaults": {"ack_wireless": "yes"},
+            "nodes": [{"id": "a", "role": "client", "host": "127.0.0.1"},
+                      {"id": "b", "role": "server", "ports": {"net": 5700}}],
+            "links": [{"from": "a", "to": "b"}]}), "--node", "a"],
+        "must be true or false", algo="echo")
+
 # ── a DRAFT lives in topologies/ but must not RUN ────────────────────────────
 # prepare.sh writes one at the end of a survey with the far end left as a placeholder.
 # It belongs with every other topology so it is found by name; what stops it being a
