@@ -217,6 +217,41 @@ def main():
         check("addr radio keeps addr", sa["radio"].get("addr"), "192.168.40.2")
         check("...and no serial key is faked", "serial" in sa["radio"], False)
 
+        # ── regenerating the draft from a survey already on disk ────────────
+        # The draft is written at the end of a sweep. Anyone whose code predated it,
+        # or whose write failed, would otherwise have to spend the band again on a
+        # file built entirely from numbers already saved -- minutes and a radio for
+        # a convenience. --topology-only reads what is there.
+        sd = os.path.join(d, "surveys")
+        os.makedirs(sd, exist_ok=True)
+        for stamp, utc, args in (
+                ("2026-10-07_23-37-23", "2026-10-07T23:37:23Z", "serial=3620E8D"),
+                ("2026-10-06_10-00-00", "2026-10-06T10:00:00Z", "serial=3620E8D"),
+                ("2026-10-08_09-00-00", "2026-10-08T09:00:00Z", "serial=OTHER")):
+            q = dict(full, measured_utc=utc,
+                     radio=dict(full["radio"], args=args))
+            with open(os.path.join(
+                    sd, f"phy-x-vert2450-A0-RX2-{stamp}.json"), "w") as fh:
+                json.dump(q, fh)
+
+        got, stamp = prepare_phy.newest_profile(sd, "serial=3620E8D")
+        check("newest survey for THAT radio wins", stamp, "2026-10-07_23-37-23")
+        check("...and it is that radio's", (got["radio"] or {})["args"],
+              "serial=3620E8D")
+        # the stamp comes from the SURVEY, so the draft is traceable to the
+        # measurement rather than to when someone happened to regenerate it
+        d2 = prepare_phy.publish_topology_draft(got, sd, stamp)
+        check("draft carries the survey's stamp", os.path.basename(d2),
+              "draft-3620E8D-2026-10-07_23-37-23.json")
+        # unfiltered, the newest of ALL surveys wins
+        _, any_stamp = prepare_phy.newest_profile(sd)
+        check("unfiltered takes the newest of all", any_stamp, "2026-10-08_09-00-00")
+        try:
+            prepare_phy.newest_profile(os.path.join(d, "nothing-here"))
+            check("no survey -> told to survey", "returned", "raised")
+        except FileNotFoundError as e:
+            check("no survey -> told to survey", "prepare.sh" in str(e), True)
+
         # a survey with nothing usable must REFUSE to write a draft, not emit a file
         # whose candidate list is empty -- that would resolve to no carrier at all
         try:

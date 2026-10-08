@@ -339,6 +339,40 @@ def topology_dir():
     return cands[0]
 
 
+def newest_profile(d, args=None):
+    """The most recent saved survey in d, optionally for one radio. -> (profile, stamp)
+
+    A survey costs minutes and a radio, and the draft written from it is only a
+    convenience -- so regenerating the draft must never require sweeping the band
+    again. This reads what is already on disk.
+    """
+    best = None
+    for path in sorted(glob.glob(os.path.join(d, "phy-*.json"))):
+        try:
+            with open(path) as fh:
+                prof = json.load(fh)
+        except Exception:
+            continue
+        if args and (prof.get("radio") or {}).get("args") != args:
+            continue
+        key = prof.get("measured_utc") or os.path.getmtime(path)
+        if best is None or str(key) > str(best[0]):
+            best = (key, prof, path)
+    if best is None:
+        raise FileNotFoundError(
+            f"no saved survey in {d}" + (f" for {args}" if args else "") +
+            " — run ./prepare.sh --band <band> first")
+    _, prof, path = best
+    # the stamp the survey was filed under, so the draft is traceable to it rather
+    # than to the moment someone happened to regenerate it
+    m = re.search(r"-(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$", path)
+    if m:
+        return prof, m.group(1)
+    local = (prof.get("measured_local") or "").strip()
+    return prof, (local.replace(" ", "_").replace(":", "-") or
+                  time.strftime("%Y-%m-%d_%H-%M-%S"))
+
+
 def publish_topology_draft(profile, d, stamp):
     """Write a ready-to-edit TOPOLOGY for the pair this radio is the RECEIVER of.
 
@@ -544,6 +578,9 @@ def main():
                          "(override the directory with $UNION_SETTINGS_DIR)")
     ap.add_argument("--binary", default=None)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--topology-only", action="store_true",
+                    help="skip the sweep: write the topology draft from the newest "
+                         "survey already saved for this radio. No radio is touched.")
     ap.add_argument("--all", action="store_true",
                     help="discover every connected USRP and prepare each in "
                          "turn (devices are auto-detected; give each its "
@@ -554,6 +591,28 @@ def main():
                          "not named here falls back to --band, with a warning "
                          "— the antenna cannot be probed.")
     a = ap.parse_args()
+
+    # Regenerate the topology draft from a survey already on disk, touching no radio.
+    # The draft is written at the end of a sweep, so anyone whose code predated it --
+    # or whose write failed -- would otherwise have to spend the band again for a file
+    # built entirely from numbers that are already saved.
+    if getattr(a, "topology_only", False):
+        d = os.environ.get("UNION_SETTINGS_DIR") or "/workspace/experiments/searching"
+        try:
+            prof, stamp = newest_profile(d, a.args or None)
+        except FileNotFoundError as e:
+            return str(e)
+        radio = prof.get("radio") or {}
+        print(f"[prepare] from the survey of {radio.get('device')} "
+              f"{radio.get('args')} on {radio.get('subdev')}/{radio.get('ant')} "
+              f"({radio.get('band')}), measured {stamp}")
+        path = publish_topology_draft(prof, d, stamp)
+        print(f"[prepare] topology draft: {path}")
+        print(f"[prepare]   replace REPLACE_ME_SOURCE_ID (uhd_find_devices on the "
+              f"transmitting box), then:")
+        print(f"[prepare]   ./run.sh --algo echo --topology "
+              f"{os.path.basename(path)[:-len('.json')]} --node snk")
+        return 0
     if a.node is None:
         # Same identity rule as discover-node.py and union/phy_profile.py, so what
         # prepare_phy writes is what radio.sh and run.sh later look for.

@@ -61,6 +61,7 @@ while [ $# -gt 0 ]; do
     --no-write) WRITE=0;     shift;;
     --dry-run)  DRY=1;       shift;;
     --all)      ALL=1;       shift;;
+    --topology-only) TOPO_ONLY=1; shift;;
     -h|--help)  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) EXTRA+=("$1"); shift;;
   esac
@@ -80,7 +81,7 @@ esac
 [ -z "$SUBDEV" ] && SUBDEV="$DEF_SUBDEV"
 [ -z "$GAIN" ]   && GAIN="$DEF_GAIN"
 
-if [ -z "$BAND" ] && [ "$ALL" = 0 ]; then
+if [ -z "$BAND" ] && [ "$ALL" = 0 ] && [ "${TOPO_ONLY:-0}" = 0 ]; then
   cat >&2 <<'TXT'
 --band is required: which antenna is on this radio?
 
@@ -97,6 +98,7 @@ CMD=(python3 "$PY" --device "$DEVICE" --args "$ARGS" --rx-ant "$ANT"
      --subdev "$SUBDEV" --gain "$GAIN")
 [ -n "$BAND" ] && CMD+=(--band "$BAND")
 [ "$ALL"   = 1 ] && CMD+=(--all)
+[ "${TOPO_ONLY:-0}" = 1 ] && CMD+=(--topology-only)
 [ "$WRITE" = 1 ] && CMD+=(--write)
 [ "$DRY"   = 1 ] && CMD+=(--dry-run)
 
