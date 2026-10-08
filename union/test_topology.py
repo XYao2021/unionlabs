@@ -555,6 +555,47 @@ check("TEMPLATE resolves without its extension",
 check("...and both extensions are searched",
       lambda: tp.EXTS, (".json", ".jsonc"))
 
+# ── one name, two extensions: refuse rather than choose ──────────────────────
+# A draft regenerated as .jsonc leaves the earlier .json beside it. The edits go
+# into the new file and the stale one answers to the same bare name, so the run
+# uses settings nobody is looking at -- which presents as the radio ignoring the
+# file. Picking one silently is the whole bug; naming both is the fix.
+def twin(stem):
+    d = os.path.join(TMP, "twins")
+    os.makedirs(d, exist_ok=True)
+    body = {"schema": 1, "name": stem, "algo": "echo",
+            "nodes": [{"id": "a", "role": "client", "host": "127.0.0.1"},
+                      {"id": "b", "role": "server", "ports": {"net": 5700}}],
+            "links": [{"from": "a", "to": "b"}]}
+    for ext, desc in ((".json", "stale"), (".jsonc", "edited")):
+        with open(os.path.join(d, stem + ext), "w") as fh:
+            json.dump(dict(body, description=desc), fh)
+    return d
+
+
+_twins = twin("twinned")
+_saved = os.environ.get("UNION_TOPOLOGY_DIR")
+os.environ["UNION_TOPOLOGY_DIR"] = _twins
+try:
+    try:
+        tp.load("twinned")
+        results.append(("one name two extensions is refused", False))
+    except tp.TopologyError as e:
+        results.append(("one name two extensions is refused", True))
+        results.append(("...and both files are named",
+                        "twinned.json" in str(e) and "twinned.jsonc" in str(e)))
+    # a full filename is unambiguous and still works
+    results.append(("...while the full filename still resolves",
+                    tp.load(os.path.join(_twins, "twinned.jsonc")).description
+                    == "edited"))
+finally:
+    if _saved is None:
+        os.environ.pop("UNION_TOPOLOGY_DIR", None)
+    else:
+        os.environ["UNION_TOPOLOGY_DIR"] = _saved
+for _lbl, _ok in results[-3:]:
+    print(f"  {_lbl:<34} {GREEN+'OK  '+OFF if _ok else RED+'FAIL'+OFF}")
+
 # ── ack_wireless: one switch for how the reply travels ───────────────────────
 # A draft carries the wiring for BOTH reply paths, so choosing between them by
 # editing every link's medium is the kind of edit that gets half-done. The switch
@@ -586,6 +627,30 @@ check("ack_wireless true -> the reply goes over the air",
       lambda: tp.load(ack_pair(True)).links[0].down, "wireless")
 check("ack_wireless false -> over TCP",
       lambda: tp.load(ack_pair(False)).links[0].down, "tcp")
+# the switch wins over a down medium written in the file, and SAYS so: a file that
+# reads "down": "wireless" while the run opens a TCP socket sends the reader to the
+# radio to explain it
+contra = wrote("ackw-contra", {
+    "schema": 1, "name": "ackw-contra", "algo": "echo",
+    "defaults": {"channel": "usrp", "ack_wireless": False},
+    "nodes": [
+        {"id": "src", "role": "tx",
+         "radio": {"device": "x310", "serial": "AAA",
+                   "tx": {"ant": "TX/RX", "subdev": "A:0", "freq_mhz": 2462.5},
+                   "rx": {"ant": "RX2", "subdev": "A:0", "freq_mhz": 2472.5}}},
+        {"id": "snk", "role": "rx", "ports": {"ack": 5599},
+         "radio": {"device": "x310", "serial": "BBB",
+                   "rx": {"ant": "RX2", "subdev": "A:0", "freq_mhz": 2462.5},
+                   "tx": {"ant": "TX/RX", "subdev": "A:0", "freq_mhz": 2472.5}}}],
+    "links": [{"from": "src", "to": "snk",
+               "medium": {"up": "wireless", "down": "wireless"}}]})
+import io as _io, contextlib as _ctx
+_buf = _io.StringIO()
+with _ctx.redirect_stdout(_buf):
+    _t = tp.load(contra)
+check("the switch beats the written medium", lambda: _t.links[0].down, "tcp")
+check("...and says it is overriding the file",
+      lambda: "overriding the link's down medium" in _buf.getvalue(), True)
 # true keeps both RF paths, because both are needed
 check("true keeps both directions on the source",
       lambda: tp.load(ack_pair(True)).node("src").radio["rx"] is not None, True)

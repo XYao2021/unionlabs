@@ -353,6 +353,7 @@ class Topology:
         # and choosing between them by editing every link's medium is the kind of edit
         # that gets half-done. Set here rather than in run_algo so the lister shows the
         # medium that will actually be used.
+        authored_down = {ln.down for ln in self.links}
         aw = self.defaults.get("ack_wireless")
         if aw is not None:
             if not isinstance(aw, bool):
@@ -360,8 +361,18 @@ class Topology:
                     f"defaults.ack_wireless must be true or false, not {aw!r}. true "
                     f"returns the ACK over the air (each node needs a second RF block "
                     f"on its own subdev and carrier); false returns it over TCP.")
+            want = "wireless" if aw else "tcp"
+            if authored_down and authored_down != {want}:
+                # Two ways to say one thing, and the flag wins. Saying so matters more
+                # than which wins: a file that reads "down": "wireless" while the run
+                # opens a TCP socket sends the reader to the radio to explain it.
+                print(f"[topology] {self.name}: ack_wireless is {str(aw).lower()}, so "
+                      f"the reply travels over {want.upper()} — overriding the link's "
+                      f"down medium of {', '.join(sorted(authored_down))} as written in "
+                      f"the file. Set ack_wireless to match what you want, or remove it "
+                      f"and let the link's medium decide.")
             for ln in self.links:
-                ln.down = "wireless" if aw else "tcp"
+                ln.down = want
             if not aw:
                 # ...and the second RF path is then genuinely UNUSED, not merely
                 # un-chosen. Left in place it still gets configured, so the modem
@@ -593,10 +604,20 @@ def resolve(name):
             if os.path.isfile(c):
                 return os.path.abspath(c)
     for d in search_path():
-        for c in cand:
-            p = os.path.join(d, c)
-            if os.path.isfile(p):
-                return p
+        hits = [os.path.join(d, c) for c in cand
+                if os.path.isfile(os.path.join(d, c))]
+        if len(hits) > 1:
+            # Picking one silently is how someone edits a file and runs a different
+            # one. It happens for real: a draft regenerated as .jsonc leaves the
+            # earlier .json beside it, the edits go into the new file, and the stale
+            # one answers to the same bare name.
+            raise TopologyError(
+                f"{name!r} is ambiguous in {d} — "
+                + ", ".join(sorted(os.path.basename(h) for h in hits))
+                + ". Two files, one name: edits to one would silently not apply to a "
+                  "run of the other. Delete the stale one, or pass the full filename.")
+        if hits:
+            return hits[0]
     if os.path.isfile(name):
         return os.path.abspath(name)
     return None
