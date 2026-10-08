@@ -406,6 +406,37 @@ def _profile_backend_check():
                                     "with the in-process backend")
 
 
+def _carrier_precedence_check():
+    """Does a topology still outrank a survey on the carrier? run_algo applies the phy
+    profile FIRST so the topology can overwrite it, but _typed()'s fallback test asks
+    whether a value differs from the parser default -- true of anything the profile
+    just wrote. The profile's carrier read as a typed flag, the topology declined to
+    overwrite it, and the documented order inverted to typed > profile > topology.
+    A topology pins one frequency for BOTH ends and a profile is per-radio, so the
+    surveyed end tuned to its own recommendation and the other to the file's: no
+    error, no timeout, just a receiver printing nothing."""
+    print(f"    {'carrier precedence':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable,
+                        os.path.join(HERE, "test_carrier_precedence.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) carrier-precedence paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines():
+        if "FAIL" in line:
+            print(f"      {line.strip()}")
+    return ("carrier precedence", "a survey now overrides the carrier a topology pins "
+                                  "for both ends — the two radios tune apart silently")
+
+
 def _topology_ownership_check():
     """With /workspace shared across machines, every container reads the SAME topology
     file, so each must start only the nodes whose RADIOS it actually holds. Host
@@ -626,6 +657,10 @@ def main():
         failures.append(bad)
 
     bad = _phy_features_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _carrier_precedence_check()
     if bad:
         failures.append(bad)
 

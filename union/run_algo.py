@@ -494,6 +494,17 @@ def _typed(ap, a, dest):
     """Did the experimenter actually choose this, or is it just the parser's default?"""
     if dest in getattr(a, "_typed", ()):
         return True
+    # A value the PHY profile filled in is a measurement, not a choice, so a topology
+    # file is still free to overwrite it. Without this exemption the value test below
+    # cannot tell the two apart: the profile is applied first, so whatever it set no
+    # longer equals the parser default and reads exactly like a flag someone typed.
+    # That silently inverted the documented order into flag > profile > topology, and
+    # the carrier is the setting where the inversion is both fatal and invisible --
+    # the surveyed end tuned to its own recommendation while the other end tuned to
+    # the number the topology pins for BOTH, and two radios on different frequencies
+    # raise no error, they simply never hear each other.
+    if dest in getattr(a, "_from_profile", ()):
+        return False
     return getattr(a, dest, None) != ap.get_default(dest)
 
 
@@ -502,6 +513,9 @@ def _set(ap, a, dest, value):
     if value is None or _typed(ap, a, dest):
         return False
     setattr(a, dest, value)
+    # It is the file's value now, not the survey's: it stops being exempt from the
+    # typed test above, and stops being reported as a carrier nobody agreed on.
+    getattr(a, "_from_profile", set()).discard(dest)
     return True
 
 
@@ -575,7 +589,7 @@ def warn_unpinned_carrier(a, topo):
     A topology pins the frequency for every node and wins over the profile, so a
     run that has one is fine. Otherwise say it out loud.
     """
-    if not getattr(a, "_freq_from_profile", False):
+    if "freq" not in getattr(a, "_from_profile", ()):
         return                      # typed, or from a topology: someone chose it
     if topo is not None:
         return                      # the wiring file speaks for both ends
@@ -691,6 +705,8 @@ def apply_phy_profile(ap, a):
     skips it, and everything applied is printed -- a default that arrives from a
     file without saying so is worse than no default at all.
     """
+    if not hasattr(a, "_from_profile"):
+        a._from_profile = set()     # which settings came from a survey, not a person
     if getattr(a, "no_phy_profile", False):
         return
     try:
@@ -742,7 +758,7 @@ def apply_phy_profile(ap, a):
     # --freq is in MHz here, exactly as the profile records the carrier.
     if vals.get("freq") is not None and _set(ap, a, "freq", float(vals["freq"])):
         applied.append(f"freq={a.freq:g}MHz")
-        a._freq_from_profile = True
+        a._from_profile.add("freq")
 
     # det_mult / sync_threshold reach the modem through --usrp-set, so add them
     # there only when the experimenter did not name them already -- AND only when the
@@ -1246,6 +1262,7 @@ def main():
     a = ap.parse_args()
     a.role_index = a.hub_index = None
     a._typed = _typed_flags(ap)         # what was actually typed, vs what merely defaulted
+    a._from_profile = set()             # ...and what a survey filled in, which a topology may overwrite
 
     # the wiring file, when --topology names one: it fills in everything about THIS node
     # that was not typed on the command line (role, ports, hosts, radio, medium).
