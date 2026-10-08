@@ -1042,7 +1042,9 @@ def apply_topology(ap, a):
     # UHD, "serial=REPLACE_ME_SOURCE_ID" surfaces as "no devices found", which sends
     # the reader to the radio, the cabling and the FPGA image rather than to the one
     # field they still owe.
-    todo = tp.placeholders(topo)
+    # scoped to THIS node: the far end's serial is the other container's to fill, and
+    # refusing here would stop anyone bringing a link up one end at a time
+    todo = tp.placeholders(topo, a.node)
     if todo:
         bullets = "\n".join(f"    {t}" for t in todo)
         sys.exit(f"--topology {topo.name} is still a DRAFT. "

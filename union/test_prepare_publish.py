@@ -263,12 +263,17 @@ def main():
         # loaded with ack_wireless false, the reply blocks are dropped -- so the
         # blanks that remain are the ones that actually matter for a TCP-ACK run
         check("the draft is detected as a draft, every blank named",
-              tp.placeholders(tp.load(dpath)),
-              ["node src: host = FILL_SOURCE_HOST_OR_DELETE",
-               "node src: radio.args = serial=REPLACE_ME_SOURCE_ID",
-               "node src: radio.tx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION",
-               "node snk: host = FILL_SINK_IP_HERE",
-               "node snk: radio.rx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION"])
+              sorted(tp.placeholders(tp.load(dpath))),
+              sorted(["node src: host = FILL_SOURCE_HOST_OR_DELETE",
+                      "node src: radio.args = serial=REPLACE_ME_SOURCE_ID",
+                      "node src: radio.tx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION",
+                      "node snk: host = FILL_SINK_IP_HERE",
+                      "node snk: radio.rx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION"]))
+        # SCOPED: the sink never has to know the source's serial. That radio is on
+        # another machine, and asking for it here stops anyone bringing a link up one
+        # end at a time -- start the receiver, watch it listen, then start the sender.
+        check("the sink is not asked for the source's radio",
+              [t for t in tp.placeholders(tp.load(dpath), "snk") if "src" in t], [])
         check("...and ack_wireless false drops the unused RF path",
               (tp.load(dpath).node("src").radio["rx"],
                tp.load(dpath).node("snk").radio["tx"]), (None, None))

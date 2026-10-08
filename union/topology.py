@@ -648,29 +648,67 @@ def load_if_file(name):
 PLACEHOLDER = "REPLACE_ME"
 
 
-def placeholders(topo):
-    """Fields still holding a REPLACE_ME, as 'node <id>: radio.<key>' strings.
+def _dialled_over_tcp(topo, nd):
+    """Does any TCP path touch this node, so that its `host` is actually read?
 
-    prepare.sh writes a topology at the end of a survey with everything it measured
-    filled in and the far end -- which lives on another box -- left as a placeholder.
-    Such a file belongs in topologies/ with every other topology; what it must not be
-    is RUNNABLE, because a placeholder reaching UHD fails as "no device found" and
-    sends the reader to the radio instead of to the one field they still owe.
+    A host is only ever used to dial or to bind. With the data over the air AND the
+    reply over the air there is no socket anywhere in the experiment, so a host is not
+    merely unset, it is irrelevant -- and refusing a run over an unfilled one asks for
+    a fact the run will never consult.
+    """
+    for ln in topo.links_of(nd):
+        if ln.up == "tcp" or ln.down == "tcp":
+            return True
+    return False
 
-    Reported rather than refused at load, so the lister can show a draft as a draft.
-    The refusal belongs where a run starts.
+
+def _radio_blanks(nd):
+    out = []
+    radio = nd.radio or {}
+    if is_placeholder(radio.get("args")):
+        out.append(f"node {nd.id}: radio.args = {radio['args']}")
+    for side in ("tx", "rx"):
+        for k, v in sorted((radio.get(side) or {}).items()):
+            if is_placeholder(v):
+                out.append(f"node {nd.id}: radio.{side}.{k} = {v}")
+    return out
+
+
+def placeholders(topo, node=None):
+    """Blanks still to fill. For ONE node when `node` is given, for the file otherwise.
+
+    SCOPED, because a topology describes a whole experiment while each container runs
+    one part of it. The sink does not read the source's serial: that radio is attached
+    to another machine, and the container that owns it is the one that needs it filled
+    in. Refusing the sink's run over it stops anyone bringing a link up one end at a
+    time, which is how a link is actually brought up -- start the receiver, see it
+    listening, then go and start the transmitter.
+
+    What a node DOES read from its peer is the address it dials, and only when a TCP
+    path exists. So that one is reported, named as the peer's.
+
+    Unscoped is the lister's view: show every blank in the file, since someone reading
+    the listing is looking at the experiment rather than running a node of it.
     """
     out = []
-    for nd in topo.nodes:
-        if is_placeholder(nd.host):
-            out.append(f"node {nd.id}: host = {nd.host}")
-        radio = nd.radio or {}
-        if is_placeholder(radio.get("args")):
-            out.append(f"node {nd.id}: radio.args = {radio['args']}")
-        for side in ("tx", "rx"):
-            for k, v in sorted((radio.get(side) or {}).items()):
-                if is_placeholder(v):
-                    out.append(f"node {nd.id}: radio.{side}.{k} = {v}")
+    if node is None:
+        for nd in topo.nodes:
+            out += _radio_blanks(nd)
+            if _dialled_over_tcp(topo, nd) and is_placeholder(nd.host):
+                out.append(f"node {nd.id}: host = {nd.host}")
+        return out
+
+    nd = topo.node(node)
+    out += _radio_blanks(nd)
+    if _dialled_over_tcp(topo, nd) and is_placeholder(nd.host):
+        out.append(f"node {nd.id}: host = {nd.host}")
+    # the one thing this node reads from another: where to dial it
+    for ln in topo.links_of(nd):
+        if ln.a.id != nd.id or not (ln.up == "tcp" or ln.down == "tcp"):
+            continue
+        if is_placeholder(ln.b.host):
+            out.append(f"node {ln.b.id}: host = {ln.b.host}  "
+                       f"(this node dials it for the reply)")
     return out
 
 

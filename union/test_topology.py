@@ -586,14 +586,49 @@ draft = wrote("a-draft", {
                    "rx": {"ant": "RX2", "subdev": "A:0", "freq_mhz": 2404.5}}}],
     "links": [{"from": "src", "to": "snk",
                "medium": {"up": "wireless", "down": "tcp"}}]})
-refuses("a draft is refused, not run", ["--topology", draft, "--node", "snk"],
-        "is still a DRAFT", algo="echo")
-refuses("...and it names the field to fill", ["--topology", draft, "--node", "snk"],
+# The blank is on src, so src is the node that cannot run -- and snk, whose own
+# fields are complete, must run. Each container fills in its own end.
+refuses("a draft is refused for the node that owns the blank",
+        ["--topology", draft, "--node", "src"], "is still a DRAFT", algo="echo")
+refuses("...and it names the field to fill",
+        ["--topology", draft, "--node", "src"],
         "radio.args = serial=REPLACE_ME_SOURCE_ID", algo="echo")
-check("the loader can tell a draft from a finished file",
+check("the OTHER node still runs: it does not read that radio",
+      lambda: tp.placeholders(tp.load(draft), "snk"), [])
+check("the file as a whole still shows the blank",
       lambda: len(tp.placeholders(tp.load(draft))), 1)
 check("...and a finished file has none",
       lambda: tp.placeholders(tp.load("echo-pair-radio")), [])
+
+# a host is only read when something DIALS it: with data AND reply over the air there
+# is no socket in the experiment, so an unfilled host is not a missing fact
+hostless = wrote("hostless-rf", {
+    "schema": 1, "name": "hostless-rf", "algo": "echo",
+    "defaults": {"channel": "usrp", "ack_wireless": True},
+    "nodes": [
+        {"id": "src", "role": "tx", "host": "FILL_ME",
+         "radio": {"device": "x310", "serial": "AAA",
+                   "tx": {"ant": "TX/RX", "subdev": "A:0", "freq_mhz": 2462.5},
+                   "rx": {"ant": "RX2", "subdev": "B:0", "freq_mhz": 2472.5}}},
+        {"id": "snk", "role": "rx", "host": "FILL_ME", "ports": {"ack": 5599},
+         "radio": {"device": "x310", "serial": "BBB",
+                   "rx": {"ant": "RX2", "subdev": "A:0", "freq_mhz": 2462.5},
+                   "tx": {"ant": "TX/RX", "subdev": "B:0", "freq_mhz": 2472.5}}}],
+    "links": [{"from": "src", "to": "snk",
+               "medium": {"up": "wireless", "down": "tcp"}}]})
+check("a wireless reply needs no host at all",
+      lambda: tp.placeholders(tp.load(hostless), "snk"), [])
+check("...for either end", lambda: tp.placeholders(tp.load(hostless), "src"), [])
+# flip the reply to TCP and the same unfilled host becomes a real missing fact
+tcpreply = wrote("hostless-tcp", dict(
+    json.load(open(hostless)), name="hostless-tcp",
+    defaults={"channel": "usrp", "ack_wireless": False}))
+check("a TCP reply makes the host required again",
+      lambda: tp.placeholders(tp.load(tcpreply), "snk"),
+      ["node snk: host = FILL_ME"])
+check("...and the source is told whose address it dials",
+      lambda: [t for t in tp.placeholders(tp.load(tcpreply), "src") if "dials" in t],
+      ["node snk: host = FILL_ME  (this node dials it for the reply)"])
 
 mistyped = wrote("mistyped-default", {
     "schema": 1, "name": "mistyped-default", "algo": "echo",

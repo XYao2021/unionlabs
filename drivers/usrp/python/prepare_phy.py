@@ -470,11 +470,18 @@ def publish_topology_draft(profile, d, stamp):
           "//    ..._ACK_FREQ   a DIFFERENT carrier, for the reply. Ignored when",
           "//                   ack_wireless is false.",
           "//    serial         the far radio, from uhd_find_devices on its box.",
-          "//    host           BOTH or NEITHER. Two boxes: set each node's host to",
-          "//                   its own machine -- snk.host is what src dials for the",
-          "//                   TCP ACK. One box: delete both host lines; the serials",
-          "//                   already say which radio is which. Setting only one is",
-          "//                   refused, because a TCP reply needs a route home.",
+          "//    host           ONLY read when a TCP path exists. With ack_wireless",
+          "//                   true there is no socket anywhere, so both host lines",
+          "//                   can stay as they are -- nothing consults them. With a",
+          "//                   TCP reply: two boxes -> set each node's host to its own",
+          "//                   machine (snk.host is what src dials); one box -> delete",
+          "//                   both lines, the serials already say which radio is",
+          "//                   which. Setting only one is refused.",
+          "//",
+          "//  YOU ONLY HAVE TO FILL YOUR OWN END. Each node is checked against what",
+          "//  THAT node reads, so --node snk never asks for the source's serial: that",
+          "//  radio is on another machine and its own container fills it in. Start the",
+          "//  receiver, watch it listen, then go and start the transmitter.",
           "//",
           "//  GAINS are per node and per direction: tx.gain drives the transmitter,",
           "//  rx.gain the receiver. Only rx.gain came from the survey; every tx.gain",
@@ -551,10 +558,11 @@ def publish_topology_draft(profile, d, stamp):
         ("REPLACE_ME_WITH_FREQ_OPTION", data_hint),
         ('"ack_wireless"', "// true = ACK over the air, using the second RF block on "
                            "each node; false = over TCP"),
-        ('"FILL_SINK_IP_HERE"', "// the address src dials for a TCP ACK. Delete BOTH "
-                                "host lines if the two radios share one box"),
-        ('"FILL_SOURCE_HOST_OR_DELETE"', "// the machine THIS radio is on. Delete BOTH "
-                                         "host lines if the two radios share one box"),
+        ('"FILL_SINK_IP_HERE"', "// only for a TCP reply: the address src dials. "
+                                "Ignored when ack_wireless is true"),
+        ('"FILL_SOURCE_HOST_OR_DELETE"', "// only for a TCP reply: the machine THIS "
+                                         "radio is on. Ignored when ack_wireless is "
+                                         "true"),
         ('"REPLACE_ME_SOURCE_ID"', "// uhd_find_devices on the transmitting box"),
     ]
     out_lines = []
