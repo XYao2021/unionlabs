@@ -437,6 +437,37 @@ def _carrier_precedence_check():
                                   "for both ends — the two radios tune apart silently")
 
 
+def _radio_command_check():
+    """Does a topology reproduce the hand-typed radio.sh command, flag for flag?
+
+    Two different things run a radio: `--algo ... --topology ...` runs an ALGORITHM,
+    and phy_link.RadioRoundTrip is request-over-air/reply-over-TCP by construction, so
+    it needs a socket that ack_wireless does not move. `run.sh radio --topology` runs
+    the modem ALONE, which is what the commands in COMMANDS_RUN actually are.
+    Conflating the two presents as "reply server 127.0.0.1:5700 never came up", which
+    says nothing about radios."""
+    print(f"    {'topology -> radio.sh cmd':<26} ", end="", flush=True)
+    t0 = time.time()
+    r = subprocess.run([sys.executable,
+                        os.path.join(HERE, "test_topology_radio.py")],
+                       cwd=REPO, capture_output=True, text=True)
+    dt = time.time() - t0
+    if r.returncode == 0:
+        m = re.search(r"(\d+) radio-command paths checked", r.stdout)
+        print(f"{GREEN}pass{OFF} {DIM}{dt:5.1f}s  ({m.group(1) if m else '?'} paths){OFF}")
+        return None
+    dep = missing_dependency(r.stdout + r.stderr)
+    if dep:
+        print(f"{YEL}skip{OFF} {DIM}{dt:5.1f}s  {dep}{OFF}")
+        return None
+    print(f"{RED}FAIL{OFF} {DIM}{dt:5.1f}s{OFF}")
+    for line in (r.stdout + r.stderr).strip().splitlines():
+        if "FAIL" in line:
+            print(f"      {line.strip()}")
+    return ("topology -> radio.sh", "a topology no longer emits the modem command it "
+                                    "is supposed to stand in for")
+
+
 def _freq_candidate_check():
     """A topology may offer CANDIDATE carriers and let the survey choose: "freq_mhz":
     [915, 925]. The trap is which survey decides -- a transmit carrier belongs to the
@@ -693,6 +724,10 @@ def main():
         failures.append(bad)
 
     bad = _freq_candidate_check()
+    if bad:
+        failures.append(bad)
+
+    bad = _radio_command_check()
     if bad:
         failures.append(bad)
 

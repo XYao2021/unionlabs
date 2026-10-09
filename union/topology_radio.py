@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""topology_radio.py — run a topology node as a PLAIN MODEM LINK, not an algorithm.
+
+    ./run.sh radio --topology x310-rf --node snk          # print the command
+    ./run.sh radio --topology x310-rf --node snk --run    # ...and exec it
+
+WHY THIS EXISTS, AND WHY --algo IS NOT THE SAME THING.
+
+`./run.sh --algo echo --topology X --node snk` runs an ALGORITHM over the radio.
+phy_link.RadioRoundTrip is request-over-air, reply-over-TCP by construction: the
+source sends the algorithm's payload over the air and then dials net_host to read the
+answer, and the sink answers with _tcp_serve_once. That socket is not optional and
+ack_wireless does not move it -- ack_wireless chooses how the ARQ LINK-LAYER ack
+travels, which is a different acknowledgement entirely.
+
+The hand-typed commands people actually bring up a link with are not that. They are
+
+    ./radio.sh rx --device x310 --args addr=... --role sink_arq --ack-transport rf ...
+
+-- the C++ modem on its own, moving its own message, acknowledging over RF, with no
+socket and no Python in the path. There is nothing for a TCP reply leg to carry,
+because there is no algorithm asking a question.
+
+Both are worth having and neither substitutes for the other, so this translates the
+topology into the second one. The topology stays the single place the rig is written
+down -- carriers, connectors, gains, detector thresholds -- and this reads it and
+emits the modem invocation, which is what the original "one consolidated parameter
+file" was for.
+
+WHAT MAPS TO WHAT. A node's own radio block is its two signal paths, and its role in
+the link decides which is the data direction:
+
+    the node with the OUT-link transmits data  -> radio.sh tx, --role source_arq
+    the node with the IN-link receives data    -> radio.sh rx, --role sink_arq
+
+so the data carrier is tx.freq_mhz on the source and rx.freq_mhz on the sink, and the
+ACK carrier is the other one. ack_wireless picks --ack-transport; with rf the second
+path is a real RF path and both of a node's blocks are emitted, with tcp the ACK rides
+a socket and --ack-host/--ack-port come from the sink.
+"""
+import argparse
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+import topology as tp                                        # noqa: E402
+
+# defaults -> the modem option each one sets. Only what the modem itself takes: a
+# topology key with no modem equivalent (steps, channel) is for the Python layer and
+# has no meaning to a bare modem run.
+MODEM_DEFAULTS = (
+    ("scheme", "--scheme"),
+    ("waveform", "--waveform"),
+    ("bytes_length", "--bytes-length"),
+    ("det_mult", "--det-mult"),
+    ("sync_threshold", "--sync-threshold"),
+    ("samp_rate", "--rate"),
+    ("symbol_rate", "--sym"),
+)
+
+
+def _hz(mhz):
+    """MHz as the modem wants it: Hz, written <MHz>e6.
+
+    Always e6, never e9. 2400e6 is how every worked command in COMMANDS_RUN and docs/
+    writes it, so an emitted command can be read beside a hand-typed one and compared
+    field by field -- which is the whole point of emitting it rather than describing
+    it. 2.4e9 is the same number and defeats that.
+    """
+    return f"{float(mhz):g}e6"
+
+
+def _fec(defaults):
+    """--fec true|false plus the family, when the file names one.
+
+    radio.sh passes --fec true and leaves the family to the modem's own default of
+    conv, while run.sh defaults to turbo -- two defaults for a setting the modem says
+    must MATCH on both ends. A topology that states fec is therefore stated here in
+    full rather than half-passed.
+    """
+    if "fec" not in defaults:
+        # The file does not say, so do not decide for it: radio.sh applies its own
+        # default and the emitted command stays comparable to a hand-typed one. Stating
+        # it in the topology is how you pin it, and then it is passed in full.
+        return []
+    fec = defaults["fec"]
+    if fec in ("", None, False):
+        return ["--fec", "false"]
+    out = ["--fec", "true"]
+    if isinstance(fec, str) and fec not in ("true", "1"):
+        out += ["--fec-type", fec]
+        if fec in ("ldpc", "turbo"):
+            out += ["--fec-soft", "true"]
+    return out
+
+
+def command(topo, node_id):
+    """-> (argv for radio.sh, note lines). Raises TopologyError on a node that cannot."""
+    nd = topo.node(node_id)
+    if not nd.radio:
+        raise tp.TopologyError(
+            f"node {nd.id} has no radio block, so there is no modem to run. This mode "
+            f"drives the C++ modem directly; a node without a radio only means "
+            f"anything to the Python layer (./run.sh --algo ... --topology ...).")
+
+    out_links = [ln for ln in topo.links_of(nd) if ln.a.id == nd.id]
+    in_links = [ln for ln in topo.links_of(nd) if ln.b.id == nd.id]
+    if not out_links and not in_links:
+        raise tp.TopologyError(f"node {nd.id} is in no link, so it has no peer to "
+                               f"transmit to or receive from")
+    sends_data = bool(out_links)
+    link = (out_links or in_links)[0]
+    rf_ack = link.down == "wireless"
+
+    data_side, ack_side = ("tx", "rx") if sends_data else ("rx", "tx")
+    data = nd.radio.get(data_side) or {}
+    ack = nd.radio.get(ack_side) or {}
+    if not data:
+        raise tp.TopologyError(
+            f"node {nd.id} {'transmits' if sends_data else 'receives'} the data, so it "
+            f"needs a radio.{data_side} block and has none")
+
+    args = nd.radio["args"]
+    notes = []
+    cmd = ["tx" if sends_data else "rx", "--device", str(nd.radio.get("device") or ""),
+           "--args", args]
+
+    # BOTH --tx-args and --rx-args, always the same radio: one box, one USRP, two
+    # signal paths. That is what the modem means by full duplex, and it is what the
+    # worked commands pass.
+    cmd += ["--tx-args", args, "--rx-args", args]
+
+    for side, blk in (("tx", nd.radio.get("tx") or {}), ("rx", nd.radio.get("rx") or {})):
+        if not blk:
+            continue
+        if side == ack_side and not rf_ack:
+            notes.append(f"radio.{side} is this node's ACK path and the ACK goes over "
+                         f"TCP, so it is not emitted")
+            continue
+        if blk.get("subdev"):
+            cmd += [f"--{side}-subdev", str(blk["subdev"])]
+        if blk.get("ant"):
+            cmd += [f"--{side}-ant", str(blk["ant"])]
+        f = blk.get("freq_mhz")
+        if f is None:
+            raise tp.TopologyError(f"node {nd.id}: radio.{side}.freq_mhz is not set, so "
+                                   f"there is no carrier for that direction")
+        if tp.is_placeholder(f):
+            raise tp.TopologyError(f"node {nd.id}: radio.{side}.freq_mhz is still "
+                                   f"{f} — fill it in from the carriers the survey "
+                                   f"found (the file's header lists them)")
+        if isinstance(f, list):
+            raise tp.TopologyError(
+                f"node {nd.id}: radio.{side}.freq_mhz is a candidate list {f}. A bare "
+                f"modem run has no survey resolver behind it — pick one number, or use "
+                f"./run.sh --algo ... --topology ... which does resolve candidates.")
+        cmd += [f"--{side}-freq", _hz(f)]
+        if blk.get("gain") is not None:
+            cmd += [f"--{side}-gain", f"{float(blk['gain']):g}"]
+
+    cmd += ["--role", "source_arq" if sends_data else "sink_arq",
+            "--ack-transport", "rf" if rf_ack else "tcp"]
+    if not rf_ack:
+        sink = link.b
+        cmd += ["--ack-port", str(sink.dial_port("ack", 5599))]
+        if sends_data:
+            cmd += ["--ack-host", sink.dial_host() or "127.0.0.1"]
+            if not sink.dial_host():
+                notes.append(f"{sink.id} has no host, so the ACK socket is dialled at "
+                             f"127.0.0.1 — right on one machine, wrong on two")
+
+    d = topo.defaults
+    for key, flag in MODEM_DEFAULTS:
+        if key in d:
+            v = d[key]
+            cmd += [flag, _hz(v) if flag in ("--rate", "--sym") and v < 1e6
+                    else (f"{v:g}" if isinstance(v, (int, float)) else str(v))]
+    cmd += _fec(d)
+    # max_attempts belongs to the SOURCE: the sink has nothing to give up on
+    if sends_data and "max_attempts" in d:
+        cmd += ["--max-attempts", str(int(d["max_attempts"]))]
+    return cmd, notes
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="run one topology node as a plain modem link (radio.sh), "
+                    "with no Python algorithm and no TCP reply leg")
+    ap.add_argument("--topology", required=True, dest="name",
+                    help="topology file name or path")
+    ap.add_argument("--node", required=True, help="which node of it to run")
+    ap.add_argument("--run", action="store_true",
+                    help="exec radio.sh instead of only printing the command")
+    a, extra = ap.parse_known_args()
+
+    try:
+        topo = tp.load(a.name)
+        cmd, notes = command(topo, a.node)
+    except tp.TopologyError as e:
+        sys.exit(f"topology: {e}")
+
+    cmd += extra                       # anything typed still wins, as everywhere else
+    for n in notes:
+        print(f"[radio] note: {n}", file=sys.stderr)
+    script = os.path.join(REPO, "radio.sh")
+    print(f"{script} " + " ".join(cmd))
+    if a.run:
+        os.execv(script, [script] + cmd)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

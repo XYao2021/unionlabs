@@ -156,7 +156,15 @@ if [ "${1:-}" = "radio" ]; then
   # for the receive side. Copying that logic to a second place would give the two
   # copies a chance to disagree, and the first symptom of a disagreement is a link
   # that works through one entry point and not the other.
+  #
+  # WITH --topology it reads the parameters out of the wiring file instead of taking
+  # them as flags: same modem run, same roles, one place the rig is written down.
+  # That is NOT the same as `--algo ... --topology ...`, which runs an algorithm and
+  # therefore needs the TCP reply leg phy_link.RadioRoundTrip is built around.
   shift
+  case " $* " in
+    *" --topology "*) exec python3 "$HERE/union/topology_radio.py" "$@" ;;
+  esac
   exec "$HERE/radio.sh" "$@"
 fi
 if [ "${1:-}" = "topology" ] || [ "${1:-}" = "topo" ]; then
