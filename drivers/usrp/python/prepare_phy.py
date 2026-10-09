@@ -487,7 +487,20 @@ def publish_topology_draft(profile, d, stamp, force=False):
     # A B210 is different: its two channels A:A and A:B are the natural split.
     rx_ant, rx_subdev = radio.get("ant"), radio.get("subdev")
     rx_gain = radio.get("gain_db")
-    ack_subdev = "A:B" if device == "b210" else (rx_subdev or "A:0")
+    # The reply path should use the channel the DATA is not on -- and which that is
+    # differs per node, because the data leaves the source on its tx channel and
+    # arrives at the sink on its rx channel. One constant got the sink wrong whenever
+    # the survey used A:B: it put the ACK transmitter on the same channel AND the same
+    # connector the data arrives on, which cannot work and reads as "the ACK never
+    # fires". An X310 has one board, so there its two CONNECTORS are the two paths and
+    # the subdev stays the same.
+    def _other_channel(sub):
+        if device != "b210":
+            return sub or "A:0"
+        return "A:A" if str(sub or "A:A").strip().upper().endswith(":B") else "A:B"
+
+    src_ack_subdev = _other_channel(tx_subdev)      # the source LISTENS for the ACK
+    snk_ack_subdev = _other_channel(rx_subdev)      # the sink SENDS it
 
     # ── the header: what the survey found, above the file rather than inside it ──
     # The explanation used to live in `note` fields holding paragraphs, which is what
@@ -618,7 +631,7 @@ def publish_topology_draft(profile, d, stamp, force=False):
                  "device": device, "serial": "REPLACE_ME_SOURCE_ID",
                  "tx": {"ant": "TX/RX", "subdev": tx_subdev, "gain": tx_gain,
                         "freq_mhz": data_freq},
-                 "rx": {"ant": "RX2", "subdev": ack_subdev, "gain": rx_gain,
+                 "rx": {"ant": "RX2", "subdev": src_ack_subdev, "gain": rx_gain,
                         "freq_mhz": ack_freq}}},
             {"id": "snk", "role": "rx",
              "ports": {"ack": 5599},
@@ -626,7 +639,7 @@ def publish_topology_draft(profile, d, stamp, force=False):
                  "device": device, id_key: id_val,
                  "rx": {"ant": rx_ant, "subdev": rx_subdev, "gain": rx_gain,
                         "freq_mhz": data_freq},
-                 "tx": {"ant": "TX/RX", "subdev": ack_subdev, "gain": tx_gain,
+                 "tx": {"ant": "TX/RX", "subdev": snk_ack_subdev, "gain": tx_gain,
                         "freq_mhz": ack_freq}}},
         ],
         "links": [

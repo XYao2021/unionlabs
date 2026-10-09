@@ -366,35 +366,63 @@ class Topology:
         # that gets half-done. Set here rather than in run_algo so the lister shows the
         # medium that will actually be used.
         authored_down = {ln.down for ln in self.links if ln.down_authored}
+        # ── how the acknowledgement travels: rf | tcp | none ────────────────
+        # THREE states, not two. A link can also run with no ARQ at all -- the modem's
+        # plain tx/rx roles, where the source transmits its chunks and nothing comes
+        # back -- and that is a real way to use a radio: a one-way link, or a first
+        # bring-up where an ACK path would only add a second thing to be wrong.
+        # ack_wireless could say rf or tcp and had no way to say neither.
+        #
+        # `ack` is the switch; ack_wireless stays as an alias because files already
+        # carry it, and saying one thing two ways is worth less than not breaking them.
+        ack = self.defaults.get("ack")
         aw = self.defaults.get("ack_wireless")
-        if aw is not None:
-            if not isinstance(aw, bool):
-                raise TopologyError(
-                    f"defaults.ack_wireless must be true or false, not {aw!r}. true "
-                    f"returns the ACK over the air (each node needs a second RF block "
-                    f"on its own subdev and carrier); false returns it over TCP.")
-            want = "wireless" if aw else "tcp"
+        if ack is not None and not (isinstance(ack, str)
+                                    and ack.strip().lower() in ("rf", "tcp", "none")):
+            raise TopologyError(
+                f"defaults.ack must be \"rf\", \"tcp\" or \"none\", not {ack!r}. rf "
+                f"returns the ARQ acknowledgement over the air, tcp over a socket, and "
+                f"none runs the link with no ARQ at all (the modem's plain tx/rx "
+                f"roles: chunks go out and nothing comes back).")
+        if aw is not None and not isinstance(aw, bool):
+            raise TopologyError(
+                f"defaults.ack_wireless must be true or false, not {aw!r}. true "
+                f"returns the ACK over the air (each node needs a second RF block "
+                f"on its own subdev and carrier); false returns it over TCP. For no "
+                f"acknowledgement at all, use \"ack\": \"none\".")
+        if ack is not None:
+            ack = ack.strip().lower()
+            if aw is not None and ack != ("rf" if aw else "tcp"):
+                print(f"[topology] {self.name}: both ack and ack_wireless are set and "
+                      f"they disagree — using ack={ack!r}. Drop ack_wireless; it is "
+                      f"the older spelling of the same choice.", file=sys.stderr)
+        elif aw is not None:
+            ack = "rf" if aw else "tcp"
+        self.ack_mode = ack                      # None = the link's own medium decides
+
+        if ack is not None:
+            want = "wireless" if ack == "rf" else "tcp"
             if authored_down and authored_down != {want}:
-                # Two ways to say one thing, and the flag wins. Saying so matters more
-                # than which wins: a file that reads "down": "wireless" while the run
-                # opens a TCP socket sends the reader to the radio to explain it.
+                # Two ways to say one thing, and the switch wins. Saying so matters
+                # more than which wins: a file that reads "down": "wireless" while the
+                # run opens a TCP socket sends the reader to the radio to explain it.
                 # stderr: a warning is not output. `run.sh radio` writes the command
                 # it is about to run on stdout, and a caller capturing that to compare
                 # it against a hand-typed one should get the command and nothing else.
-                print(f"[topology] {self.name}: ack_wireless is {str(aw).lower()}, so "
-                      f"the reply travels over {want.upper()} — overriding the link's "
-                      f"down medium of {', '.join(sorted(authored_down))} as written in "
-                      f"the file. Set ack_wireless to match what you want, or remove it "
-                      f"and let the link's medium decide.", file=sys.stderr)
+                print(f"[topology] {self.name}: ack is {ack!r}, so the reply travels "
+                      f"over {want.upper()} — overriding the link's down medium of "
+                      f"{', '.join(sorted(authored_down))} as written in the file. Set "
+                      f"ack to match what you want, or remove it and let the link's "
+                      f"medium decide.", file=sys.stderr)
             for ln in self.links:
                 ln.down = want
-            if not aw:
-                # ...and the second RF path is then genuinely UNUSED, not merely
+            if ack != "rf":
+                # ...and the reverse RF path is then genuinely UNUSED, not merely
                 # un-chosen. Left in place it still gets configured, so the modem
-                # tunes a subdev that a single-daughterboard X310 does not have and
-                # fails on hardware for a direction this file just said not to use.
-                # Only for files that opted in by writing the switch: a topology
-                # without it keeps every block exactly as authored.
+                # tunes a channel that may not be cabled and fails on hardware for a
+                # direction this file just said not to use. Only for files that opted
+                # in by writing the switch: a topology without it keeps every block
+                # exactly as authored.
                 for ln in self.links:
                     for node, side in ((ln.a, "rx"), (ln.b, "tx")):
                         if node.radio and node.radio.get(side) is not None:

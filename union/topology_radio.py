@@ -155,7 +155,12 @@ def command(topo, node_id):
                                f"transmit to or receive from")
     sends_data = bool(out_links)
     link = (out_links or in_links)[0]
-    rf_ack = link.down == "wireless"
+    # NO ARQ AT ALL is a third state: the modem's plain tx/rx roles, chunks out and
+    # nothing back. Useful one-way, and useful on a first bring-up, where an ACK path
+    # is a second thing that can be wrong while you are still finding out whether the
+    # first one works.
+    no_ack = getattr(topo, "ack_mode", None) == "none"
+    rf_ack = (not no_ack) and link.down == "wireless"
 
     data_side, ack_side = ("tx", "rx") if sends_data else ("rx", "tx")
     data = nd.radio.get(data_side) or {}
@@ -203,9 +208,17 @@ def command(topo, node_id):
         if blk.get("gain") is not None:
             cmd += [f"--{side}-gain", f"{float(blk['gain']):g}"]
 
-    cmd += ["--role", "source_arq" if sends_data else "sink_arq",
-            "--ack-transport", "rf" if rf_ack else "tcp"]
-    if not rf_ack:
+    if no_ack:
+        # tx / rx, not source_arq / sink_arq: those ARE the ARQ. No --ack-transport
+        # either -- the option only chooses where an acknowledgement goes, and there
+        # is none.
+        cmd += ["--role", "tx" if sends_data else "rx"]
+        notes.append("ack is \"none\": the modem's plain tx/rx roles, no ARQ, so "
+                     "nothing is acknowledged and nothing is retransmitted")
+    else:
+        cmd += ["--role", "source_arq" if sends_data else "sink_arq",
+                "--ack-transport", "rf" if rf_ack else "tcp"]
+    if not rf_ack and not no_ack:
         sink = link.b
         cmd += ["--ack-port", str(sink.dial_port("ack", 5599))]
         if sends_data:
@@ -275,8 +288,10 @@ def command(topo, node_id):
             f"  cd {REPO} && ./deploy/initialization.sh --only-build\n"
             f"rebuilds it in place, or use an image built from this commit. "
             f"(./run.sh radio --dry-run shows the command without running anything.)")
-    # max_attempts belongs to the SOURCE: the sink has nothing to give up on
-    if sends_data and "max_attempts" in d:
+    # max_attempts belongs to the SOURCE, and only when there is an ARQ to give up
+    # on: with no acknowledgement there is nothing to count attempts against, and the
+    # modem rejects an option its chosen role does not take.
+    if sends_data and not no_ack and "max_attempts" in d:
         cmd += ["--max-attempts", str(int(d["max_attempts"]))]
     return cmd, notes
 

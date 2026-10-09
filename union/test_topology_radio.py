@@ -162,6 +162,59 @@ def main():
                             timeout=120)
         check("--run is still accepted", r2.returncode, 0)
 
+        # ── ack: rf | tcp | none ─────────────────────────────────────────────
+        # THREE states. ack_wireless could say rf or tcp and had no way to say
+        # neither -- but a link with no ARQ at all is a real way to use a radio: the
+        # modem's plain tx/rx roles, chunks out and nothing back. One-way, or a first
+        # bring-up where an ACK path is a second thing that can be wrong while you are
+        # still finding out whether the first one works.
+        na = dict(json.loads(TOPOLOGY.split("\n", 1)[1]))
+        na["defaults"]["max_attempts"] = 0
+        def emit_ack(mode):
+            d = dict(na)
+            d["defaults"] = dict(na["defaults"])
+            d["defaults"].pop("ack_wireless", None)
+            if mode is not None:
+                d["defaults"]["ack"] = mode
+            with open(os.path.join(tmp, "x310-rf.jsonc"), "w") as fh:
+                json.dump(d, fh)
+            out = {}
+            for node in ("src", "snk"):
+                _, line, _, _ = emit(tmp, node)
+                out[node] = flags(shlex.split(line.split("radio.sh", 1)[1]))[1]
+            return out
+
+        rf, tcp, none = emit_ack("rf"), emit_ack("tcp"), emit_ack("none")
+        check("rf: the ARQ roles and an RF transport",
+              (rf["src"].get("--role"), rf["src"].get("--ack-transport")),
+              ("source_arq", "rf"))
+        check("rf: no socket is opened", "--ack-port" in rf["src"], False)
+        check("tcp: the ARQ roles and a socket",
+              (tcp["src"].get("--role"), tcp["src"].get("--ack-transport"),
+               tcp["src"].get("--ack-port")), ("source_arq", "tcp", "5599"))
+        # none: tx/rx ARE the no-ARQ roles -- source_arq/sink_arq are the ARQ
+        check("none: the plain roles",
+              (none["src"].get("--role"), none["snk"].get("--role")), ("tx", "rx"))
+        check("none: no transport, because there is no acknowledgement",
+              "--ack-transport" in none["src"], False)
+        check("none: no socket either", "--ack-port" in none["src"], False)
+        # max_attempts counts un-ACKed sends, so it means nothing without an ACK --
+        # and the modem rejects an option its chosen role does not take
+        check("none: max-attempts is not passed",
+              "--max-attempts" in none["src"], False)
+        check("...but it is with an ARQ", tcp["src"].get("--max-attempts"), "0")
+
+        # ack_wireless still works, and a disagreement is reported
+        for aw, want in ((True, "rf"), (False, "tcp")):
+            d = dict(na); d["defaults"] = dict(na["defaults"])
+            d["defaults"].pop("ack", None); d["defaults"]["ack_wireless"] = aw
+            with open(os.path.join(tmp, "x310-rf.jsonc"), "w") as fh:
+                json.dump(d, fh)
+            _, line, _, _ = emit(tmp, "src")
+            g = flags(shlex.split(line.split("radio.sh", 1)[1]))[1]
+            check(f"ack_wireless {aw} still means {want}",
+                  g.get("--ack-transport"), want)
+
         # ── a node's own receive gates beat the experiment-wide ones ─────────
         # With a wireless ACK both nodes receive, but not the same thing: one takes a
         # long data burst, the other a short ACK, at different carriers with different

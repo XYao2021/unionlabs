@@ -1056,7 +1056,7 @@ def apply_topology(ap, a):
     # so it reaches nothing here -- but it must still be a KNOWN key or the check
     # below would refuse the very switch the drafts tell people to use.
     _known_defaults = (set(TOPO_DEFAULTS) | set(TOPO_MODEM)
-                       | {"medium", "ack_wireless"})
+                       | {"medium", "ack_wireless", "ack"})
     unknown = [k for k in topo.defaults if k not in _known_defaults]
     if unknown:
         sys.exit(f"--topology {topo.name}: defaults has no setting called "
