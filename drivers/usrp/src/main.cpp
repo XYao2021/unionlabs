@@ -728,14 +728,23 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         //   tcp (default): ACK over a socket; each box needs only its DATA RF
         //                  path (one cable). Source connects to --ack-host:--ack-port;
         //                  sink listens there.
-        //   rf           : ACK over the second RF path (RF B); each box is
-        //                  full-duplex on ONE B210, so --tx-args == --rx-args
-        //                  (same serial) with different --tx-subdev/--rx-subdev.
+        //   rf           : ACK back over the air, on the box's OWN transmit path --
+        //                  RfAckLink calls phy_.transmit() and poll_ack() pops
+        //                  phy_.rx_bits_fifo, i.e. the same PHYSICAL_LAYER the data
+        //                  uses. "RF A" and "RF B" name the two DIRECTIONS of one
+        //                  full-duplex radio, not two daughterboards: the only
+        //                  requirement is that the box can transmit and receive at
+        //                  once, which one X310 daughterboard does across its TX/RX
+        //                  and RX2 connectors, and a B210 does across A:A and A:B.
+        //                  Hence --tx-args == --rx-args (the same radio).
         if (config.ack_transport == "rf") {
             if (config.tx_args.empty() || config.tx_args != config.rx_args) {
                 std::cerr << "[ERROR] " << config.role << " with --ack-transport rf needs "
-                             "--tx-args and --rx-args set to the SAME serial (this box), "
-                             "with different --tx-subdev/--rx-subdev for RF A vs RF B.\n";
+                             "--tx-args and --rx-args set to the SAME radio (this box): "
+                             "the ACK goes back out through this node's own transmit "
+                             "path, so one radio has to do both directions at once. "
+                             "Give the two directions different CONNECTORS (--tx-ant "
+                             "TX/RX with --rx-ant RX2), and different carriers.\n";
                 return EXIT_FAILURE;
             }
         } else if (config.ack_transport != "tcp") {
@@ -1101,7 +1110,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 std::this_thread::sleep_for(std::chrono::milliseconds(grace_ms));
             }
             sink.stop();
-            sink.print_received_message();
+            sink.print_received_message(true);   // the one report, at the end
             if (!out_file.empty()) sink.save_message(out_file);
         } while (serve_forever && !global_stop_signal.load());
 
@@ -1529,7 +1538,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
         sink.stop();
-        sink.print_received_message();
+        sink.print_received_message(true);       // the one report, at the end
     }
 
     transceiver.stop();
