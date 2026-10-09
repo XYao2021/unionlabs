@@ -34,9 +34,13 @@
 #  ── Usage ───────────────────────────────────────────────────────────────────
 #     ./initialization.sh                 # system + full Python stack
 #     ./initialization.sh --build         # + compile sdr_system AND pyphy
+#     ./initialization.sh --only-build    # JUST compile: no apt, no pip, no images.
+#                                         #   what you want after `git pull` changed
+#                                         #   the C++ and nothing else.
 #     ./initialization.sh --minimal       # PHY only: skip torch/networkx/opencv
 #     ./initialization.sh --with-clip     # + real-CLIP weights extras
-#     ./initialization.sh --cpu-torch     # install CPU-only torch (smaller image)
+#     ./initialization.sh --cuda-torch    # the CUDA torch wheel (several GB; no host
+#                                         #   in this lab has a GPU, hence not default)
 #     ./initialization.sh --docs          # + pandoc + xelatex (PDF reference)
 #     ./initialization.sh --no-images     # skip uhd_images_downloader (offline/CI)
 #
@@ -46,13 +50,16 @@
 set -euo pipefail
 
 WITH_BUILD=0 WITH_DOCS=0 MINIMAL=0 WITH_CLIP=0 CPU_TORCH=0 NO_IMAGES=0
+CUDA_TORCH=0 ONLY_BUILD=0
 for arg in "$@"; do
     case "$arg" in
         --build)      WITH_BUILD=1 ;;
         --docs)       WITH_DOCS=1 ;;
         --minimal)    MINIMAL=1 ;;
         --with-clip)  WITH_CLIP=1 ;;
-        --cpu-torch)  CPU_TORCH=1 ;;
+        --cpu-torch)  CPU_TORCH=1 ;;          # accepted; now the default
+        --cuda-torch) CUDA_TORCH=1 ;;
+        --only-build) ONLY_BUILD=1; WITH_BUILD=1 ;;
         --no-images)  NO_IMAGES=1 ;;
         -h|--help)    sed -n '2,55p' "$0"; exit 0 ;;
         *) echo "unknown option: $arg (see --help)"; exit 1 ;;
@@ -77,7 +84,13 @@ else warn "no supported package manager (need apt, MacPorts, or Homebrew)"; exit
 say "Package manager: $PM   (root=$([ -z "$SUDO" ] && echo yes || echo no))"
 
 # ── system / C++ dependencies ───────────────────────────────────────────────
-say "Installing system + C++ dependencies (UHD, Boost, FFTW3f, VOLK, pybind11, CMake)..."
+# --only-build assumes they are already there, which is true of any box that has run
+# this once -- and that is the whole point: recompiling after a git pull should not
+# re-interrogate apt, re-download firmware, or touch pip.
+if [ "$ONLY_BUILD" -eq 1 ]; then
+    say "--only-build: skipping system packages, UHD images and the Python stack"
+fi
+if [ "$ONLY_BUILD" -eq 0 ]; then
 case "$PM" in
     apt)
         $SUDO apt-get update
@@ -98,8 +111,11 @@ case "$PM" in
         ;;
 esac
 
+fi      # end: ONLY_BUILD skips system packages
+
 # ── UHD FPGA / firmware images (needed the first time a radio is opened) ─────
-if [ "$NO_IMAGES" -eq 0 ] && command -v uhd_images_downloader >/dev/null 2>&1; then
+if [ "$ONLY_BUILD" -eq 0 ] && [ "$NO_IMAGES" -eq 0 ] \
+   && command -v uhd_images_downloader >/dev/null 2>&1; then
     say "Downloading UHD FPGA/firmware images..."
     $SUDO uhd_images_downloader || warn "uhd_images_downloader failed (re-run before using a radio)"
 fi
@@ -115,16 +131,23 @@ pip_install() {
 "$PY" -m pip install --upgrade pip >/dev/null 2>&1 || \
     "$PY" -m pip install --break-system-packages --upgrade pip >/dev/null 2>&1 || true
 
+if [ "$ONLY_BUILD" -eq 0 ]; then
 say "Installing Python: numpy, matplotlib, pybind11, python-pptx..."
 pip_install numpy matplotlib pybind11 python-pptx
+fi
 
-if [ "$MINIMAL" -eq 0 ]; then
-    if [ "$CPU_TORCH" -eq 1 ]; then
+if [ "$ONLY_BUILD" -eq 0 ] && [ "$MINIMAL" -eq 0 ]; then
+    # CPU-ONLY BY DEFAULT. The default torch wheel drags in ~3.5 GB of CUDA that no
+    # host in this lab can use, and it is slow enough to look like a hang -- which it
+    # has twice, on a node where someone wanted a two-minute C++ rebuild. Wanting CUDA
+    # is the exception, so it is the flag; --cpu-torch stays accepted because the
+    # Dockerfile passes it and notes elsewhere still name it.
+    if [ "$CUDA_TORCH" -eq 1 ]; then
+        say "Installing torch (default index: CUDA build, several GB)..."
+        pip_install torch
+    else
         say "Installing torch (CPU-only wheel), networkx, opencv..."
         pip_install --index-url https://download.pytorch.org/whl/cpu torch
-    else
-        say "Installing torch, networkx, opencv (ML applications: MARL, CLIP)..."
-        pip_install torch
     fi
     pip_install networkx opencv-python-headless
 else

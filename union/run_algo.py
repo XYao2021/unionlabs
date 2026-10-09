@@ -377,7 +377,7 @@ def apply_quiet_phy(ap, a):
         # what delivers it.
         print(f"[run_algo] --quiet-phy: this modem does not have it, so the per-block "
               f"chatter will print. It is a C++ option — deploy/initialization.sh "
-              f"--build, or a newer image, delivers it.")
+              f"--only-build, or a newer image, delivers it.")
         return
     if "quiet_phy" not in getattr(a, "_typed_usrp", set()):
         a.usrp_set = list(getattr(a, "usrp_set", []) or []) + ["quiet_phy=true"]
@@ -706,7 +706,7 @@ def _inject_modem_defaults(ap, a, pairs):
     for k in unknown:
         print(f"[topology] not applying {k}: this modem has no --quiet-phy, so the "
               f"per-block chatter will print. It is a C++ option — "
-              f"deploy/initialization.sh --build, or a newer image, delivers it.")
+              f"deploy/initialization.sh --only-build, or a newer image, delivers it.")
     add = [f"{k}={_fmt(v)}" for k, v in sorted(pairs.items())
            if k not in typed and k not in unknown]
     if add:

@@ -225,7 +225,7 @@ def command(topo, node_id):
             if key == "quiet_phy" and not modem_opts.supports(flag):
                 notes.append(
                     "this modem has no --quiet-phy, so the per-block chatter will "
-                    "print. It is a C++ option: deploy/initialization.sh --build, or "
+                    "print. It is a C++ option: deploy/initialization.sh --only-build, or "
                     "a newer image, is what delivers it")
                 continue
             if isinstance(v, bool):
@@ -272,7 +272,7 @@ def command(topo, node_id):
         raise tp.TopologyError(
             f"this modem does not have {', '.join(stale)} — it was built before this "
             f"checkout. Nothing is wrong with your file; the binary is behind.\n"
-            f"  cd {REPO} && ./deploy/initialization.sh --build\n"
+            f"  cd {REPO} && ./deploy/initialization.sh --only-build\n"
             f"rebuilds it in place, or use an image built from this commit. "
             f"(./run.sh radio --dry-run shows the command without running anything.)")
     # max_attempts belongs to the SOURCE: the sink has nothing to give up on

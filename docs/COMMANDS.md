@@ -483,7 +483,7 @@ PY
 ## 4. Drive the modem directly (`sdr_system`) — for experimenters
 
 `radio.sh` is a thin wrapper; the binary takes the same ideas with more roles. Build it with
-`deploy/initialization.sh --build`, then:
+`deploy/initialization.sh --build` (or `--only-build` to recompile an existing install without touching apt or pip), then:
 
 ```bash
 BIN=drivers/usrp/build/sdr_system

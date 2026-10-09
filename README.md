@@ -149,7 +149,8 @@ their markdown. Render one when you need to send it: `./docs/make-pdf.sh BEGINNE
 ## Install
 
 ```bash
-deploy/initialization.sh --build     # toolchain + compile drivers/usrp/build/sdr_system
+deploy/initialization.sh --build        # first install: toolchain + compile sdr_system
+deploy/initialization.sh --only-build   # afterwards: recompile only, no apt and no pip
 ```
 
 `--minimal` skips torch/networkx/opencv (PHY only); `--docs` adds the PDF toolchain.

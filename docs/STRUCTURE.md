@@ -130,4 +130,4 @@ cd drivers/usrp && cmake -S . -B build && cmake --build build   # compiles build
 drivers/usrp/bindings/build.sh                                  # builds pyphy (the blocks)
 ```
 
-`deploy/initialization.sh --build` installs the toolchain and compiles the engine in one step.
+`deploy/initialization.sh --build` installs the toolchain and compiles the engine in one step; `--only-build` recompiles an existing install and nothing else.
