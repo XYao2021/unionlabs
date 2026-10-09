@@ -268,6 +268,37 @@ def main():
         check("...and that the reply leg is always a socket",
               "THE APPLICATION REPLY IS ALWAYS TCP" in header, True)
 
+        # ── every tunable says what it is and which way to move it ───────────
+        # A number with no note is a number nobody dares change, and det_mult and
+        # sync_threshold are precisely the two that have to be iterated on real
+        # hardware. The wording comes from the modem's own registry so the file
+        # cannot drift from what the binary does.
+        body_text = "\n".join(l for l in open(dpath).read().splitlines()
+                              if not l.lstrip().startswith("//"))
+        for key, must in (("det_mult", ("TUNE", "noise_floor x this", "too LOW")),
+                          ("sync_threshold", ("TUNE", "31 after AGC", "garbage")),
+                          ("bytes_length", ("BIGGER", "64 x this")),
+                          ("max_attempts", ("0 = never give up",)),
+                          ("scheme", ("bits per symbol", "MUST match both ends")),
+                          ("fec", ("MUST match both ends",)),
+                          ("steps", ("--algo runs only",))):
+            line = [l for l in body_text.splitlines() if f'"{key}"' in l]
+            check(f"{key} carries a note", bool(line), True)
+            if line:
+                check(f"...{key} says which way to move it",
+                      [m for m in must if m not in line[0]], [])
+        # gain means a different thing per direction, so one note for both would
+        # make the reader pick -- which is the job the note is doing
+        gains = [l for l in body_text.splitlines() if '"gain"' in l]
+        check("gain notes exist on every block", len(gains), 4)
+        check("...and are per direction",
+              sorted({("tx" if "transmit power" in g else
+                       "rx" if "receive gain" in g else "?") for g in gains}),
+              ["rx", "tx"])
+        # the header names the order to tune them in, which is not guessable
+        check("the header says to tune det_mult first",
+              "Tune det_mult first" in header, True)
+
         # IT MUST LOAD. Round-trip through the real loader with the placeholder filled.
         ready = os.path.join(d, "ready.json")
         with open(ready, "w") as fh:

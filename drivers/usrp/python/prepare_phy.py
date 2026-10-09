@@ -502,6 +502,20 @@ def publish_topology_draft(profile, d, stamp):
           "//",
           "//  scheme, waveform, fec, bytes_length, det_mult and sync_threshold sit",
           "//  in defaults, so none of them has to be repeated on the command line.",
+          "//  Each one carries a note saying what it does and which way to move it.",
+          "//",
+          "//  THE TWO THAT ACTUALLY NEED ITERATING, in this order:",
+          "//    det_mult        the energy gate that decides a burst is present at",
+          "//                    all. Too low and ambient RF keeps waking the",
+          "//                    receiver; too high and it sleeps through real",
+          "//                    bursts. Symptom of too high: nothing at all.",
+          "//    sync_threshold  the correlation gate that decides a preamble was",
+          "//                    found. Too low and noise passes as a preamble, which",
+          "//                    decodes to garbage rather than to silence; too high",
+          "//                    and it never locks. Symptom of too low: output that",
+          "//                    looks like random bytes.",
+          "//  Tune det_mult first: until the detector fires, the correlator never",
+          "//  sees a burst to judge, so sync_threshold cannot be read.",
           "// " + "-" * (W - 3)]
     if profile.get("sync_threshold_measured") is False:
         # The one number in defaults that is NOT a measurement. Worth saying where it
@@ -568,12 +582,52 @@ def publish_topology_draft(profile, d, stamp):
     hints = [
         ("REPLACE_ME_WITH_ACK_FREQ_OPTION", ack_hint),
         ("REPLACE_ME_WITH_FREQ_OPTION", data_hint),
+        # ── what each knob is, and which way to move it ──────────────────────
+        # Wording taken from the modem's own option registry (docs/PARAMETERS.md,
+        # generated from sdr_system --help) rather than restated, so the file cannot
+        # drift from what the binary actually does.
+        ('"det_mult"', "// TUNE. Detector gate = measured noise_floor x this. RAISE so "
+                       "only real bursts fire (10-30 over the air); too HIGH misses "
+                       "weak bursts, too LOW triggers on ambient RF"),
+        ('"sync_threshold"', "// TUNE. ACQ correlation gate. A real preamble peaks near "
+                             "31 after AGC, noise far lower: set BELOW the true peak "
+                             "and ABOVE the noise. Too LOW locks onto noise and decodes "
+                             "garbage; too HIGH never acquires. Watch [ACQ] Peak "
+                             "correlation"),
+        ('"bytes_length"', "// payload bytes per chunk. BIGGER = fewer bursts and more "
+                           "throughput, but one bad chunk costs more. MUST match both "
+                           "ends. Longest message = 64 x this"),
+        ('"max_attempts"', "// source only: give up on a chunk after this many un-ACKed "
+                           "sends. 0 = never give up, which keeps the pair in lockstep "
+                           "but waits forever if the link dies"),
+        ('"scheme"', "// bits per symbol: QPSK=2, 8-PSK=3, 16-QAM=4. HIGHER carries more "
+                     "per symbol and needs more SNR. MUST match both ends"),
+        ('"fec"', "// error correction: conv | ldpc | turbo, or \"\" for none. STRONGER "
+                  "tolerates more noise and costs payload rate. MUST match both ends"),
+        ('"waveform"', "// sc = single carrier, ofdm = multicarrier"),
+        ('"steps"', "// --algo runs only: how many algorithm iterations. A bare modem "
+                    "run (run.sh radio) ignores it"),
+
         ('"ack_wireless"', "// true = ACK over the air, using the second RF block on "
                            "each node; false = over TCP"),
         ('"REPLACE_ME_SOURCE_ID"', "// uhd_find_devices on the transmitting box"),
     ]
-    out_lines = []
+    # gain means a different thing per direction, so the note has to know which block
+    # it is in. A single note covering both makes the reader pick, which is the job the
+    # note was supposed to do.
+    GAIN = {
+        "tx": "// dB, transmit power. RAISE for range; too high clips and distorts, "
+              "which looks like a bad link rather than a loud one",
+        "rx": "// dB, receive gain. RAISE for weak signals; too high saturates the "
+              "front end and the burst arrives distorted",
+    }
+    out_lines, side = [], None
     for line in json.dumps(body, indent=2).splitlines():
+        t = line.strip()
+        if t in ('"tx": {', '"rx": {'):
+            side = t[1:3]
+        elif t.startswith('"gain"') and side:
+            line = f"{line}   {GAIN[side]}"
         for needle, hint in hints:
             if needle in line:
                 line = f"{line}   {hint}"
