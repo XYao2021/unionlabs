@@ -175,7 +175,17 @@ public:
     // True once every chunk (per the header's total) has been received.
     bool done() const { return done_.load(); }
 
+    // Printed ONCE per transfer. There are two callers by design and both fire on a
+    // successful run: the worker prints as soon as the last chunk lands, and main
+    // prints again after stop() so a run that ended WITHOUT completing -- Ctrl-C, a
+    // partial message, the source giving up -- still shows what arrived. On a
+    // completed transfer that produced the same text twice, which reads as two
+    // messages having been received rather than one having been reported twice.
+    //
+    // The shutdown print is the one that yields: by then the message has already been
+    // shown, and the only caller that has new information is the first.
     void print_received_message() const {
+        if (printed_.exchange(true)) return;
         std::cout << "\n========== RECEIVED MESSAGE ==========\n";
         if (chunks_.empty()) {
             std::cout << "(nothing received)\n";
@@ -224,6 +234,9 @@ private:
     size_t           payload_bytes_{0};
     std::atomic<bool> running_{false};
     std::atomic<bool> done_{false};
+    // mutable: print_received_message() is const, and recording that it has reported
+    // is not a change to what was received
+    mutable std::atomic<bool> printed_{false};
     std::thread      worker_;
     std::map<uint8_t, std::string> chunks_;
     std::vector<uint8_t> ber_expected_;          // known TX payload for the BER diagnostic
