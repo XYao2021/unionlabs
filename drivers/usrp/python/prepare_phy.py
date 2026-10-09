@@ -373,7 +373,7 @@ def newest_profile(d, args=None):
                   time.strftime("%Y-%m-%d_%H-%M-%S"))
 
 
-def publish_topology_draft(profile, d, stamp):
+def publish_topology_draft(profile, d, stamp, force=False):
     """Write a ready-to-edit TOPOLOGY for the pair this radio is the RECEIVER of.
 
     A survey ends holding every number a topology needs but one. It knows the device,
@@ -583,6 +583,16 @@ def publish_topology_draft(profile, d, stamp):
     # are legal by extension, and VS Code marks every one of them in a .json file as an
     # error. topology.py searches both, so --topology draft-<id>-<stamp> still resolves.
     path = os.path.join(out, f"draft-{id_val}-{stamp}.jsonc")
+    # NEVER CLOBBER. This file exists to be edited -- carriers chosen, ack_wireless
+    # flipped, det_mult and sync_threshold tuned against the rig -- and --topology-only
+    # names it by the SURVEY's stamp, so regenerating lands on exactly the file someone
+    # has been working in. A survey can be repeated in minutes; a tuned link cannot.
+    if os.path.exists(path) and not force:
+        raise FileExistsError(
+            f"{path} already exists and is probably the file you have been editing "
+            f"(carriers, ack_wireless, det_mult, sync_threshold). Regenerating would "
+            f"put every default back. Pass --force to overwrite it deliberately, or "
+            f"move it aside first.")
     # Hints go BESIDE the blank, not only in the header: the field is where someone
     # is looking when they are about to type, and topologies take // comments now.
     hints = [
@@ -738,6 +748,9 @@ def main():
                          "(override the directory with $UNION_SETTINGS_DIR)")
     ap.add_argument("--binary", default=None)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="overwrite an existing topology draft. Without it an existing "
+                         "one is kept, because it is the file you edit.")
     ap.add_argument("--topology-only", action="store_true",
                     help="skip the sweep: write the topology draft from the newest "
                          "survey already saved for this radio. No radio is touched.")
@@ -761,18 +774,21 @@ def main():
         try:
             prof, stamp = newest_profile(d, a.args or None)
         except FileNotFoundError as e:
-            return str(e)
+            sys.exit(f"[prepare] {e}")
         radio = prof.get("radio") or {}
         print(f"[prepare] from the survey of {radio.get('device')} "
               f"{radio.get('args')} on {radio.get('subdev')}/{radio.get('ant')} "
               f"({radio.get('band')}), measured {stamp}")
-        path = publish_topology_draft(prof, d, stamp)
+        try:
+            path = publish_topology_draft(prof, d, stamp, force=a.force)
+        except FileExistsError as e:
+            sys.exit(f"[prepare] {e}")
         print(f"[prepare] topology draft: {path}")
         print(f"[prepare]   replace REPLACE_ME_SOURCE_ID (uhd_find_devices on the "
               f"transmitting box), then:")
         print(f"[prepare]   ./run.sh --algo echo --topology "
               f"{os.path.splitext(os.path.basename(path))[0]} --node snk")
-        return 0
+        return
     if a.node is None:
         # Same identity rule as discover-node.py and union/phy_profile.py, so what
         # prepare_phy writes is what radio.sh and run.sh later look for.
@@ -1028,7 +1044,8 @@ def main():
         # non-fatal on purpose: it is a convenience built FROM the measurement, so it
         # must never be able to cost the measurement, which took minutes on a radio.
         try:
-            tpath = publish_topology_draft(profile, d, stamp)
+            tpath = publish_topology_draft(profile, d, stamp,
+                                           force=getattr(a, "force", False))
             print(f"[prepare] topology draft: {tpath}")
             print(f"[prepare]   replace REPLACE_ME_SOURCE_ID (uhd_find_devices on the "
                   f"transmitting box), then:")

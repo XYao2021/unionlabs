@@ -378,6 +378,34 @@ def main():
         except FileNotFoundError as e:
             check("no survey -> told to survey", "prepare.sh" in str(e), True)
 
+        # ── never clobber a draft someone has been editing ──────────────────
+        # --topology-only names the file by the SURVEY's stamp, so regenerating lands
+        # on exactly the file being worked in: carriers chosen, ack_wireless flipped,
+        # det_mult and sync_threshold tuned against the rig. A survey can be repeated
+        # in minutes; a tuned link cannot.
+        with open(dpath) as fh:
+            before = fh.read()
+        with open(dpath, "a") as fh:
+            fh.write("\n// a human edited this\n")
+        with open(dpath) as fh:
+            edited = fh.read()
+        try:
+            prepare_phy.publish_topology_draft(full, d, "2026-10-08_00-00-00")
+            check("an existing draft is not overwritten", "wrote over it", "refused")
+        except FileExistsError as e:
+            check("an existing draft is not overwritten", "refused", "refused")
+            check("...and says why it matters",
+                  "the file you have been editing" in str(e), True)
+            check("...and how to proceed anyway", "--force" in str(e), True)
+        with open(dpath) as fh:
+            check("...the edit survived", fh.read(), edited)
+        # --force is the deliberate way through
+        prepare_phy.publish_topology_draft(full, d, "2026-10-08_00-00-00", force=True)
+        with open(dpath) as fh:
+            check("--force does overwrite", fh.read() == edited, False)
+        with open(dpath, "w") as fh:
+            fh.write(before)
+
         # a survey with nothing usable must REFUSE to write a draft, not emit a file
         # whose candidate list is empty -- that would resolve to no carrier at all
         try:

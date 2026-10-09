@@ -62,6 +62,7 @@ while [ $# -gt 0 ]; do
     --dry-run)  DRY=1;       shift;;
     --all)      ALL=1;       shift;;
     --topology-only) TOPO_ONLY=1; shift;;
+    --force)    FORCE=1;     shift;;
     -h|--help)  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) EXTRA+=("$1"); shift;;
   esac
@@ -99,6 +100,7 @@ CMD=(python3 "$PY" --device "$DEVICE" --args "$ARGS" --rx-ant "$ANT"
 [ -n "$BAND" ] && CMD+=(--band "$BAND")
 [ "$ALL"   = 1 ] && CMD+=(--all)
 [ "${TOPO_ONLY:-0}" = 1 ] && CMD+=(--topology-only)
+[ "${FORCE:-0}" = 1 ] && CMD+=(--force)
 [ "$WRITE" = 1 ] && CMD+=(--write)
 [ "$DRY"   = 1 ] && CMD+=(--dry-run)
 
