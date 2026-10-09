@@ -723,7 +723,14 @@ hostless = wrote("hostless-rf", {
                    "tx": {"ant": "TX/RX", "subdev": "B:0", "freq_mhz": 2472.5}}}],
     "links": [{"from": "src", "to": "snk",
                "medium": {"up": "wireless", "down": "tcp"}}]})
-check("a wireless reply needs no host at all",
+# A HOST IS NEVER A BLANK TO REFUSE. RadioRoundTrip is request-over-air,
+# reply-over-TCP by construction -- the sink answers with _tcp_serve_once and the
+# source dials net_host every step -- so a socket is opened even with both declared
+# media wireless; ack_wireless moves the ARQ ACK, not the algorithm's answer. But an
+# unset host has a working default (dial 127.0.0.1, bind 0.0.0.0), which is right
+# whenever both radios share a machine. Only the operator knows if the far end is
+# elsewhere, so run_algo WARNS it is about to dial 127.0.0.1 instead of refusing.
+check("a host is never a blank that stops a run",
       lambda: tp.placeholders(tp.load(hostless), "snk"), [])
 # ...and the blank must not be CARRIED as an address either: left in place it sits in
 # the config as net_host="FILL_ME", looking like a setting, and reaches bind()/connect()
@@ -735,16 +742,16 @@ check("...but is still reported as a blank",
 check("...and a real host is untouched",
       lambda: tp.load("fl-star-tcp").node("c0").host_blank, "")
 check("...for either end", lambda: tp.placeholders(tp.load(hostless), "src"), [])
-# flip the reply to TCP and the same unfilled host becomes a real missing fact
+# ...and that holds whichever way the ARQ ACK travels, because the reply leg does not
+# change with it
 tcpreply = wrote("hostless-tcp", dict(
     json.load(open(hostless)), name="hostless-tcp",
     defaults={"channel": "usrp", "ack_wireless": False}))
-check("a TCP reply makes the host required again",
-      lambda: tp.placeholders(tp.load(tcpreply), "snk"),
-      ["node snk: host = FILL_ME"])
-check("...and the source is told whose address it dials",
-      lambda: [t for t in tp.placeholders(tp.load(tcpreply), "src") if "dials" in t],
-      ["node snk: host = FILL_ME  (this node dials it for the reply)"])
+check("a TCP ACK does not make it a blank either",
+      lambda: tp.placeholders(tp.load(tcpreply), "snk"), [])
+# but a leftover blank must never be USED as an address
+check("a blank host still resolves to no host",
+      lambda: tp.load(tcpreply).node("snk").host, "")
 
 mistyped = wrote("mistyped-default", {
     "schema": 1, "name": "mistyped-default", "algo": "echo",

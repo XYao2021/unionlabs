@@ -2,7 +2,7 @@
   "schema": 1,
   "name": "echo-pair-wireless",
   "algo": "echo",
-  "description": "Point to point with nothing on the wire: the message goes over the air and so does the ACK. Each node uses one radio full duplex — data on RF A, the acknowledgement on RF B at a different frequency — so the two machines need no network path between them at all. The wireless sibling of echo-pair-radio, which sends over the air but ACKs over TCP.",
+  "description": "Point to point with the ARQ acknowledgement over the air: the message goes out on RF A and the link-layer ACK comes back on RF B at another frequency, so no reverse TCP is needed for the ARQ. The algorithm's REPLY still travels over a socket (RadioRoundTrip is request-over-air, reply-over-TCP), so two machines still need an IP route between them — set snk.host when they are not the same box. The wireless sibling of echo-pair-radio, which ACKs over TCP as well.",
   "defaults": {
     "steps": 10,
     "scheme": "QPSK",

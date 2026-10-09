@@ -252,10 +252,21 @@ def main():
             # about REPLACE_ME silently ignored every FILL_ blank
             return [path] if tp.is_placeholder(obj) else []
         # every blank is NAMED, and they are the only things left to a person
-        check("the blanks are exactly the far end, the carriers and the hosts",
+        # The far end and the carriers, and nothing else. No host blank: an unset
+        # host has a working default (dial 127.0.0.1, bind 0.0.0.0) which is right
+        # when both radios share a machine, so the header explains when to add one
+        # rather than the body carrying a blank that is usually correct to delete.
+        check("the blanks are exactly the far end and the carriers",
               sorted(set(placeholders(draft))),
-              sorted({".nodes.host", ".nodes.radio.serial",
+              sorted({".nodes.radio.serial",
                       ".nodes.radio.tx.freq_mhz", ".nodes.radio.rx.freq_mhz"}))
+        check("no host field is written at all",
+              [n for n in draft["nodes"] if "host" in n], [])
+        check("...and the header says when to add one",
+              "ADD snk.host IF THE TWO RADIOS ARE ON DIFFERENT MACHINES" in header,
+              True)
+        check("...and that the reply leg is always a socket",
+              "THE APPLICATION REPLY IS ALWAYS TCP" in header, True)
 
         # IT MUST LOAD. Round-trip through the real loader with the placeholder filled.
         ready = os.path.join(d, "ready.json")
@@ -279,10 +290,8 @@ def main():
         # blanks that remain are the ones that actually matter for a TCP-ACK run
         check("the draft is detected as a draft, every blank named",
               sorted(tp.placeholders(tp.load(dpath))),
-              sorted(["node src: host = FILL_SOURCE_HOST_OR_DELETE",
-                      "node src: radio.args = serial=REPLACE_ME_SOURCE_ID",
+              sorted(["node src: radio.args = serial=REPLACE_ME_SOURCE_ID",
                       "node src: radio.tx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION",
-                      "node snk: host = FILL_SINK_IP_HERE",
                       "node snk: radio.rx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION"]))
         # SCOPED: the sink never has to know the source's serial. That radio is on
         # another machine, and asking for it here stops anyone bringing a link up one

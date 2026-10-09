@@ -702,20 +702,6 @@ def load_if_file(name):
 PLACEHOLDER = "REPLACE_ME"
 
 
-def _dialled_over_tcp(topo, nd):
-    """Does any TCP path touch this node, so that its `host` is actually read?
-
-    A host is only ever used to dial or to bind. With the data over the air AND the
-    reply over the air there is no socket anywhere in the experiment, so a host is not
-    merely unset, it is irrelevant -- and refusing a run over an unfilled one asks for
-    a fact the run will never consult.
-    """
-    for ln in topo.links_of(nd):
-        if ln.up == "tcp" or ln.down == "tcp":
-            return True
-    return False
-
-
 def _radio_blanks(nd):
     out = []
     radio = nd.radio or {}
@@ -738,8 +724,11 @@ def placeholders(topo, node=None):
     time, which is how a link is actually brought up -- start the receiver, see it
     listening, then go and start the transmitter.
 
-    What a node DOES read from its peer is the address it dials, and only when a TCP
-    path exists. So that one is reported, named as the peer's.
+A HOST IS NOT LISTED HERE at all. An unset one has a working default -- a source
+    dials 127.0.0.1 and a server binds 0.0.0.0 -- which is exactly right when both
+    radios are on one machine, and that is the common case. Only the operator knows
+    whether the far end is elsewhere, so run_algo WARNS that it is about to dial
+    127.0.0.1 rather than refusing a setup that is usually fine.
 
     Unscoped is the lister's view: show every blank in the file, since someone reading
     the listing is looking at the experiment rather than running a node of it.
@@ -748,22 +737,8 @@ def placeholders(topo, node=None):
     if node is None:
         for nd in topo.nodes:
             out += _radio_blanks(nd)
-            if _dialled_over_tcp(topo, nd) and nd.host_blank:
-                out.append(f"node {nd.id}: host = {nd.host_blank}")
         return out
-
-    nd = topo.node(node)
-    out += _radio_blanks(nd)
-    if _dialled_over_tcp(topo, nd) and nd.host_blank:
-        out.append(f"node {nd.id}: host = {nd.host_blank}")
-    # the one thing this node reads from another: where to dial it
-    for ln in topo.links_of(nd):
-        if ln.a.id != nd.id or not (ln.up == "tcp" or ln.down == "tcp"):
-            continue
-        if ln.b.host_blank:
-            out.append(f"node {ln.b.id}: host = {ln.b.host_blank}  "
-                       f"(this node dials it for the reply)")
-    return out
+    return out + _radio_blanks(topo.node(node))
 
 
 def available():
