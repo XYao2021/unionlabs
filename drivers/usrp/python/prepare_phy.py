@@ -1047,8 +1047,17 @@ def main():
         # separate reservation, which end this is. (A transmitter is never surveyed:
         # its own noise says nothing about the link it will drive.)
         "role": "rx",
+        # BOTH names for the radio. `args` is how this survey addressed it, which is
+        # the measurement's own record; `serial` is what the hardware calls itself, so
+        # a later run that names the radio by serial -- which is what a shared topology
+        # must do, since an address means something different on each box -- still
+        # matches this measurement. Resolved here because the survey runs ON the box
+        # holding the radio; None when UHD says nothing, and then nothing is claimed.
         "radio": {"device": a.device, "args": a.args, "ant": a.rx_ant,
-                  "subdev": subdev, "gain_db": a.gain, "band": a.band},
+                  "subdev": subdev, "gain_db": a.gain, "band": a.band,
+                  "serial": (re.search(r"serial=([^,\s]+)", a.args or "").group(1)
+                             if "serial=" in (a.args or "")
+                             else resolve_serial(a.args or ""))},
         # measured once, at the recommended carrier, and shared by every option
         "noise": {"sweep_floor_db": round(sweep_floor, 1),
                   "floor_db": round(med, 1),

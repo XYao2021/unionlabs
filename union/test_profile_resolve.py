@@ -122,6 +122,42 @@ def main():
             else:
                 os.environ["UNION_SETTINGS_DIR"] = orig
 
+        # ── a radio has TWO names, and both must find its measurement ────────
+        # An address identifies a radio only within one host, so a topology shared
+        # across boxes names radios by SERIAL -- while the survey that measured one
+        # may have addressed it by IP. The survey records both, because it runs on the
+        # box holding the radio and can ask UHD. Without that, switching the topology
+        # to serials silently loses every profile measured through an address: the
+        # detector values stop arriving and nothing says why.
+        two = os.path.join(d, "twonames")
+        os.makedirs(two, exist_ok=True)
+        for node, args, serial, carrier, stamp in (
+                ("sinkbox", "addr=192.168.40.2", "3620E8D", 2462.5,
+                 "2026-10-08_11-28-03"),
+                ("srcbox", "addr=192.168.30.2", "F5B2C30", 2411.5,
+                 "2026-10-08_12-00-00")):
+            with open(os.path.join(
+                    two, f"phy-{node}-vert2450-A0-RX2-{stamp}.json"), "w") as fh:
+                json.dump({"schema": 3, "node": node, "role": "rx",
+                           "measured_utc": f"2026-10-08T{stamp[-8:].replace('-', ':')}Z",
+                           "radio": {"device": "x310", "args": args, "serial": serial,
+                                     "ant": "RX2", "subdev": "A:0", "gain_db": 25,
+                                     "band": "vert2450"},
+                           "det_mult": 30, "sync_threshold": 15,
+                           "options": [{"carrier_mhz": carrier,
+                                        "band_mhz": [carrier - 3, carrier + 3]}],
+                           "use": 0}, fh)
+        phy_profile.SEARCH = (two,)        # the enclosing finally restores it
+        for args, want in (("serial=3620E8D", 2462.5), ("addr=192.168.40.2", 2462.5),
+                           ("serial=F5B2C30", 2411.5), ("addr=192.168.30.2", 2411.5)):
+            vals, path, why = phy_profile.load(args=args, subdev="A:0", ant="RX2")
+            check(f"{args} finds its own measurement", vals.get("freq"), want)
+        # and a serial that is no radio here is still refused, so the two-name
+        # lookup has not turned into "match anything"
+        vals, path, why = phy_profile.load(args="serial=WRONG99", subdev="A:0",
+                                           ant="RX2")
+        check("a serial that is not ours is refused", path, None)
+
     if failures:
         print(f"  {failures} of {checked} profile-resolution paths FAILED")
         return 1

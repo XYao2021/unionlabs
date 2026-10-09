@@ -156,6 +156,7 @@ def _meta(path):
             "subdev": r.get("subdev") or prof.get("rx_subdev"),
             "ant":    r.get("ant")    or prof.get("rx_ant"),
             "args":   r.get("args")   or prof.get("args"),
+            "serial": r.get("serial"),
             "node":   prof.get("node"),
             "measured_utc": prof.get("measured_utc")}
 
@@ -205,7 +206,16 @@ def _keeps(h, field, value):
     if have is None:
         return True
     if field == "args":
-        return _ident_of(have) == _ident_of(value)
+        want = _ident_of(value)
+        if _ident_of(have) == want:
+            return True
+        # A radio has two names and a shared topology has to use the stable one. An
+        # address identifies a radio only within one host, so a file read on several
+        # boxes names radios by SERIAL -- while the survey that measured this one may
+        # have addressed it by IP. The profile records both, so the measurement is not
+        # lost the moment the topology starts calling the radio by its real name.
+        alt = _meta(h).get("serial")
+        return bool(alt) and str(alt) == str(want)
     return str(have) == str(value)
 
 
@@ -231,8 +241,13 @@ def _record_idents(h):
     except Exception:
         return set()
     out = set()
-    for v in (prof.get("node"), prof.get("serial"),
-              _ident_of((prof.get("radio") or {}).get("args"))):
+    radio = prof.get("radio") or {}
+    # radio.serial as well as a top-level one: a survey addressed by IP records the
+    # serial UHD reported alongside the args it used, so a topology naming the radio
+    # by serial -- which a file shared across boxes must do -- still finds the
+    # measurement taken through its address.
+    for v in (prof.get("node"), prof.get("serial"), radio.get("serial"),
+              _ident_of(radio.get("args"))):
         if v:
             out.add(str(v))
             out.add(str(v).replace(".", "-"))
