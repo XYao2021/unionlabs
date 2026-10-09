@@ -336,6 +336,15 @@ def check_freq_units(a):
                      f"(radio.sh is the one that takes Hz). Use {flag} {v / 1e6:g}.")
 
 
+def _modem_has(flag):
+    """Does the BUILT modem accept this option? Unknown counts as yes."""
+    try:
+        import modem_opts
+        return modem_opts.supports(flag)
+    except Exception:
+        return True
+
+
 def apply_quiet_phy(ap, a):
     """--quiet-phy silences the C++ modem's per-block chatter.
 
@@ -360,6 +369,15 @@ def apply_quiet_phy(ap, a):
               f"--usrp-backend radio (or radio.sh). This run is "
               f"{kind}/{getattr(a, 'usrp_backend', None) or 'n/a'}, where those lines "
               f"are never printed — use --no-phy-features for the [PHY-FEAT] lines.")
+        return
+    if not _modem_has("quiet_phy"):
+        # Typed, and still impossible. Normally a typed option that cannot arrive
+        # should stop the run -- but this one only changes how much is printed, and
+        # refusing to run at all over that is the worse trade. Say what is missing and
+        # what delivers it.
+        print(f"[run_algo] --quiet-phy: this modem does not have it, so the per-block "
+              f"chatter will print. It is a C++ option — deploy/initialization.sh "
+              f"--build, or a newer image, delivers it.")
         return
     if "quiet_phy" not in getattr(a, "_typed_usrp", set()):
         a.usrp_set = list(getattr(a, "usrp_set", []) or []) + ["quiet_phy=true"]
@@ -682,7 +700,15 @@ def _inject_modem_defaults(ap, a, pairs):
         # lowercase booleans: the announcement is read beside the file, which writes
         # JSON true/false, and Python's True in a message about a file is a small lie
         return str(v).lower() if isinstance(v, bool) else v
-    add = [f"{k}={_fmt(v)}" for k, v in sorted(pairs.items()) if k not in typed]
+    # Same reason as in topology_radio: the modem refuses the whole run over an
+    # option it does not know, and a logging preference must not cost a link.
+    unknown = [k for k in pairs if k == "quiet_phy" and not _modem_has(k)]
+    for k in unknown:
+        print(f"[topology] not applying {k}: this modem has no --quiet-phy, so the "
+              f"per-block chatter will print. It is a C++ option — "
+              f"deploy/initialization.sh --build, or a newer image, delivers it.")
+    add = [f"{k}={_fmt(v)}" for k, v in sorted(pairs.items())
+           if k not in typed and k not in unknown]
     if add:
         a.usrp_set = list(getattr(a, "usrp_set", []) or []) + add
         print(f"[topology] modem: {' '.join(add)}")

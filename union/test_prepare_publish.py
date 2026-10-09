@@ -432,6 +432,37 @@ def main():
         with open(dpath, "w") as fh:
             fh.write(before)
 
+        # ── a convenience must not die on a modem that predates it ───────────
+        # Python reaches a node by git pull; a new C++ option reaches it only when
+        # something recompiles. Boost refuses the WHOLE run over an option it does not
+        # know -- "Error: unrecognised option '--quiet-phy'" -- so a file asking for
+        # quieter logs cost the link, and the error named an option nobody typed.
+        import modem_opts
+        stub = os.path.join(d, "bin")
+        os.makedirs(stub, exist_ok=True)
+
+        def modem(help_text):
+            q = os.path.join(stub, "sdr_system")
+            with open(q, "w") as fh:
+                fh.write(f'#!/bin/sh\nprintf "%s\\n" "{help_text}"\n')
+            os.chmod(q, 0o755)
+            modem_opts._CACHE.clear()
+            return q
+
+        old = modem("  --det-mult arg   auto-threshold noise multiplier")
+        check("an old modem does not claim --quiet-phy",
+              modem_opts.supports("quiet_phy", old), False)
+        new = modem("  --quiet-phy [=arg(=1)] (=0)  silence the chatter")
+        check("a current one does", modem_opts.supports("quiet_phy", new), True)
+        check("...and neither invents an option that exists nowhere",
+              modem_opts.supports("no-such-flag", new), False)
+        # UNKNOWN COUNTS AS YES: nothing built, or a binary that will not answer, is
+        # not evidence the option is missing -- and dropping a requested setting on a
+        # guess is worse than letting the modem speak for itself
+        modem_opts._CACHE.clear()
+        check("an absent binary is not evidence",
+              modem_opts.supports("quiet_phy", os.path.join(d, "nope")), True)
+
         # a survey with nothing usable must REFUSE to write a draft, not emit a file
         # whose candidate list is empty -- that would resolve to no carrier at all
         try:

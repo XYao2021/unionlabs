@@ -48,6 +48,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import topology as tp                                        # noqa: E402
+import modem_opts                                            # noqa: E402
 
 # defaults -> the modem option each one sets. Only what the modem itself takes: a
 # topology key with no modem equivalent (steps, channel) is for the Python layer and
@@ -178,6 +179,16 @@ def command(topo, node_id):
     for key, flag in MODEM_DEFAULTS:
         if key in d:
             v = d[key]
+            # quiet_phy is a CONVENIENCE, and Boost refuses the whole run over an
+            # option it does not know. A modem compiled before --quiet-phy existed
+            # would lose the link because the file asked for quieter logs, and the
+            # error would name an option nobody typed.
+            if key == "quiet_phy" and not modem_opts.supports(flag):
+                notes.append(
+                    "this modem has no --quiet-phy, so the per-block chatter will "
+                    "print. It is a C++ option: deploy/initialization.sh --build, or "
+                    "a newer image, is what delivers it")
+                continue
             if isinstance(v, bool):
                 cmd += [flag, "true" if v else "false"]
             elif flag in ("--rate", "--sym") and isinstance(v, (int, float)) and v < 1e6:

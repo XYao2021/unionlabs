@@ -80,6 +80,11 @@ def check(flag, argv, get, want, needs_pyphy=False):
 print("\n  USRP link  (--role tx, the real-radio path)")
 L = lambda a: R.build_link(a, "tx")                     # noqa: E731
 _AP_NOOP = object()                                     # apply_quiet_phy reads only `a`
+# This file asserts that a flag REACHES what it configures. Whether the binary on this
+# particular machine was compiled recently enough to accept --quiet-phy is a different
+# question -- answered by modem_opts, and tested where that lives -- so pin it here
+# rather than let a stale local build make a plumbing test fail.
+R._modem_has = lambda flag: True
 check("--modulation",   ["--modulation", "16-QAM"],       lambda a: L(a).cfg["scheme"],        "16-QAM")
 check("--scheme",       ["--scheme", "8-PSK"],            lambda a: L(a).cfg["scheme"],        "8-PSK")
 check("--fec ldpc",     ["--fec", "ldpc"],                lambda a: (L(a).cfg["fec"], L(a).cfg.get("fec_type")), (True, "ldpc"))
