@@ -22,6 +22,7 @@ compared -- the modem does not care and neither should a test -- but every flag 
 value must be identical, because the point of emitting the command is that it can be
 read beside a hand-typed one and trusted to be the same run.
 """
+import json
 import os
 import shlex
 import subprocess
@@ -160,6 +161,38 @@ def main():
                             cwd=REPO, env=env, capture_output=True, text=True,
                             timeout=120)
         check("--run is still accepted", r2.returncode, 0)
+
+        # ── a node's own receive gates beat the experiment-wide ones ─────────
+        # With a wireless ACK both nodes receive, but not the same thing: one takes a
+        # long data burst, the other a short ACK, at different carriers with different
+        # noise floors. One experiment-wide det_mult cannot fit both -- tuned for the
+        # data, the ACK receiver sleeps through its burst, and the log says only
+        # "TIMEOUT on chunk 1" with nothing about why.
+        pn = dict(json.loads(TOPOLOGY.split("\n", 1)[1]))
+        pn["defaults"]["det_mult"] = 500
+        pn["defaults"]["sync_threshold"] = 15
+        for node in pn["nodes"]:
+            if node["id"] == "src":                 # its rx block IS the ACK receiver
+                node["radio"]["rx"]["det_mult"] = 30
+                node["radio"]["rx"]["sync_threshold"] = 12
+        with open(os.path.join(tmp, "x310-rf.jsonc"), "w") as fh:
+            json.dump(pn, fh)
+
+        def gates(node):
+            _, line, _, _ = emit(tmp, node)
+            f = flags(shlex.split(line.split("radio.sh", 1)[1]))[1]
+            return f.get("--det-mult"), f.get("--sync-threshold")
+
+        check("the data receiver keeps the file's gate", gates("snk"), ("500", "15"))
+        check("the ACK receiver uses its own", gates("src"), ("30", "12"))
+        # exactly one of each reaches the modem: the override has to REPLACE, not
+        # append, or program_options rejects the repeated option outright
+        _, line, _, _ = emit(tmp, "src")
+        check("det-mult is passed once", line.count("--det-mult"), 1)
+        check("sync-threshold is passed once", line.count("--sync-threshold"), 1)
+        _, _, err, _ = emit(tmp, "src")
+        check("...and the override is announced", "overriding the file's 500" in err,
+              True)
 
         # ── the option NAMES are not guessable, so they are checked ──────────
         # The C++ spellings are inconsistent with each other: --fec-type is

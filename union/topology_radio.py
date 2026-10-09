@@ -236,6 +236,21 @@ def command(topo, node_id):
                 cmd += [flag, f"{v:g}"]
             else:
                 cmd += [flag, str(v)]
+    # A node's own receive-side gates override the experiment-wide ones. The DATA
+    # side is what this node receives on, so that is where they belong.
+    for key, flag in (("det_mult", "--det-mult"),
+                      ("sync_threshold", "--sync-threshold")):
+        own = (nd.radio.get(data_side if not sends_data else ack_side) or {}).get(key)
+        if own is None:
+            continue
+        # drop the experiment-wide value, then state this node's
+        if flag in cmd:
+            i = cmd.index(flag)
+            del cmd[i:i + 2]
+        cmd += [flag, f"{float(own):g}"]
+        notes.append(f"{key}={own:g} from this node's receive block, overriding the "
+                     f"file's {d.get(key)}")
+
     cmd += _fec(d)
     bad = check_flags(cmd)
     if bad:

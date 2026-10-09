@@ -405,6 +405,13 @@ modem = wrote("modem-defaults", {
                "medium": {"up": "wireless", "down": "tcp"}}]})
 
 
+# Whether the binary on THIS machine was compiled recently enough to accept
+# --quiet-phy is modem_opts' question, tested where that lives. This file asserts that
+# a setting in a file reaches the layer it names, so pin it rather than let a stale
+# local build turn a plumbing test into a failure.
+R._modem_has = lambda flag: True
+
+
 def usrp_set(argv):
     a, _ = parse(argv, algo="echo")
     return sorted(getattr(a, "usrp_set", []) or [])

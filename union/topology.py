@@ -165,7 +165,13 @@ class Node:
     KEYS = ("id", "role", "host", "ports", "advertise", "radio", "lora", "note")
     PORTS = ("net", "peer", "ack", "down")
     RADIO = ("device", "args", "serial", "addr", "tx", "rx", "note")
-    SIDE = ("ant", "subdev", "gain", "freq_mhz")
+    # det_mult / sync_threshold are RECEIVE-side properties, so a node may state its
+    # own. With a wireless ACK both nodes receive, but not the same thing: one takes a
+    # long data burst, the other a short ACK, at different carriers with different
+    # noise floors. A single experiment-wide gate therefore cannot fit both -- tune it
+    # for the data and the ACK receiver sleeps through its burst, which presents as
+    # "the ACK never arrives" with nothing in the log to say why.
+    SIDE = ("ant", "subdev", "gain", "freq_mhz", "det_mult", "sync_threshold")
 
     def __init__(self, raw, index):
         raw = _dict(raw, f"nodes[{index}]")

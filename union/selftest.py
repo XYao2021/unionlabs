@@ -89,7 +89,18 @@ MISSING_DEP = [
     # rebuild something that already worked. phy_link now looks in
     # drivers/usrp/bindings/ itself, so reaching here means a real absence or a
     # real mismatch, and phy_link's own message distinguishes them.
-    ("pyphy",                    "pyphy extension unavailable — run --channel usrp "
+    # NOT the bare word "pyphy". Matching that turned any output which merely NAMED
+    # the backend into a dependency skip -- a run_algo note saying "this run uses pyphy
+    # backend, where they would be refused" made a whole failing suite report as
+    # skipped, so the failure it was reporting went unseen and the suite silently
+    # stopped being covered. A skip must be evidence the extension is absent, not
+    # evidence something mentioned it, so these are the phrases an actual absence
+    # produces.
+    ("No module named 'pyphy'",  "pyphy extension unavailable — run --channel usrp "
+                                 "directly for the reason (drivers/usrp/bindings/build.sh)"),
+    ("pyphy extension",          "pyphy extension unavailable — run --channel usrp "
+                                 "directly for the reason (drivers/usrp/bindings/build.sh)"),
+    ("cannot import pyphy",      "pyphy extension unavailable — run --channel usrp "
                                  "directly for the reason (drivers/usrp/bindings/build.sh)"),
 ]
 

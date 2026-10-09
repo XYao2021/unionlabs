@@ -1081,8 +1081,25 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             }
             // Grace period so a lost final ACK is re-sent when the source retransmits
             // its last chunk (the sink re-ACKs duplicates).
-            if (sink.done())
-                std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+            //
+            // DERIVED FROM THE ACK TIMEOUT, not a constant. It was 2000 ms while the
+            // source waits timeout_ms (3000 by default) before retransmitting, so the
+            // sink always left before the retransmission it was waiting for could
+            // arrive -- the recovery path could not fire even once. The symptom is a
+            // sink that reports success and stops while the source retransmits into
+            // nothing, which reads as "the ACK never works" rather than "the ACK was
+            // missed once and the second chance expired early".
+            //
+            // Two timeouts plus a margin: one to cover the retransmission itself and
+            // one so a second miss is still recoverable. Floored at the old 2000 ms so
+            // a very short --timeout cannot make the window useless.
+            if (sink.done()) {
+                const int grace_ms = std::max(2000, 2 * timeout_ms + 500);
+                std::cout << "[SINK] holding " << grace_ms << " ms to re-ACK a "
+                          << "retransmission (source ACK timeout is " << timeout_ms
+                          << " ms)\n";
+                std::this_thread::sleep_for(std::chrono::milliseconds(grace_ms));
+            }
             sink.stop();
             sink.print_received_message();
             if (!out_file.empty()) sink.save_message(out_file);
