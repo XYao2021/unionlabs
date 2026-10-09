@@ -373,6 +373,34 @@ def newest_profile(d, args=None):
                   time.strftime("%Y-%m-%d_%H-%M-%S"))
 
 
+def resolve_serial(args, timeout=20):
+    """-> the serial of the radio reachable at `args`, or None.
+
+    A topology is read on every box that shares /workspace, and an ADDRESS only
+    identifies a radio within one host: 192.168.40.2 is UHD's default for an X310, so
+    two machines each with one answer to it and both containers claim the same node.
+    run_topology already warns about exactly that. A serial is burned into the hardware
+    and means the same thing everywhere, so a draft should carry one even when the
+    survey was addressed by IP -- and UHD will tell us, since the radio is attached to
+    the box running the survey.
+
+    None when nothing answers, which is the ordinary case for --topology-only run on a
+    box that no longer has the radio: the draft then keeps the address it was surveyed
+    with rather than inventing anything.
+    """
+    try:
+        p = subprocess.run(["uhd_find_devices", "--args", args],
+                           capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None
+    for ln in (p.stdout + p.stderr).splitlines():
+        if ln.strip().startswith("serial:"):
+            got = ln.split(":", 1)[1].strip()
+            if got:
+                return got
+    return None
+
+
 def publish_topology_draft(profile, d, stamp, force=False):
     """Write a ready-to-edit TOPOLOGY for the pair this radio is the RECEIVER of.
 
@@ -406,6 +434,14 @@ def publish_topology_draft(profile, d, stamp, force=False):
     m = re.search(r"serial=([^,\s]+)", args) or re.search(r"addr=([^,\s]+)", args)
     id_key = "serial" if "serial=" in args else "addr"
     id_val = m.group(1) if m else "REPLACE_ME_SINK_ID"
+    id_note = ""
+    if id_key == "addr":
+        # ask the radio what it is called, so the file does not depend on an address
+        # that means something different on the next box
+        got = resolve_serial(args)
+        if got:
+            id_key, id_note = "serial", f" (resolved from {id_val})"
+            id_val = got
 
     # Preference order: the recommended carrier first, then the rest. The resolver
     # takes the first candidate it finds inside a measured window, so this makes the
@@ -425,8 +461,22 @@ def publish_topology_draft(profile, d, stamp, force=False):
     # carriers must DIFFER for a wireless ACK, and nothing in a survey knows which of
     # its windows someone intends for which direction.
     opt_list = " | ".join(f"{c:g}" for c in cands)
-    data_hint = f"// pick one: {opt_list}   (or [{', '.join(f'{c:g}' for c in cands)}])"
-    ack_hint = f"// pick a DIFFERENT one: {opt_list}"
+    # THE SURVEY ALREADY CHOSE. It swept the band, found the usable regions and ranked
+    # them, so leaving its own recommendation as a blank asked someone to retype a
+    # number the file was holding -- which is the transcription this whole mechanism
+    # exists to remove. Filled in, with the alternatives beside it so changing it is
+    # one edit.
+    data_freq = cands[0]
+    # the reply needs a DIFFERENT carrier, so the runner-up. With only one usable
+    # region there is no second to offer, and a blank is honest: nothing measured says
+    # where else to put it.
+    ack_freq = cands[1] if len(cands) > 1 else "REPLACE_ME_WITH_ACK_FREQ_OPTION"
+    data_hint = (f"// the survey's pick. Others measured usable: {opt_list}"
+                 f"   (or [{', '.join(f'{c:g}' for c in cands)}] to let it re-choose)")
+    ack_hint = (f"// must DIFFER from the data carrier. Others: {opt_list}"
+                if len(cands) > 1 else
+                f"// only one usable region was found ({opt_list}), so there is no "
+                f"second carrier to offer — survey a wider band, or use a TCP ACK")
 
     tx_subdev, tx_gain = _TX_DEFAULTS.get(device, ("A:0", 25))
     # THE SECOND RF PATH IS THE SECOND ANTENNA PORT, not a second daughterboard.
@@ -446,7 +496,8 @@ def publish_topology_draft(profile, d, stamp, force=False):
     W = 74
     H = ["// " + "-" * (W - 3),
          f"//  draft-{id_val}-{stamp}",
-         f"//  Written by prepare.sh from the survey of {device} {args}",
+         f"//  Written by prepare.sh from the survey of {device} "
+         f"{id_key}={id_val}{id_note}",
          f"//  on {rx_subdev} / {rx_ant}, band {radio.get('band')}, "
          f"measured {stamp}.",
          "//",
@@ -461,8 +512,10 @@ def publish_topology_draft(profile, d, stamp, force=False):
         H.append(f"//      {c:>9.5g} MHz   {where}"
                  + (f"   ({wide:g} MHz wide)" if wide else ""))
     H += ["//",
-          "//  FILL IN, top to bottom. Every blank is named, and a run refuses the",
-          "//  file until they are gone -- listing the ones that are left.",
+          "//  ONE THING TO FILL IN: the far radio's serial, on the src node. Everything",
+          "//  else is from the survey -- this radio's identity, its connector, its",
+          "//  subdev, the gain it listened at, and the carriers it measured. A run",
+          "//  refuses the file until that serial is real, and names it.",
           "//",
           "//    ack_wireless   false -> the reply comes back over TCP, and snk.host",
           "//                            is the address the source dials.",
@@ -471,12 +524,19 @@ def publish_topology_draft(profile, d, stamp, force=False):
           "//                            TX/RX and listens on RX2, same subdev, which",
           "//                            is what one full-duplex daughterboard gives",
           "//                            you. The two carriers must differ.",
-          "//    freq_mhz       one of the carriers above, the SAME on both nodes.",
-          "//                   A list instead of one number lets the survey pick,",
-          "//                   which keeps the file from going stale.",
-          "//    ..._ACK_FREQ   a DIFFERENT carrier, for the reply. Ignored when",
-          "//                   ack_wireless is false.",
-          "//    serial         the far radio, from uhd_find_devices on its box.",
+          "//    freq_mhz       already set to what the survey picked, the same on",
+          "//                   both nodes. Change it to any carrier listed above, or",
+          "//                   to a LIST of them to let the survey re-choose on every",
+          "//                   run, which keeps the file from going stale.",
+          "//    the reply       carrier is the runner-up, so it differs from the data",
+          "//                   one as a wireless ACK requires. Only read when",
+          "//                   ack_wireless is true.",
+          "//    serial         THE ONE BLANK: the far radio, from uhd_find_devices on",
+          "//                   its box. Radios are named by SERIAL throughout, not by",
+          "//                   address -- 192.168.40.2 is UHD's default for an X310,",
+          "//                   so two machines answer to it and both containers would",
+          "//                   claim the same node. A serial means the same thing on",
+          "//                   every box that reads this file.",
           "//",
           "//  ADD snk.host IF THE TWO RADIOS ARE ON DIFFERENT MACHINES. There is no",
           "//  host field below, because the default is right when they share one: the",
@@ -557,17 +617,17 @@ def publish_topology_draft(profile, d, stamp, force=False):
              "radio": {
                  "device": device, "serial": "REPLACE_ME_SOURCE_ID",
                  "tx": {"ant": "TX/RX", "subdev": tx_subdev, "gain": tx_gain,
-                        "freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION"},
+                        "freq_mhz": data_freq},
                  "rx": {"ant": "RX2", "subdev": ack_subdev, "gain": rx_gain,
-                        "freq_mhz": "REPLACE_ME_WITH_ACK_FREQ_OPTION"}}},
+                        "freq_mhz": ack_freq}}},
             {"id": "snk", "role": "rx",
              "ports": {"ack": 5599},
              "radio": {
                  "device": device, id_key: id_val,
                  "rx": {"ant": rx_ant, "subdev": rx_subdev, "gain": rx_gain,
-                        "freq_mhz": "REPLACE_ME_WITH_FREQ_OPTION"},
+                        "freq_mhz": data_freq},
                  "tx": {"ant": "TX/RX", "subdev": ack_subdev, "gain": tx_gain,
-                        "freq_mhz": "REPLACE_ME_WITH_ACK_FREQ_OPTION"}}},
+                        "freq_mhz": ack_freq}}},
         ],
         "links": [
             # only the DATA direction is stated; ack_wireless above decides the reply,
@@ -596,8 +656,8 @@ def publish_topology_draft(profile, d, stamp, force=False):
     # Hints go BESIDE the blank, not only in the header: the field is where someone
     # is looking when they are about to type, and topologies take // comments now.
     hints = [
-        ("REPLACE_ME_WITH_ACK_FREQ_OPTION", ack_hint),
-        ("REPLACE_ME_WITH_FREQ_OPTION", data_hint),
+        (f'"freq_mhz": {json.dumps(ack_freq)}', ack_hint),
+        (f'"freq_mhz": {json.dumps(data_freq)}', data_hint),
         # ── what each knob is, and which way to move it ──────────────────────
         # Wording taken from the modem's own option registry (docs/PARAMETERS.md,
         # generated from sdr_system --help) rather than restated, so the file cannot

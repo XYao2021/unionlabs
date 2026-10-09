@@ -174,20 +174,20 @@ def main():
         check("receiver keeps the surveyed gain", snk["radio"]["rx"]["gain"], 25)
         check("receiver named by serial, not address",
               snk["radio"].get("serial"), "327D82F")
-        # The carrier is a NAMED BLANK, not a pick: a wireless ACK needs two
-        # different carriers and nothing in a survey knows which window is meant for
-        # which direction. The options go in the header and beside the field.
-        check("the data carrier is a named blank",
-              snk["radio"]["rx"]["freq_mhz"], "REPLACE_ME_WITH_FREQ_OPTION")
-        check("both ends name the SAME data blank",
+        # THE SURVEY ALREADY CHOSE, so leaving its own recommendation as a blank
+        # asked someone to retype a number the file was holding. `use` was 1, so
+        # 2422.5 is the pick and 2404.5 the runner-up for the reply.
+        check("the data carrier is the survey's pick",
+              snk["radio"]["rx"]["freq_mhz"], 2422.5)
+        check("both ends get the SAME data carrier",
               src["radio"]["tx"]["freq_mhz"], snk["radio"]["rx"]["freq_mhz"])
-        check("the reply carrier is a different blank",
-              snk["radio"]["tx"]["freq_mhz"], "REPLACE_ME_WITH_ACK_FREQ_OPTION")
-        # RECOMMENDED FIRST in the options offered: `use` was 1, so 2422.5 leads
-        check("options are offered best-first",
-              header.index("2422.5") < header.index("2404.5"), True)
-        check("...and beside the field too, for pasting",
-              "pick one: 2422.5 | 2404.5 | 2440.5" in header, True)
+        check("the reply carrier is the runner-up, and differs",
+              (snk["radio"]["tx"]["freq_mhz"], src["radio"]["rx"]["freq_mhz"]),
+              (2404.5, 2404.5))
+        check("...which a wireless ACK requires",
+              snk["radio"]["tx"]["freq_mhz"] != snk["radio"]["rx"]["freq_mhz"], True)
+        check("the alternatives are still offered beside the field",
+              "Others measured usable: 2422.5 | 2404.5 | 2440.5" in header, True)
 
         # BOTH directions on BOTH nodes, with their own gain: with a wireless ACK
         # every node transmits and receives, so one `gain` per node cannot express it
@@ -237,8 +237,8 @@ def main():
               + [k for nd in draft["nodes"] for k in ("note",) if k in nd], [])
         check("the header is comments, so the body is plain JSON",
               header.lstrip().startswith("//"), True)
-        # only the far end is left to a person
-        check("the transmitter is a placeholder",
+        # ONLY the far end is left to a person
+        check("the transmitter is the one placeholder",
               src["radio"].get("serial"), "REPLACE_ME_SOURCE_ID")
         # ...and it is the ONLY one: count placeholder FIELDS, not prose mentions, since
         # the note and description both name it on purpose so a reader knows what to fix
@@ -256,10 +256,8 @@ def main():
         # host has a working default (dial 127.0.0.1, bind 0.0.0.0) which is right
         # when both radios share a machine, so the header explains when to add one
         # rather than the body carrying a blank that is usually correct to delete.
-        check("the blanks are exactly the far end and the carriers",
-              sorted(set(placeholders(draft))),
-              sorted({".nodes.radio.serial",
-                      ".nodes.radio.tx.freq_mhz", ".nodes.radio.rx.freq_mhz"}))
+        check("the far radio is the ONLY blank in the file",
+              sorted(set(placeholders(draft))), [".nodes.radio.serial"])
         check("no host field is written at all",
               [n for n in draft["nodes"] if "host" in n], [])
         check("...and the header says when to add one",
@@ -319,11 +317,10 @@ def main():
         # reaching UHD reads as "no device found" and blames the radio.
         # loaded with ack_wireless false, the reply blocks are dropped -- so the
         # blanks that remain are the ones that actually matter for a TCP-ACK run
-        check("the draft is detected as a draft, every blank named",
-              sorted(tp.placeholders(tp.load(dpath))),
-              sorted(["node src: radio.args = serial=REPLACE_ME_SOURCE_ID",
-                      "node src: radio.tx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION",
-                      "node snk: radio.rx.freq_mhz = REPLACE_ME_WITH_FREQ_OPTION"]))
+        # ONE blank, named: everything else came from the survey
+        check("the draft is a draft for exactly one reason",
+              tp.placeholders(tp.load(dpath)),
+              ["node src: radio.args = serial=REPLACE_ME_SOURCE_ID"])
         # SCOPED: the sink never has to know the source's serial. That radio is on
         # another machine, and asking for it here stops anyone bringing a link up one
         # end at a time -- start the receiver, watch it listen, then start the sender.
@@ -335,13 +332,42 @@ def main():
         check("...and the filled-in copy is not",
               tp.placeholders(tp.load(ready)), [])
 
-        # an addr-only radio keeps its address rather than inventing a serial
+        # ── RADIOS ARE NAMED BY SERIAL, even when surveyed by address ────────
+        # An address identifies a radio only within one host: 192.168.40.2 is UHD's
+        # default for an X310, so two machines answer to it and both containers claim
+        # the same node. The survey runs ON the box holding the radio, so UHD can be
+        # asked what it is called.
         byaddr = dict(full, radio=dict(full["radio"], args="addr=192.168.40.2"))
-        _, da = read_draft(prepare_phy.publish_topology_draft(
-            byaddr, d, "2026-10-08_01-00-00"))
-        sa = [n for n in da["nodes"] if n["id"] == "snk"][0]
-        check("addr radio keeps addr", sa["radio"].get("addr"), "192.168.40.2")
-        check("...and no serial key is faked", "serial" in sa["radio"], False)
+        fake = os.path.join(d, "bin")
+        os.makedirs(fake, exist_ok=True)
+        with open(os.path.join(fake, "uhd_find_devices"), "w") as fh:
+            fh.write('#!/bin/sh\necho "    serial: F5B2C30"\necho "    addr: 192.168.40.2"\n')
+        os.chmod(os.path.join(fake, "uhd_find_devices"), 0o755)
+        _saved_path = os.environ["PATH"]
+        os.environ["PATH"] = fake + os.pathsep + _saved_path
+        try:
+            dp2 = prepare_phy.publish_topology_draft(byaddr, d, "2026-10-08_01-00-00")
+            hdr2, da = read_draft(dp2)
+            sa = [n for n in da["nodes"] if n["id"] == "snk"][0]
+            check("an addressed radio is recorded by serial",
+                  sa["radio"].get("serial"), "F5B2C30")
+            check("...and the address is not kept as a second name",
+                  "addr" in sa["radio"], False)
+            check("...the file is named by serial too",
+                  os.path.basename(dp2), "draft-F5B2C30-2026-10-08_01-00-00.jsonc")
+            check("...and the header says where the serial came from",
+                  "resolved from 192.168.40.2" in hdr2, True)
+        finally:
+            os.environ["PATH"] = _saved_path
+
+        # with nothing answering -- --topology-only on a box that no longer holds the
+        # radio -- the address it was surveyed with is kept rather than invented away
+        _, da3 = read_draft(prepare_phy.publish_topology_draft(
+            byaddr, d, "2026-10-08_04-00-00"))
+        sa3 = [n for n in da3["nodes"] if n["id"] == "snk"][0]
+        check("no radio answering -> keep the address",
+              sa3["radio"].get("addr"), "192.168.40.2")
+        check("...and do not fake a serial", "serial" in sa3["radio"], False)
 
         # ── regenerating the draft from a survey already on disk ────────────
         # The draft is written at the end of a sweep. Anyone whose code predated it,
