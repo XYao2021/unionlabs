@@ -70,8 +70,16 @@ done
 
 # Per-device defaults: the address it usually lives at, its RF channel, and a
 # receive gain that is sane for it. Same values radio.sh uses.
+#
+# THE RECEIVE GAIN IS NOT JUST A DEFAULT, it is part of the measurement. The survey
+# records the noise floor it saw AT this gain, and det_mult multiplies that floor --
+# so a run that receives at a different gain is applying a threshold calibrated for a
+# different front end, silently. That is why the profile carries gain_db and why the
+# generated topology takes its rx gain from the survey rather than from a constant:
+# changing one without the other decalibrates the detector. 20 dB for the X310 matches
+# what this rig actually runs.
 case "$DEVICE" in
-  x310) DEF_ARGS="addr=192.168.40.2"; DEF_SUBDEV=A:0; DEF_GAIN=25;;
+  x310) DEF_ARGS="addr=192.168.40.2"; DEF_SUBDEV=A:0; DEF_GAIN=20;;
   n210) DEF_ARGS="addr=192.168.20.2"; DEF_SUBDEV=A:0; DEF_GAIN=25;;
   b210) DEF_ARGS="";                  DEF_SUBDEV=A:A; DEF_GAIN=40;;
   *) echo "unknown --device '$DEVICE' (x310|n210|b210)"; exit 2;;
