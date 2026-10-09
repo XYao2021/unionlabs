@@ -96,8 +96,47 @@ def _fec(defaults):
     if isinstance(fec, str) and fec not in ("true", "1"):
         out += ["--fec-type", fec]
         if fec in ("ldpc", "turbo"):
-            out += ["--fec-soft", "true"]
+            # UNDERSCORE. The modem's registry spells it fec_soft, while fec-type is
+            # hyphenated -- the C++ option names are not consistent with each other,
+            # so they are not guessable and must be read off the registry.
+            out += ["--fec_soft", "true"]
     return out
+
+
+# radio.sh's own options, read off its argument loop. It consumes these and emits
+# the modem's equivalents itself, so they are not modem option names and must not be
+# checked against the modem's registry.
+RADIO_SH_OWN = frozenset((
+    "--device", "--args", "--addr", "--serial", "--freq", "--scheme", "--waveform",
+    "--gain", "--rate", "--sym", "--fec", "--ant", "--subdev", "--dry-run",
+    "--no-profile", "--phy-node",
+))
+
+
+def check_flags(cmd):
+    """Every modem option this emits must EXIST in the modem's registry.
+
+    sdr.py is generated from `sdr_system --help`, so it is the authority on what the
+    binary accepts -- and the C++ names are not guessable from each other: --fec-type
+    is hyphenated while --fec_soft is not. Hand-writing them here produced
+    --fec-soft, which Boost rejected by refusing the whole run, on hardware, after a
+    survey. Checked at emit time so a wrong spelling fails in the test suite instead.
+
+    Silent when the registry cannot be imported: a checkout without the driver tree is
+    not evidence that a flag is wrong.
+    """
+    try:
+        sys.path.insert(0, os.path.join(REPO, "drivers", "usrp", "python"))
+        import sdr
+    except Exception:
+        return []
+    bad = []
+    for tok in cmd:
+        if not tok.startswith("--") or tok in RADIO_SH_OWN:
+            continue
+        if tok[2:] not in sdr.OPTIONS:
+            bad.append(tok)
+    return bad
 
 
 def command(topo, node_id):
@@ -198,6 +237,29 @@ def command(topo, node_id):
             else:
                 cmd += [flag, str(v)]
     cmd += _fec(d)
+    bad = check_flags(cmd)
+    if bad:
+        raise tp.TopologyError(
+            f"emitting {', '.join(bad)}, which the modem's own option registry does "
+            f"not list (docs/PARAMETERS.md, generated from sdr_system --help). That is "
+            f"a bug here, not in your file.")
+
+    # ...and of the options that DO exist in this checkout, which does the binary on
+    # this box actually have? Those are two different questions: Python arrives by git
+    # pull and a C++ option only when something recompiles. Boost answers the second
+    # one by refusing the whole run and naming a single option, so you fix that one,
+    # re-run, and meet the next -- which is how one old binary costs several attempts
+    # on a radio. Name them all at once, with what delivers them.
+    stale = [t for t in cmd
+             if t.startswith("--") and t not in RADIO_SH_OWN
+             and not modem_opts.supports(t)]
+    if stale:
+        raise tp.TopologyError(
+            f"this modem does not have {', '.join(stale)} — it was built before this "
+            f"checkout. Nothing is wrong with your file; the binary is behind.\n"
+            f"  cd {REPO} && ./deploy/initialization.sh --build\n"
+            f"rebuilds it in place, or use an image built from this commit. "
+            f"(./run.sh radio --dry-run shows the command without running anything.)")
     # max_attempts belongs to the SOURCE: the sink has nothing to give up on
     if sends_data and "max_attempts" in d:
         cmd += ["--max-attempts", str(int(d["max_attempts"]))]

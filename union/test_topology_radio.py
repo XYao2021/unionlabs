@@ -161,6 +161,41 @@ def main():
                             timeout=120)
         check("--run is still accepted", r2.returncode, 0)
 
+        # ── the option NAMES are not guessable, so they are checked ──────────
+        # The C++ spellings are inconsistent with each other: --fec-type is
+        # hyphenated, --fec_soft is not. Hand-writing them here produced --fec-soft,
+        # which Boost rejected by refusing the whole run -- on hardware, after a
+        # survey. sdr.py is generated from `sdr_system --help`, so it is the authority.
+        import sys as _sys
+        _sys.path.insert(0, os.path.join(REPO, "drivers", "usrp", "python"))
+        import sdr as _sdr
+        import topology_radio as _tr
+
+        for fec, want in (("turbo", ["--fec", "true", "--fec-type", "turbo",
+                                     "--fec_soft", "true"]),
+                          ("ldpc", ["--fec", "true", "--fec-type", "ldpc",
+                                    "--fec_soft", "true"]),
+                          ("conv", ["--fec", "true", "--fec-type", "conv"]),
+                          ("", ["--fec", "false"])):
+            check(f"fec {fec!r} emits the modem's own spelling",
+                  _tr._fec({"fec": fec}), want)
+        check("a file that says nothing about fec passes nothing",
+              _tr._fec({}), [])
+        # every flag emitted must EXIST in the registry, radio.sh's own excepted
+        check("the registry knows every modem flag we emit",
+              _tr.check_flags(["--fec-type", "turbo", "--fec_soft", "true",
+                               "--det-mult", "30", "--sync-threshold", "15",
+                               "--bytes-length", "1000", "--quiet-phy", "true",
+                               "--role", "rx", "--ack-transport", "rf"]), [])
+        check("...and radio.sh's own flags are not checked against it",
+              _tr.check_flags(["--device", "x310", "--rate", "2e6", "--sym", "1e6"]), [])
+        check("an invented flag is caught",
+              _tr.check_flags(["--fec-soft", "true"]), ["--fec-soft"])
+        # and the registry really does spell it that way, so this is not two copies of
+        # the same guess agreeing with each other
+        check("the registry spells it fec_soft", "fec_soft" in _sdr.OPTIONS, True)
+        check("...and not fec-soft", "fec-soft" in _sdr.OPTIONS, False)
+
         # a candidate list cannot be resolved by a bare modem: there is no survey
         # resolver in this path, and silently taking the first entry would put the
         # link on a carrier nobody chose
