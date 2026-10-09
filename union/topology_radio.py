@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """topology_radio.py — run a topology node as a PLAIN MODEM LINK, not an algorithm.
 
-    ./run.sh radio --topology x310-rf --node snk          # print the command
-    ./run.sh radio --topology x310-rf --node snk --run    # ...and exec it
+    ./run.sh radio --topology x310-rf --node snk            # run it
+    ./run.sh radio --topology x310-rf --node snk --dry-run  # print, touch no radio
+
+The command is always printed before it runs, so a session log says what it did.
 
 WHY THIS EXISTS, AND WHY --algo IS NOT THE SAME THING.
 
@@ -198,8 +200,13 @@ def main():
     ap.add_argument("--topology", required=True, dest="name",
                     help="topology file name or path")
     ap.add_argument("--node", required=True, help="which node of it to run")
-    ap.add_argument("--run", action="store_true",
-                    help="exec radio.sh instead of only printing the command")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print the radio.sh command and the modem line it resolves "
+                         "to, and open no radio")
+    # Accepted and ignored: running IS the default now, and this was the flag in the
+    # first version. Cheaper to keep honouring it than to have a command someone has
+    # in their notes start failing.
+    ap.add_argument("--run", action="store_true", help=argparse.SUPPRESS)
     a, extra = ap.parse_known_args()
 
     try:
@@ -212,10 +219,21 @@ def main():
     for n in notes:
         print(f"[radio] note: {n}", file=sys.stderr)
     script = os.path.join(REPO, "radio.sh")
+    # Printed either way. This is a translation of a file into a modem invocation, and
+    # a run that does not say what it ran leaves nothing to compare against the
+    # hand-typed command the file is standing in for.
     print(f"{script} " + " ".join(cmd))
-    if a.run:
-        os.execv(script, [script] + cmd)
-    return 0
+    if a.dry_run:
+        # radio.sh's own --dry-run prints the sdr_system line it would exec, so the
+        # whole chain -- topology to radio.sh to modem -- is visible without a radio.
+        cmd.append("--dry-run")
+    # FLUSH FIRST. execv replaces the process image without running Python's exit
+    # handlers, so anything still in a buffered stdout is simply gone -- and stdout is
+    # buffered exactly when it is piped or redirected, which is when someone is
+    # capturing the command to compare it against their notes.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(script, [script] + cmd)
 
 
 if __name__ == "__main__":

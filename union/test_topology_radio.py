@@ -84,12 +84,20 @@ def flags(tokens):
 
 
 def emit(tdir, node, *extra):
+    """--dry-run, because this subcommand RUNS by default like every other one here.
+    It still prints the radio.sh command it is about to exec, which is the line
+    compared below -- and it must survive being piped, which means flushing before
+    execv replaces the process."""
     env = dict(os.environ, UNION_TOPOLOGY_DIR=tdir)
     env.pop("UNION_SETTINGS_DIR", None)
     r = subprocess.run([os.path.join(REPO, "run.sh"), "radio",
-                        "--topology", "x310-rf", "--node", node, *extra],
+                        "--topology", "x310-rf", "--node", node, "--dry-run", *extra],
                        cwd=REPO, env=env, capture_output=True, text=True, timeout=120)
-    return r.returncode, (r.stdout or "").strip(), (r.stderr or "")
+    out = (r.stdout or "").strip()
+    # the radio.sh line specifically, not "the first line": stdout also carries the
+    # modem line radio.sh prints under its own --dry-run
+    cmd = next((l for l in out.splitlines() if "radio.sh" in l), "")
+    return r.returncode, cmd, (r.stderr or ""), out
 
 
 def main():
@@ -108,7 +116,7 @@ def main():
             fh.write(TOPOLOGY)
 
         for node, want in HAND_TYPED.items():
-            code, line, _ = emit(tmp, node)
+            code, line, _, _ = emit(tmp, node)
             check(f"{node}: command emitted", code, 0)
             # the script path contains spaces on some machines, so split on the name
             rest = line.split("radio.sh", 1)[1] if "radio.sh" in line else ""
@@ -122,11 +130,36 @@ def main():
         tcp = TOPOLOGY.replace('"ack_wireless": true', '"ack_wireless": false')
         with open(os.path.join(tmp, "x310-rf.jsonc"), "w") as fh:
             fh.write(tcp)
-        _, line, _ = emit(tmp, "src")
+        _, line, _, _ = emit(tmp, "src")
         _, g = flags(shlex.split(line.split("radio.sh", 1)[1]))
         check("tcp ack: transport", g.get("--ack-transport"), "tcp")
         check("tcp ack: the sink's port is dialled", g.get("--ack-port"), "5599")
         check("tcp ack: no reverse RF carrier is tuned", "--rx-freq" in g, False)
+
+        # RUNNING IS THE DEFAULT. Every other run.sh subcommand runs, and --dry-run
+        # is how this project asks for a preview, so a mode that only ever printed was
+        # the odd one out. The command is printed either way, so a session log says
+        # what it did -- and that print has to survive a pipe, which it did not until
+        # stdout was flushed before execv.
+        env = dict(os.environ, UNION_TOPOLOGY_DIR=tmp)
+        env.pop("UNION_SETTINGS_DIR", None)
+        r = subprocess.run([os.path.join(REPO, "run.sh"), "radio", "--topology",
+                            "x310-rf", "--node", "snk", "--dry-run"],
+                           cwd=REPO, env=env, capture_output=True, text=True,
+                           timeout=120)
+        lines = (r.stdout or "").strip().splitlines()
+        check("the command is printed when piped", bool(lines), True)
+        check("...and stdout's first line IS the command, not a warning",
+              "radio.sh" in (lines[0] if lines else ""), True)
+        check("...followed by the modem line radio.sh resolves",
+              any("sdr_system" in l for l in lines[1:]), True)
+        # the first version used --run for this; a command in someone's notes should
+        # not start failing
+        r2 = subprocess.run([os.path.join(REPO, "run.sh"), "radio", "--topology",
+                             "x310-rf", "--node", "snk", "--run", "--dry-run"],
+                            cwd=REPO, env=env, capture_output=True, text=True,
+                            timeout=120)
+        check("--run is still accepted", r2.returncode, 0)
 
         # a candidate list cannot be resolved by a bare modem: there is no survey
         # resolver in this path, and silently taking the first entry would put the
@@ -135,7 +168,7 @@ def main():
                                 '"freq_mhz": [2400, 2410] }')
         with open(os.path.join(tmp, "x310-rf.jsonc"), "w") as fh:
             fh.write(cand)
-        code, _, err = emit(tmp, "src")
+        code, _, err, _ = emit(tmp, "src")
         check("a candidate list is refused here", code, 1)
         check("...and says which mode does resolve them",
               "--algo" in err, True)

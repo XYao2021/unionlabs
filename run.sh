@@ -159,6 +159,8 @@ if [ "${1:-}" = "radio" ]; then
   #
   # WITH --topology it reads the parameters out of the wiring file instead of taking
   # them as flags: same modem run, same roles, one place the rig is written down.
+  # It RUNS, like every other subcommand here; --dry-run prints the command and the
+  # modem line it resolves to without opening a radio.
   # That is NOT the same as `--algo ... --topology ...`, which runs an algorithm and
   # therefore needs the TCP reply leg phy_link.RadioRoundTrip is built around.
   shift

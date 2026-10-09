@@ -648,7 +648,7 @@ contra = wrote("ackw-contra", {
                "medium": {"up": "wireless", "down": "wireless"}}]})
 import io as _io, contextlib as _ctx
 _buf = _io.StringIO()
-with _ctx.redirect_stdout(_buf):
+with _ctx.redirect_stderr(_buf):
     _t = tp.load(contra)
 check("the switch beats the written medium", lambda: _t.links[0].down, "tcp")
 check("...and says it is overriding the file",
@@ -722,7 +722,7 @@ sw = wrote("switch-only", {
                    "tx": {"ant": "TX/RX", "subdev": "A:0", "freq_mhz": 2472.5}}}],
     "links": [{"from": "src", "to": "snk", "medium": {"up": "wireless"}}]})
 _b = io.StringIO()
-with contextlib.redirect_stdout(_b):
+with contextlib.redirect_stderr(_b):
     _sw = tp.load(sw)
 check("the switch alone decides the reply", lambda: _sw.links[0].down, "wireless")
 check("...with no warning, since nothing was contradicted",

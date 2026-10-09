@@ -53,6 +53,7 @@ THE THREE QUESTIONS THE README LEFT OPEN, and the answers this schema commits to
 """
 import json
 import os
+import sys
 import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -371,11 +372,14 @@ class Topology:
                 # Two ways to say one thing, and the flag wins. Saying so matters more
                 # than which wins: a file that reads "down": "wireless" while the run
                 # opens a TCP socket sends the reader to the radio to explain it.
+                # stderr: a warning is not output. `run.sh radio` writes the command
+                # it is about to run on stdout, and a caller capturing that to compare
+                # it against a hand-typed one should get the command and nothing else.
                 print(f"[topology] {self.name}: ack_wireless is {str(aw).lower()}, so "
                       f"the reply travels over {want.upper()} — overriding the link's "
                       f"down medium of {', '.join(sorted(authored_down))} as written in "
                       f"the file. Set ack_wireless to match what you want, or remove it "
-                      f"and let the link's medium decide.")
+                      f"and let the link's medium decide.", file=sys.stderr)
             for ln in self.links:
                 ln.down = want
             if not aw:
