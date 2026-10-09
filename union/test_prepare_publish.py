@@ -454,6 +454,23 @@ def main():
               modem_opts.supports("quiet_phy", old), False)
         new = modem("  --quiet-phy [=arg(=1)] (=0)  silence the chatter")
         check("a current one does", modem_opts.supports("quiet_phy", new), True)
+        # BOTH SPELLINGS, whichever way the caller writes it and whichever way --help
+        # prints it. The C++ names are inconsistent (--fec-type hyphenated, --fec_soft
+        # not), and the first version transformed the whole token -- turning
+        # "--fec-soft" into "__fec_soft", because str.replace does not know which
+        # hyphens are the option marker. Every underscore-named option then looked
+        # absent, so a binary advertising --fec_soft was reported as predating it and
+        # the remedy offered was a rebuild it had just had.
+        und = modem("  --fec_soft [=arg(=1)] (=0)  soft-decision decode")
+        for written in ("--fec_soft", "--fec-soft", "fec_soft", "fec-soft"):
+            check(f"{written} is found in an underscore-spelled help",
+                  modem_opts.supports(written, und), True)
+        hyp = modem("  --fec-type arg   FEC code family")
+        for written in ("--fec-type", "--fec_type", "fec_type"):
+            check(f"{written} is found in a hyphen-spelled help",
+                  modem_opts.supports(written, hyp), True)
+        check("...and a flag in neither spelling is still absent",
+              modem_opts.supports("--no-such-flag", hyp), False)
         check("...and neither invents an option that exists nowhere",
               modem_opts.supports("no-such-flag", new), False)
         # UNKNOWN COUNTS AS YES: nothing built, or a binary that will not answer, is

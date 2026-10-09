@@ -43,7 +43,11 @@ def supports(flag, bin_path=None):
     we do not know, and silently dropping a requested option on a guess would be worse
     than letting the modem speak for itself.
     """
-    name = "--" + flag.lstrip("-").replace("_", "-")
+    # Try the name as given AND both spellings of it, because the C++ option names
+    # are inconsistent -- --fec-type is hyphenated, --fec_soft is not -- so a caller
+    # cannot know which form --help will show.
+    base = flag.lstrip("-")
+    names = {base, base.replace("_", "-"), base.replace("-", "_")}
     b = bin_path or binary()
     if b is None:
         return True
@@ -57,6 +61,9 @@ def supports(flag, bin_path=None):
     text = _CACHE[b]
     if not text:
         return True
-    # the alias too: the modem spells some options both ways (--det-mult is an alias
-    # for --IIR_threshold_multiplier), and --help lists each spelling it answers to
-    return name in text or name.replace("-", "_") in text
+    # Prefix the dashes back on only now. Transforming the whole token turned
+    # "--fec-soft" into "__fec_soft" -- str.replace does not know which hyphens are
+    # the option marker -- so the underscore spelling never matched and every
+    # underscore-named option looked absent. A binary that advertised --fec_soft was
+    # reported as predating it, and the remedy offered was a rebuild it had just had.
+    return any("--" + n in text for n in names)
