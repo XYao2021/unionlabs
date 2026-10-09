@@ -120,12 +120,21 @@ if [ -d "$HERE/algorithms" ]; then
   done
 fi
 
-# ── the example wirings: track the image, protect edits ──
-# .json and .jsonc: a topology carrying a // header uses .jsonc so an editor does not
-# call it broken, and a glob that misses them would seed an incomplete set in silence.
-for f in "$HERE"/topologies/*.json "$HERE"/topologies/*.jsonc; do
-  [ -e "$f" ] || continue
-  reseed file "$f" "$ROOT/topologies/$(basename "$f")" "topologies/$(basename "$f")"
+# ── topologies/ and searching/ START EMPTY, except for their README ──
+# The example wirings are NOT copied here. They used to be, and a fresh session then
+# opened on ten topologies nobody had written, which is noise when the first question
+# is "what have I got" -- and worse, it put every example name in TWO places at once:
+# here and in the checkout. `./run.sh topologies` then reported half its listing as
+# "SHADOWED, not read", and editing the copy that is never read is a real way to lose
+# an afternoon. With nothing seeded, a name exists in exactly one place.
+#
+# Nothing is lost: union/topology.py searches the checkout too, so every example still
+# resolves by name (./run.sh topologies lists them, --topology echo-pair-radio runs
+# one). What changes is that /workspace holds only what this account made -- the
+# surveys prepare.sh writes and the topologies drafted from them.
+for d in topologies searching; do
+  [ -e "$HERE/$d/README.md" ] || continue
+  reseed file "$HERE/$d/README.md" "$ROOT/$d/README.md" "$d/README.md"
 done
 
 [ -e "$ROOT/README.md" ] || cp "$HERE/README.md" "$ROOT/README.md"
