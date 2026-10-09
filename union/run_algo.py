@@ -361,9 +361,7 @@ def apply_quiet_phy(ap, a):
               f"{kind}/{getattr(a, 'usrp_backend', None) or 'n/a'}, where those lines "
               f"are never printed — use --no-phy-features for the [PHY-FEAT] lines.")
         return
-    named = {kv.split("=", 1)[0].strip().replace("-", "_")
-             for kv in (getattr(a, "usrp_set", []) or []) if "=" in kv}
-    if "quiet_phy" not in named:            # an explicit --usrp-set wins, as always
+    if "quiet_phy" not in getattr(a, "_typed_usrp", set()):
         a.usrp_set = list(getattr(a, "usrp_set", []) or []) + ["quiet_phy=true"]
 
 
@@ -656,7 +654,7 @@ TOPO_DEFAULTS = {"channel": "channel", "steps": "steps", "scheme": "scheme",
 #     typed --usrp-set  >  topology defaults  >  survey  >  modem's own default
 # so a file that states them overrides a measurement, exactly as a file already
 # overrides a measured carrier.
-TOPO_MODEM = ("det_mult", "sync_threshold", "bytes_length")
+TOPO_MODEM = ("det_mult", "sync_threshold", "bytes_length", "quiet_phy")
 
 
 def _inject_modem_defaults(ap, a, pairs):
@@ -680,7 +678,11 @@ def _inject_modem_defaults(ap, a, pairs):
     # the last occurrence of a key wins -- which is what makes the file beat the
     # measurement. Keys the experimenter typed are skipped so they still beat both.
     typed = getattr(a, "_typed_usrp", set())
-    add = [f"{k}={v}" for k, v in sorted(pairs.items()) if k not in typed]
+    def _fmt(v):
+        # lowercase booleans: the announcement is read beside the file, which writes
+        # JSON true/false, and Python's True in a message about a file is a small lie
+        return str(v).lower() if isinstance(v, bool) else v
+    add = [f"{k}={_fmt(v)}" for k, v in sorted(pairs.items()) if k not in typed]
     if add:
         a.usrp_set = list(getattr(a, "usrp_set", []) or []) + add
         print(f"[topology] modem: {' '.join(add)}")

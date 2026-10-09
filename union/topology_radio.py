@@ -58,6 +58,7 @@ MODEM_DEFAULTS = (
     ("sync_threshold", "--sync-threshold"),
     ("samp_rate", "--rate"),
     ("symbol_rate", "--sym"),
+    ("quiet_phy", "--quiet-phy"),
 )
 
 
@@ -175,8 +176,14 @@ def command(topo, node_id):
     for key, flag in MODEM_DEFAULTS:
         if key in d:
             v = d[key]
-            cmd += [flag, _hz(v) if flag in ("--rate", "--sym") and v < 1e6
-                    else (f"{v:g}" if isinstance(v, (int, float)) else str(v))]
+            if isinstance(v, bool):
+                cmd += [flag, "true" if v else "false"]
+            elif flag in ("--rate", "--sym") and isinstance(v, (int, float)) and v < 1e6:
+                cmd += [flag, _hz(v)]
+            elif isinstance(v, (int, float)):
+                cmd += [flag, f"{v:g}"]
+            else:
+                cmd += [flag, str(v)]
     cmd += _fec(d)
     # max_attempts belongs to the SOURCE: the sink has nothing to give up on
     if sends_data and "max_attempts" in d:

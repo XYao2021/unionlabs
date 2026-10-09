@@ -40,6 +40,7 @@
     "steps": 10,
     "max_attempts": 50,
     "bytes_length": 1000,
+    "quiet_phy": true,   // silence the modem's per-block chatter; [ACQ], CRC, ARQ and errors still print
     "det_mult": 30,
     "sync_threshold": 15,
     "ack_wireless": false   // true = reply over the air, using the rx/tx blocks below

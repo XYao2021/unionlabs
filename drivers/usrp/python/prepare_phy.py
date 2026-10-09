@@ -516,6 +516,9 @@ def publish_topology_draft(profile, d, stamp):
           "//                    looks like random bytes.",
           "//  Tune det_mult first: until the detector fires, the correlator never",
           "//  sees a burst to judge, so sync_threshold cannot be read.",
+          "//  quiet_phy is true so the per-block chatter does not bury them: [ACQ]",
+          "//  and every other diagnosis line still prints, which is what tuning",
+          "//  reads. Set it false when you want the whole pipeline trace.",
           "// " + "-" * (W - 3)]
     if profile.get("sync_threshold_measured") is False:
         # The one number in defaults that is NOT a measurement. Worth saying where it
@@ -544,6 +547,7 @@ def publish_topology_draft(profile, d, stamp):
             "steps": 10,
             "max_attempts": 50,
             "bytes_length": 1000,
+            "quiet_phy": True,
             "det_mult": profile.get("det_mult", 30),
             "sync_threshold": profile.get("sync_threshold", 15),
             "ack_wireless": False,
@@ -566,7 +570,9 @@ def publish_topology_draft(profile, d, stamp):
                         "freq_mhz": "REPLACE_ME_WITH_ACK_FREQ_OPTION"}}},
         ],
         "links": [
-            {"from": "src", "to": "snk", "medium": {"up": "wireless", "down": "tcp"}},
+            # only the DATA direction is stated; ack_wireless above decides the reply,
+            # so flipping that switch is not a contradiction with anything written here
+            {"from": "src", "to": "snk", "medium": {"up": "wireless"}},
         ],
     }
     try:
@@ -605,6 +611,11 @@ def publish_topology_draft(profile, d, stamp):
         ('"fec"', "// error correction: conv | ldpc | turbo, or \"\" for none. STRONGER "
                   "tolerates more noise and costs payload rate. MUST match both ends"),
         ('"waveform"', "// sc = single carrier, ofdm = multicarrier"),
+        ('"quiet_phy"', "// true silences the modem's per-block chatter ([FILTER], "
+                        "[MODULATION], [DEMODULATION], [AGC], [DETECTOR] -- one or more "
+                        "lines per block per stage). DIAGNOSIS still prints either way: "
+                        "[ACQ] peaks, CRC, ARQ progress, clip guard, RX timeouts, "
+                        "[BER], [ERROR]. Set false to see everything"),
         ('"steps"', "// --algo runs only: how many algorithm iterations. A bare modem "
                     "run (run.sh radio) ignores it"),
 

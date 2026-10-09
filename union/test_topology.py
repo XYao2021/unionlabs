@@ -16,6 +16,8 @@ one port, peer ports that do not match the base+index rule PeerLink actually use
 of those is a run that fails minutes later on a testbed, with an error naming the wrong
 layer. They have to fail HERE, at load, and say which node.
 """
+import contextlib
+import io
 import json
 import os
 import sys
@@ -675,6 +677,56 @@ refuses("ack_wireless must be a boolean",
                       {"id": "b", "role": "server", "ports": {"net": 5700}}],
             "links": [{"from": "a", "to": "b"}]}), "--node", "a"],
         "must be true or false", algo="echo")
+
+# ── quiet_phy in the file, so log verbosity is not retyped every run ─────────
+# It silences CHATTER only; [ACQ] and every other diagnosis line still prints, which
+# is what tuning det_mult and sync_threshold actually reads. That is why it can
+# default to true in a draft without hiding the thing you came for.
+qp = wrote("quietphy", {
+    "schema": 1, "name": "quietphy", "algo": "echo",
+    "defaults": {"channel": "usrp", "quiet_phy": True, "det_mult": 30},
+    "nodes": [
+        {"id": "src", "role": "tx",
+         "radio": {"device": "x310", "serial": "AAA",
+                   "tx": {"ant": "TX/RX", "subdev": "A:0", "freq_mhz": 2462.5}}},
+        {"id": "snk", "role": "rx", "ports": {"ack": 5599},
+         "radio": {"device": "x310", "serial": "BBB",
+                   "rx": {"ant": "RX2", "subdev": "A:0", "freq_mhz": 2462.5}}}],
+    "links": [{"from": "src", "to": "snk", "medium": {"up": "wireless"}}]})
+check("quiet_phy is a known defaults key",
+      lambda: tp.load(qp).defaults["quiet_phy"], True)
+check("...and reaches --usrp-set on the radio backend",
+      lambda: sorted(usrp_set(["--topology", qp, "--node", "snk",
+                               "--usrp-backend", "radio"])),
+      ["det_mult=30", "quiet_phy=true"])
+# booleans are announced the way the file writes them, not the way Python prints them
+check("...announced as JSON writes it",
+      lambda: [x for x in usrp_set(["--topology", qp, "--node", "snk",
+                                    "--usrp-backend", "radio"])
+               if x.startswith("quiet_phy")], ["quiet_phy=true"])
+
+# AN UNAUTHORED reply medium is not a contradiction. The drafts' whole instruction is
+# "flip ack_wireless", so warning about the schema's own tcp default would put a
+# warning on the documented path.
+sw = wrote("switch-only", {
+    "schema": 1, "name": "switch-only", "algo": "echo",
+    "defaults": {"channel": "usrp", "ack_wireless": True},
+    "nodes": [
+        {"id": "src", "role": "tx",
+         "radio": {"device": "x310", "serial": "AAA",
+                   "tx": {"ant": "TX/RX", "subdev": "A:0", "freq_mhz": 2462.5},
+                   "rx": {"ant": "RX2", "subdev": "A:0", "freq_mhz": 2472.5}}},
+        {"id": "snk", "role": "rx", "ports": {"ack": 5599},
+         "radio": {"device": "x310", "serial": "BBB",
+                   "rx": {"ant": "RX2", "subdev": "A:0", "freq_mhz": 2462.5},
+                   "tx": {"ant": "TX/RX", "subdev": "A:0", "freq_mhz": 2472.5}}}],
+    "links": [{"from": "src", "to": "snk", "medium": {"up": "wireless"}}]})
+_b = io.StringIO()
+with contextlib.redirect_stdout(_b):
+    _sw = tp.load(sw)
+check("the switch alone decides the reply", lambda: _sw.links[0].down, "wireless")
+check("...with no warning, since nothing was contradicted",
+      lambda: "overriding" in _b.getvalue(), False)
 
 # ── a DRAFT lives in topologies/ but must not RUN ────────────────────────────
 # prepare.sh writes one at the end of a survey with the far end left as a placeholder.

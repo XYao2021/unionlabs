@@ -292,6 +292,11 @@ class Link:
         else:
             up = down = med
         up, down = raw.get("up", up), raw.get("down", down)     # flat spelling also works
+        # Whether the reply medium was AUTHORED, as against defaulted to tcp. Only an
+        # authored one can contradict ack_wireless; warning about the default would put
+        # a warning on the documented path, since flipping the switch is the whole
+        # instruction the drafts give.
+        self.down_authored = down is not None
         self.up, self.down = self._medium(up, "up"), self._medium(down, "down")
         self.note = raw.get("note", "")
 
@@ -353,7 +358,7 @@ class Topology:
         # and choosing between them by editing every link's medium is the kind of edit
         # that gets half-done. Set here rather than in run_algo so the lister shows the
         # medium that will actually be used.
-        authored_down = {ln.down for ln in self.links}
+        authored_down = {ln.down for ln in self.links if ln.down_authored}
         aw = self.defaults.get("ack_wireless")
         if aw is not None:
             if not isinstance(aw, bool):
