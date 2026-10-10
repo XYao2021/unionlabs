@@ -206,7 +206,11 @@ def main():
               (src["radio"]["tx"]["ant"], src["radio"]["rx"]["ant"]),
               ("TX/RX", "RX2"))
         # a B210 is the exception: its two channels are the natural split
-        b210 = dict(full, radio=dict(full["radio"], device="b210", subdev="A:A"))
+        # its OWN serial: a draft is named by the radio, and a new one for the same
+        # radio now retires the earlier one -- so sharing a serial here would move
+        # aside the file the checks above still refer to
+        b210 = dict(full, radio=dict(full["radio"], device="b210", subdev="A:A",
+                                     args="serial=B210TEST", serial="B210TEST"))
         _, db = read_draft(prepare_phy.publish_topology_draft(
             b210, d, "2026-10-08_03-00-00"))
         bsrc = [n for n in db["nodes"] if n["id"] == "src"][0]
@@ -488,6 +492,34 @@ def main():
         modem_opts._CACHE.clear()
         check("an absent binary is not evidence",
               modem_opts.supports("quiet_phy", os.path.join(d, "nope")), True)
+
+        # ── ONE LIVE DRAFT PER RADIO ─────────────────────────────────────────
+        # A draft is named by the survey that produced it, so every re-survey left
+        # another behind and the folder filled with near-identical files describing
+        # the same pair at different moments. The old ones still resolved, so a name
+        # that looked current could be a measurement from two bands ago, and an edit
+        # went into one file while a run read another.
+        sup = dict(full, radio=dict(full["radio"], args="serial=SUPTEST",
+                                    serial="SUPTEST"))
+        first = prepare_phy.publish_topology_draft(sup, d, "2026-10-10_01-00-00")
+        with open(first, "a") as fh:
+            fh.write("\n// tuned by hand\n")
+        second = prepare_phy.publish_topology_draft(sup, d, "2026-10-10_02-00-00")
+        check("the new draft is live", os.path.exists(second), True)
+        check("the earlier one is moved aside", os.path.exists(first), False)
+        # MOVED, NOT DELETED: the file replaced may be the one someone tuned, and a
+        # survey is cheap to repeat while a tuned link is not
+        check("...and kept, so nothing tuned is lost",
+              os.path.exists(first + ".superseded"), True)
+        with open(first + ".superseded") as fh:
+            check("...with the edit intact", "tuned by hand" in fh.read(), True)
+        # .superseded ends in neither .json nor .jsonc, so the resolver stops seeing it
+        live = [q for q in tp.available() if "SUPTEST" in q]
+        check("only one resolvable draft remains", len(live), 1)
+        check("...the new one", os.path.basename(live[0]),
+              os.path.basename(second))
+        # a DIFFERENT radio's draft is untouched
+        check("another radio's draft is left alone", os.path.exists(dpath), True)
 
         # a survey with nothing usable must REFUSE to write a draft, not emit a file
         # whose candidate list is empty -- that would resolve to no carrier at all
