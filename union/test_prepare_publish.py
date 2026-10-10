@@ -258,11 +258,20 @@ def main():
         # rather than the body carrying a blank that is usually correct to delete.
         check("the far radio is the ONLY blank in the file",
               sorted(set(placeholders(draft))), [".nodes.radio.serial"])
-        check("no host field is written at all",
-              [n for n in draft["nodes"] if "host" in n], [])
-        check("...and the header says when to add one",
-              "ADD snk.host IF THE TWO RADIOS ARE ON DIFFERENT MACHINES" in header,
-              True)
+        # THE HOST IS WRITTEN OUT, with the value that works, rather than omitted.
+        # Leaving it to a default made it invisible, and a field you cannot see is a
+        # field you do not know you can change -- while leaving it as a BLANK asked
+        # someone to fill in something that is usually already right. A real value
+        # is both: correct on one machine, and obviously editable for two.
+        check("both nodes carry a host",
+              sorted(n["host"] for n in draft["nodes"] if "host" in n),
+              ["127.0.0.1", "127.0.0.1"])
+        check("...which is not a blank, so it does not refuse the run",
+              [t for t in tp.placeholders(tp.load(dpath)) if "host" in t], [])
+        check("...and the header says what to change it to",
+              "THE ACK ADDRESS IS snk.host" in header, True)
+        check("...and how to override it for one run",
+              "--ack-host" in header, True)
         check("...and that the reply leg is always a socket",
               "THE APPLICATION REPLY IS ALWAYS TCP" in header, True)
 

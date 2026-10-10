@@ -558,12 +558,15 @@ def publish_topology_draft(profile, d, stamp, force=False):
           "//                   claim the same node. A serial means the same thing on",
           "//                   every box that reads this file.",
           "//",
-          "//  ADD snk.host IF THE TWO RADIOS ARE ON DIFFERENT MACHINES. There is no",
-          "//  host field below, because the default is right when they share one: the",
-          "//  source dials 127.0.0.1 and the sink binds 0.0.0.0. On two machines add",
-          '//    "host": "<the sink machine\'s address>"   to the snk node,',
-          "//  and the run will say so if you forget -- it prints that it is about to",
-          "//  dial 127.0.0.1.",
+          "//  THE ACK ADDRESS IS snk.host, and it is written out below rather than",
+          "//  left to a default -- a field you cannot see is a field you do not know",
+          "//  you can change. 127.0.0.1 is right while both radios are on one machine.",
+          "//  On two machines put each node's OWN address in its host: snk.host is",
+          "//  what src dials, and src needs one too or the reply has no route home.",
+          "//  For a single run without editing anything:",
+          "//    ./run.sh radio --topology <this> --node src --ack-host 10.0.0.40",
+          "//  Anything typed replaces what this file says, for any field, not just",
+          "//  this one.",
           "//",
           "//  THE APPLICATION REPLY IS ALWAYS TCP. ack_wireless moves the ARQ ACK, not",
           "//  the algorithm's answer: the request goes over the air and the reply comes",
@@ -633,14 +636,14 @@ def publish_topology_draft(profile, d, stamp, force=False):
             "ack_wireless": False,
         },
         "nodes": [
-            {"id": "src", "role": "tx",
+            {"id": "src", "role": "tx", "host": "127.0.0.1",
              "radio": {
                  "device": device, "serial": "REPLACE_ME_SOURCE_ID",
                  "tx": {"ant": "TX/RX", "subdev": tx_subdev, "gain": tx_gain,
                         "freq_mhz": data_freq},
                  "rx": {"ant": "RX2", "subdev": src_ack_subdev, "gain": rx_gain,
                         "freq_mhz": ack_freq}}},
-            {"id": "snk", "role": "rx",
+            {"id": "snk", "role": "rx", "host": "127.0.0.1",
              "ports": {"ack": 5599},
              "radio": {
                  "device": device, id_key: id_val,
@@ -712,6 +715,9 @@ def publish_topology_draft(profile, d, stamp, force=False):
         ('"ack_wireless"', "// true = ACK over the air, using the second RF block on "
                            "each node; false = over TCP"),
         ('"REPLACE_ME_SOURCE_ID"', "// uhd_find_devices on the transmitting box"),
+        ('"host"', "// the ACK address. 127.0.0.1 = both radios on this machine. Two "
+                   "machines: each node's own address, and both are needed. Ignored "
+                   "entirely when ack is rf or none"),
     ]
     # gain means a different thing per direction, so the note has to know which block
     # it is in. A single note covering both makes the reader pick, which is the job the

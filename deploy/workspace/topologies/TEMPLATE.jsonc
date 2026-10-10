@@ -18,9 +18,11 @@
 //                   both nodes for the data direction; a DIFFERENT one for
 //                   the reply. A list instead of one number lets the
 //                   survey pick and keeps the file from going stale.
-//    host           BOTH or NEITHER. Two boxes: each node's own machine.
-//                   One box: delete both lines; the serials already say
-//                   which radio is which.
+//    host           the ACK address, written out rather than defaulted so it
+//                   is visible. 127.0.0.1 = both radios on this machine. Two
+//                   boxes: each node's own address, and both are needed.
+//                   Ignored when ack is rf or none. Override for one run with
+//                   --ack-host <ip>; anything typed beats the file.
 //    subdev / ant   must match what prepare.sh surveyed, or the
 //                   measurement is filed where nothing looks for it.
 //
@@ -49,7 +51,7 @@
     {
       "id": "src",
       "role": "tx",
-      "host": "FILL_SOURCE_HOST_OR_DELETE",
+      "host": "127.0.0.1",   // this node's machine. Two boxes: its own address
       "radio": {
         "device": "x310",
         "serial": "REPLACE_ME_SOURCE_ID",
@@ -62,7 +64,7 @@
     {
       "id": "snk",
       "role": "rx",
-      "host": "FILL_SINK_IP_HERE",
+      "host": "127.0.0.1",   // the ACK address src dials. Two boxes: the sink machine's
       "ports": { "ack": 5599 },
       "radio": {
         "device": "x310",
