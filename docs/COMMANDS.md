@@ -179,7 +179,7 @@ a default tuned over the air, so no command needs all of them.
 | `--freq <Hz>` | carrier frequency | `915e6` |
 | `--scheme <NAME>` | `BPSK` `QPSK` `8-PSK` `16-QAM` `DBPSK` `DQPSK` `8-DPSK` | `QPSK` |
 | `--waveform sc\|ofdm` | single-carrier, or OFDM (64 subcarriers, CP 16) | `sc` |
-| `--gain <dB>` | TX or RX gain, whichever role is running | b210: tx 78 / rx 20 · n210 & x310: 25 / 25 |
+| `--gain <dB>` | TX or RX gain, whichever role is running | b210: tx 50 / rx 20 · n210 & x310: tx 25 / rx 20 |
 | `--rate <Hz>` | sample rate | `2e6` |
 | `--sym <Hz>` | symbol rate | `1e6` |
 | `--fec true\|false` | rate-1/2 K=7 convolutional + Viterbi | `true` |
@@ -200,7 +200,7 @@ the wrapper's default for that same option** — so `radio.sh` gives you the tun
 starting point without ever standing between you and the modem:
 
 ```bash
-./radio.sh tx --device b210 --tx-gain 85 --det-mult 5     # override one, add another
+./radio.sh tx --device b210 --tx-gain 60 --det-mult 20    # override one, add another
 ./radio.sh rx --device b210 --rx-subdev A:B               # RF B
 ./radio.sh rx --role sink_arq --ack-port 5599             # an ARQ role, tuned RX defaults
 ./radio.sh tx --scheme BPSK --waveform ofdm --fec false
