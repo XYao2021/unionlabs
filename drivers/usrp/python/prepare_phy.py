@@ -318,7 +318,9 @@ def publish_profile(profile, d, node, band, subdev, ant, stamp):
 # "complete" and nothing is ever acknowledged -- so it sends you looking for more
 # power. 50 is what this rig's working pair actually used. Raise it for range; the
 # note beside the field says which way and why.
-_TX_DEFAULTS = {"b210": ("A:A", 50), "n210": ("A:0", 25), "x310": ("A:0", 25)}
+# 75 for the B210, measured on this rig: 85 saturated the receiver and 50 did not
+# reach it, which is a narrow window and worth recording rather than rediscovering.
+_TX_DEFAULTS = {"b210": ("A:A", 75), "n210": ("A:0", 25), "x310": ("A:0", 25)}
 
 
 def topology_dir():

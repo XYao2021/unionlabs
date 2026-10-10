@@ -81,7 +81,7 @@ done
 case "$DEVICE" in
   x310) DEF_ARGS="addr=192.168.40.2"; DEF_SUBDEV=A:0; DEF_GAIN=20;;
   n210) DEF_ARGS="addr=192.168.20.2"; DEF_SUBDEV=A:0; DEF_GAIN=25;;
-  b210) DEF_ARGS="";                  DEF_SUBDEV=A:A; DEF_GAIN=40;;
+  b210) DEF_ARGS="";                  DEF_SUBDEV=A:A; DEF_GAIN=30;;
   *) echo "unknown --device '$DEVICE' (x310|n210|b210)"; exit 2;;
 esac
 [ -n "$ADDR" ]   && [ -z "$ARGS" ] && ARGS="addr=$ADDR"
