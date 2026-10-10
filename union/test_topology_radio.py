@@ -162,6 +162,43 @@ def main():
                             timeout=120)
         check("--run is still accepted", r2.returncode, 0)
 
+        # ── a typed flag REPLACES the file's value, it does not follow it ─────
+        # The modem rejects a repeated option outright, so appending turned an
+        # override into a refusal: --ack-host 10.0.0.40 emitted
+        # "--ack-host 127.0.0.1 --ack-host 10.0.0.40" and the run died on the one
+        # flag someone had reached for deliberately. radio.sh solves this for its own
+        # defaults the same way, for the same reason.
+        with open(os.path.join(tmp, "x310-rf.jsonc"), "w") as fh:
+            fh.write(TOPOLOGY)
+        base = {"ack": "tcp"}
+        d = json.loads(TOPOLOGY.split("\n", 1)[1])
+        d["defaults"] = dict(d["defaults"], **base)
+        d["defaults"].pop("ack_wireless", None)
+        with open(os.path.join(tmp, "x310-rf.jsonc"), "w") as fh:
+            json.dump(d, fh)
+
+        def one(*extra):
+            _, line, _, _ = emit(tmp, "src", *extra)
+            return line, flags(shlex.split(line.split("radio.sh", 1)[1]))[1]
+
+        line, g = one()
+        check("the file's ack host is used by default",
+              g.get("--ack-host"), "127.0.0.1")
+        line, g = one("--ack-host", "10.0.0.40")
+        check("a typed ack host replaces it", g.get("--ack-host"), "10.0.0.40")
+        check("...and is passed exactly once", line.count("--ack-host"), 1)
+        line, g = one("--det-mult", "20", "--tx-gain", "60")
+        check("a typed det-mult replaces the file's", g.get("--det-mult"), "20")
+        check("...once", line.count("--det-mult"), 1)
+        check("a typed tx-gain replaces the file's", g.get("--tx-gain"), "60")
+        check("...once", line.count("--tx-gain"), 1)
+        # and an unrelated typed flag is simply carried through
+        line, g = one("--rx-idle-timeout", "20")
+        check("an unrelated flag is carried through",
+              g.get("--rx-idle-timeout"), "20")
+        check("...without disturbing the file's values",
+              g.get("--ack-host"), "127.0.0.1")
+
         # ── ack: rf | tcp | none ─────────────────────────────────────────────
         # THREE states. ack_wireless could say rf or tcp and had no way to say
         # neither -- but a link with no ARQ at all is a real way to use a radio: the

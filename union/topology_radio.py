@@ -318,7 +318,25 @@ def main():
     except tp.TopologyError as e:
         sys.exit(f"topology: {e}")
 
-    cmd += extra                       # anything typed still wins, as everywhere else
+    # ANYTHING TYPED WINS, which means REPLACING what the file produced, not being
+    # appended after it. The modem rejects a repeated option outright ("cannot be
+    # specified more than once"), so appending turned an override into a refusal --
+    # `--ack-host 10.0.0.40` emitted `--ack-host 127.0.0.1 --ack-host 10.0.0.40` and
+    # the run died on the one flag someone had reached for deliberately. radio.sh
+    # solves this for its own defaults the same way, for the same reason.
+    typed = {t.split("=", 1)[0] for t in extra if t.startswith("--")}
+    if typed:
+        kept, i = [], 0
+        while i < len(cmd):
+            tok = cmd[i]
+            if tok in typed:
+                # skip the flag, and its value when it has one
+                i += 2 if (i + 1 < len(cmd) and not cmd[i + 1].startswith("--")) else 1
+                continue
+            kept.append(tok)
+            i += 1
+        cmd = kept
+    cmd += extra
     for n in notes:
         print(f"[radio] note: {n}", file=sys.stderr)
     script = os.path.join(REPO, "radio.sh")
