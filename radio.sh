@@ -64,7 +64,7 @@ done
 
 # per-device defaults: addr/subdev + default gains (see docs/COMMANDS.md §2)
 case "$DEVICE" in
-  b210) SUBDEV=A:A; DEF_ARGS="";                  TXG=78; RXG=20;;
+  b210) SUBDEV=A:A; DEF_ARGS="";                  TXG=50; RXG=20;;
   n210) SUBDEV=A:0; DEF_ARGS="addr=192.168.20.2"; TXG=25; RXG=25;;
   x310) SUBDEV=A:0; DEF_ARGS="addr=192.168.40.2"; TXG=25; RXG=20;;
   *) echo "unknown --device '$DEVICE' (use b210|n210|x310)"; exit 2;;

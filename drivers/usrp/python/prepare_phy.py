@@ -311,7 +311,14 @@ def publish_profile(profile, d, node, band, subdev, ant, stamp):
 # Per-device TRANSMIT defaults, matching radio.sh's own table. The survey measures a
 # receiver and so knows nothing about transmitting; these are the wrapper's defaults for
 # the device, not measurements, and the draft says so.
-_TX_DEFAULTS = {"b210": ("A:A", 78), "n210": ("A:0", 25), "x310": ("A:0", 25)}
+# A B210 transmits over ~0-89 dB, and 78 is near the top of it: on one bench, with
+# the two radios a short cable or a metre apart, that arrives far above what the
+# receiver can take and the burst is lost to front-end compression rather than to
+# distance. It looks exactly like a link that is too WEAK -- the source transmits
+# "complete" and nothing is ever acknowledged -- so it sends you looking for more
+# power. 50 is what this rig's working pair actually used. Raise it for range; the
+# note beside the field says which way and why.
+_TX_DEFAULTS = {"b210": ("A:A", 50), "n210": ("A:0", 25), "x310": ("A:0", 25)}
 
 
 def topology_dir():
