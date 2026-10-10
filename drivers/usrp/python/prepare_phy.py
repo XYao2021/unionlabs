@@ -750,32 +750,6 @@ def publish_topology_draft(profile, d, stamp, force=False):
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
-
-    # ── one live draft per radio ─────────────────────────────────────────────
-    # A draft is named by the survey that produced it, so every re-survey left
-    # another one behind and the folder filled with near-identical files describing
-    # the same pair at different moments. Worse than clutter: the old ones still
-    # resolve, so a name that looks current can be a measurement from two bands ago,
-    # and an edit goes into one file while a run reads another.
-    #
-    # Moved aside, not deleted. The one being replaced may be the file someone tuned
-    # -- this project has already been careful not to clobber that -- and a survey is
-    # cheap to repeat while a tuned link is not. `.superseded` ends in neither .json
-    # nor .jsonc, so the resolver and the lister stop seeing it while it stays on disk
-    # for anyone who wants a value back out of it.
-    retired = []
-    for q in sorted(glob.glob(os.path.join(out, f"draft-{id_val}-*.json"))
-                    + glob.glob(os.path.join(out, f"draft-{id_val}-*.jsonc"))):
-        if os.path.abspath(q) == os.path.abspath(path):
-            continue
-        try:
-            os.replace(q, q + ".superseded")
-            retired.append(os.path.basename(q))
-        except OSError:
-            pass
-    if retired:
-        print(f"[prepare] earlier draft(s) for {id_val} moved aside: "
-              + ", ".join(f"{r} -> {r}.superseded" for r in retired))
     return path
 
 
