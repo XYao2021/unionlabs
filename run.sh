@@ -5,7 +5,7 @@
 #   ./run.sh --algo marl            # any algorithm in deploy/workspace/algorithms/
 #   ./run.sh --algo marl --channel usrp --sim-snr-db 6       # over the USRP PHY
 #   ./run.sh --algo fl --channel lora --lora-sf 9        # over the LoRa PHY (SX1276)
-#   ./run.sh --algo clip_semcom --steps 45
+#   ./run.sh --algo semcom_umiami --steps 45
 #   ./run.sh --algo fl --steps 20              # federated learning on MNIST
 #   ./run.sh --algo fl --role chain --relays 1 # 3 nodes: client -> relay -> server
 #   # over the radio (two hosts) — start the rx FIRST:

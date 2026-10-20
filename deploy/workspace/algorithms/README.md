@@ -25,7 +25,7 @@ touch the radio.
 
 An experiment folder holds its own code: `fl/` has `fl.py` beside `app.py`, `marl_multi/` has the
 whole multi-agent application (`agent_node.py`, `ap_multi.py`, `slot_sync.py`, training scripts,
-`INTEGRATION.md`), `clip_semcom/` has `semcom_core.py`. Only `app.py` knows the framework exists.
+`INTEGRATION.md`), `semcom_umiami/` has `semcom_core.py`. Only `app.py` knows the framework exists.
 
 ## Worked examples in this folder
 
@@ -38,10 +38,22 @@ Each is the real algorithm with **all PHY plumbing removed** — only `transmit`
 | **`plain_echo`** | the same test as a **pure algorithm + 2-line `make()` binding** (no framework import) | tx/rx | `--role loopback` |
 | **`fl`** | **federated learning on MNIST**: client `transmit()` = its locally-trained model; server `transmit()` = the FedAvg aggregate | `client` `server` `relay` | `loopback` `chain` |
 | **`dl`** | **decentralized learning on MNIST**: no server — every peer trains locally, exchanges with its graph neighbours only, and averages (consensus) | `peer` `initiator` `responder` | `gossip` `loopback` `--node K` |
-| **`clip_semcom`** | BS `transmit()` = CLIP embedding; user `receive()` classifies and replies the label | tx/rx | `--role loopback` |
+| **`semcom_umiami`** | BS `transmit()` = CLIP embedding; user `receive()` classifies and replies the label | tx/rx | `--role loopback` |
 | **`marl_multi`** | **real multi-agent** random access: N independent A2C agents contend for one AP and learn to avoid collisions | agent | `--role multi` |
 | **`marl`** | **online single-agent A2C** — observes [AoI, queue, busy], learns transmit/defer from the ACK reward | tx/rx | `--role loopback` |
-| **`stc_aircomp`** | **compute archetype** — N sensors transmit *at once*, the air sums them, the AP recovers Σvᵢ (STLC 2-antenna CSI-free combine) | sensor | `--role aircomp` |
+| **`aircomp_ajou`** | **compute archetype** — N sensors transmit *at once*, the air sums them, the AP recovers Σvᵢ (STLC 2-antenna CSI-free combine) | sensor | `--role aircomp` |
+
+**Paper ports and their source institutions.** Two entries above are implementations of
+published algorithms and are named for the group they come from, so the provenance travels
+with the directory:
+
+| Directory | Institution | Paper |
+|---|---|---|
+| `semcom_umiami` | University of Miami | S. Yang, D. Wei, H. Yu, Z. Yang, Y. Liu, M. Chen, "Contrastive Language–Image Pre-Training Model based Semantic Communication Performance Optimization," arXiv:2507.08873, 2025 |
+| `aircomp_ajou` | Ajou University | Y.-S. Lee, K.-H. Lee, B. C. Jung, "Space-time coded over-the-air computation with receive diversity for 6G massive IoT networks," *IEEE WCL*, vol. 15, pp. 31–35, 2026 |
+
+The remaining entries (`echo`, `plain_echo`, `fl`, `dl`, `marl`, `marl_multi`) are in-house
+reference implementations and keep their functional names.
 
 ## The two learning algorithms, side by side
 

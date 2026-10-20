@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-stc_aircomp.py — STC-AirComp experiment (design note §8 phase 1: radio-free DSP validation).
+aircomp_ajou.py — STC-AirComp experiment (design note §8 phase 1: radio-free DSP validation).
 
 N sensors each hold a scalar v_i; they transmit SIMULTANEOUSLY and the air sums them. The AP
 recovers the aggregate Σ_i v_i with a CSI-free STLC 2-antenna combine, and we report the
 normalized MSE vs SNR — the paper's quality metric. We also compare against a single-antenna
 (no-STLC) AirComp baseline to expose STLC's diversity gain under fading + a transmit-power cap.
 
-Run:  python3 algorithms/stc_aircomp/stc_aircomp.py --sensors 8 --bits 4
+Run:  python3 algorithms/aircomp_ajou/aircomp_ajou.py --sensors 8 --bits 4
 """
 import argparse
 import os
@@ -53,7 +53,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "results", "stc_aircomp"))
+        "results", "aircomp_ajou"))
     a = ap.parse_args()
     snrs = [float(x) for x in a.snr_list.split(",")]
 
@@ -79,7 +79,7 @@ def main():
     ax.set_title(f"STC-AirComp — {a.sensors} sensors → 1 AP, {a.bits}-bit digital aggregation")
     ax.legend()
     fig.tight_layout()
-    png = os.path.join(a.out, "stc_aircomp_nmse.png")
+    png = os.path.join(a.out, "aircomp_ajou_nmse.png")
     fig.savefig(png, dpi=140, bbox_inches="tight")
     print(f"[stc] wrote {png}")
 

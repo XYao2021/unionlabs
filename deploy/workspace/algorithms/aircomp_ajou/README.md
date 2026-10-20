@@ -1,5 +1,7 @@
 # STC-AirComp — Space-Time Coded Over-the-Air Computation
 
+**Directory named for the originating group: Ajou University.** `aircomp_ajou` = over-the-air computation, Ajou. Renamed from `stc_aircomp` on 2026-10-20 so each paper port carries its source institution.
+
 The **second application** on the shared SDR PHY, and the first that is *not* a
 decode-and-forward link. Instead of recovering one device's bytes, the access point reads
 a **function (the sum / average) of many devices transmitting at once** — over-the-air
@@ -12,13 +14,13 @@ computation (AirComp) — using a **Space-Time Line Code (STLC)** for **receive 
 
 **Status:** **phase-1 DSP built and validated radio-free** (design note `INTEGRATION.md` §8).
 `stc_core.py` implements the STLC precoder/combiner + digital-AirComp bit-slicing, and
-`stc_aircomp.py` reproduces the paper's **NMSE-vs-SNR** curve (→ `results/stc_aircomp/`),
+`aircomp_ajou.py` reproduces the paper's **NMSE-vs-SNR** curve (→ `results/aircomp_ajou/`),
 showing STLC's diversity removes the single-antenna error floor. Also available through the
-uniform API as the **compute archetype** (`algorithms/stc_aircomp/`, `--role aircomp`):
+uniform API as the **compute archetype** (`algorithms/aircomp_ajou/`, `--role aircomp`):
 
 ```
-python3 algorithms/stc_aircomp/stc_aircomp.py --sensors 8 --bits 4   # NMSE-vs-SNR figure
-./run.sh --algo stc_aircomp --role aircomp --agents 8 --snr-db 15 --steps 200 # uniform-API port
+python3 algorithms/aircomp_ajou/aircomp_ajou.py --sensors 8 --bits 4   # NMSE-vs-SNR figure
+./run.sh --algo aircomp_ajou --role aircomp --agents 8 --snr-db 15 --steps 200 # uniform-API port
 ```
 
 Remaining for hardware (phases 2–5): the synchronized 2-channel RX capture (`capture2`) and
@@ -80,7 +82,7 @@ CSI-free linear combine**. Consequences that suit our hardware:
 | Custom TX preprocessing (quantize, bit-slice, STLC) | **have** — compose on `pyphy` blocks |
 | Simultaneous, slot-aligned TX from N sensors | **have** — `../marl_ra/slot_sync.py` + `Radio.transmit` |
 | STLC encode / combine, quantize / bit-slice, sum reconstruction | **built** — `stc_core.py` (validated radio-free) |
-| NMSE-vs-SNR evaluation + uniform-API port | **built** — `stc_aircomp.py`, `algorithms/stc_aircomp/` |
+| NMSE-vs-SNR evaluation + uniform-API port | **built** — `aircomp_ajou.py`, `algorithms/aircomp_ajou/` |
 | Local CSI estimation (channel sounding) | expose — wrap existing pilot estimator |
 | **Receive diversity (≥2 RX antennas)** | **build** — `capture2` (B210 / X310 are 2×2) |
 

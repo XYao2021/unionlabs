@@ -43,7 +43,7 @@ def experiments():
 # How each experiment wants to be run, when its default (loopback) is not right.
 ROLE_OVERRIDE = {
     "marl_multi":  ["--role", "multi", "--steps", "40"],
-    "stc_aircomp": ["--role", "aircomp", "--agents", "4", "--steps", "2"],
+    "aircomp_ajou": ["--role", "aircomp", "--agents", "4", "--steps", "2"],
     "dl":          ["--role", "gossip", "--agents", "3", "--steps", "2"],
 }
 

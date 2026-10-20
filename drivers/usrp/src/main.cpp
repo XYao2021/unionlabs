@@ -24,6 +24,8 @@
 #include "ACQ_stop_and_wait.hpp"
 #include "fec.hpp"
 #include "viz.hpp"
+#include "phy_tap.hpp"
+#include <sstream>
 #include "lora.hpp"
 #include <filesystem>
 #include "phy_log.hpp"
@@ -66,6 +68,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     int         sense_count       = 1;     // role sense: number of windows to report
     bool        viz_on          = true;    // dump signals + save plots (default on)
     std::string viz_dir         = "results/phy_outputs";
+    std::string rx_tap;                    // --rx-tap: RX stages to dump IQ from
+    int         rx_tap_max      = 20;      // per-stage cap on tapped blocks
     std::string preamble_type;
     size_t      bytes_length    = 125;
 
@@ -127,6 +131,19 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                      "base directory for --viz output, relative to the working directory "
                      "(a per-modulation subfolder is made). Defaults under results/ so a "
                      "run does not scatter output across the repo root.")
+        ("rx-tap", po::value<std::string>(&rx_tap)->default_value(""),
+                     "dump the IQ samples LEAVING one or more RX stages to "
+                     "<viz-dir>/<scheme>/taps/<stage>/block_<id>.txt. Comma-separated, "
+                     "in pipeline order: recv,detect,agc,mf,sync,cfo,phase,eq. Unlike "
+                     "--viz these are raw -- 'detect' is taken before the AGC rescales "
+                     "the burst to RMS 1.0, so absolute amplitude survives -- and many "
+                     "blocks are kept rather than only the first. A tap does NOT cut the "
+                     "chain: the stage still feeds the next one and the run proceeds "
+                     "normally, so CRC/BER stay meaningful.")
+        ("rx-tap-max", po::value<int>(&rx_tap_max)->default_value(20),
+                     "--rx-tap: most blocks written PER STAGE (<=0 = unlimited). One file "
+                     "per block, written synchronously inside the pipeline, so an uncapped "
+                     "tap on a long run both floods the folder and slows the chain.")
         ("timeout",  po::value<int>(&timeout_ms)->default_value(3000),
                      "ACK timeout in ms (source)")
         ("timer_interval", po::value<int>(&timer_interval)->default_value(20),
@@ -521,6 +538,54 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         }
         std::cout << "[MAIN] --viz on: capturing to '" << viz::dir
                   << "/' (figure auto-saved on exit)\n";
+    }
+
+    // Per-stage IQ taps. The directories are created HERE, before any pipeline
+    // thread starts, rather than on first write: creating them in the hot loop is
+    // exactly what left the predecessor (save_block_to_txt) printing "cannot open
+    // file" once per burst whenever its fixed 'debugging/' folder was absent --
+    // which is why all eight of its call sites ended up commented out.
+    if (!rx_tap.empty()) {
+        phytap::dir        = viz_dir + "/" + config.scheme + "/taps";
+        phytap::max_blocks = rx_tap_max;
+
+        std::string want;
+        std::stringstream ss(rx_tap);
+        std::string one;
+        while (std::getline(ss, one, ',')) {
+            one.erase(0, one.find_first_not_of(" \t"));
+            one.erase(one.find_last_not_of(" \t") + 1);
+            if (one.empty()) continue;
+
+            bool known_stage = false;
+            for (const auto& k : phytap::known())
+                if (k == one) { known_stage = true; break; }
+            if (!known_stage) {
+                std::cerr << "[ERROR] --rx-tap " << one << ": unknown stage. Known "
+                             "stages, in pipeline order:";
+                for (const auto& k : phytap::known()) std::cerr << " " << k;
+                std::cerr << "\n        (demodulation emits bits, not samples, so "
+                             "there is no IQ tap after 'eq'.)\n";
+                return EXIT_FAILURE;
+            }
+            phytap::stages().insert(one);
+            std::error_code tec;
+            std::filesystem::create_directories(phytap::dir + "/" + one, tec);
+            if (tec) {
+                std::cerr << "[ERROR] --rx-tap: cannot create " << phytap::dir << "/"
+                          << one << " (" << tec.message() << ")\n";
+                return EXIT_FAILURE;
+            }
+            want += (want.empty() ? "" : ", ") + one;
+        }
+
+        std::error_code aec;
+        const auto abs_dir = std::filesystem::absolute(phytap::dir, aec);
+        std::cout << "[MAIN] --rx-tap on: " << want << "  (max "
+                  << (rx_tap_max > 0 ? std::to_string(rx_tap_max) : std::string("unlimited"))
+                  << " blocks/stage)\n"
+                  << "[MAIN] tap files -> "
+                  << (aec ? phytap::dir : abs_dir.string()) << "/<stage>/block_<id>.txt\n";
     }
 
     // Hyphenated aliases override their underscore originals when given (matches

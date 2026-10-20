@@ -21,6 +21,7 @@
 #include <thread>
 
 #include "FIFO.hpp"
+#include "phy_tap.hpp"
 #include "synchronization.hpp"
 #include "transceiver.hpp"
 
@@ -64,6 +65,7 @@ void TimeSync_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>
             // stages can key off it. The preamble is stripped just before
             // demodulation (in channel_eq_thread / the no-EQ passthrough).
             synced_fifo.push({detected_message.first, result.AlignedStats});
+            phytap::write("sync", detected_message.first, result.AlignedStats);
             processed_blocks++;
             // save_block_to_txt(result.DecisionStats, detected_message.first, "sync");
         } else {

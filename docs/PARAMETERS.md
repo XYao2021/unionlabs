@@ -15,7 +15,7 @@ quoted. **Flags** (Type = _flag_) take no value on the command line (just
 
 The **Default** column is the value used when you omit the option: flags default to `false`; `(empty)` means an empty/unset string (e.g. auto-pick the device, or use the built-in message); `_(alias)_` marks an option that inherits its primary option's default.
 
-> Auto-generated from `sdr_system --help` — always lists every current option (**112** total). Do not edit by hand.
+> Auto-generated from `sdr_system --help` — always lists every current option (**114** total). Do not edit by hand.
 
 ## Mode, message & transmission
 
@@ -81,6 +81,8 @@ The **Default** column is the value used when you omit the option: flags default
 
 | Option | Type | Default | Description |
 |---|---|---|---|
+| `--rx-tap` | value | `(empty)` | dump the IQ samples LEAVING one or more RX stages to <viz-dir>/<scheme>/taps/<stage>/block_<id>.txt. Comma-separated, in pipeline order: recv,detect,agc,mf,sync,cfo,phase,eq. Unlike --viz these are raw -- 'detect' is taken before the AGC rescales the burst to RMS 1.0, so absolute amplitude survives -- and many blocks are kept rather than only the first. A tap does NOT cut the chain: the stage still feeds the next one and the run proceeds normally, so CRC/BER stay meaningful. |
+| `--rx-tap-max` | value | `20` | --rx-tap: most blocks written PER STAGE (<=0 = unlimited). One file per block, written synchronously inside the pipeline, so an uncapped tap on a long run both floods the folder and slows the chain. |
 | `--rx-args` | value | `(empty)` | UHD RX device args |
 | `--rx-rate` | value | `1600000` | RX sample rate (Hz) = tx_rate (integer samples/symbol) |
 | `--rx-freq` | value | `2412000000` | RX centre frequency (Hz) |

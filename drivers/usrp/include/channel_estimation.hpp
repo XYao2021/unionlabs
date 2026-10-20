@@ -31,6 +31,7 @@
 #include <thread>
 #include <chrono>
 #include "FIFO.hpp"
+#include "phy_tap.hpp"
 #include "modulator.hpp"
 
 
@@ -656,6 +657,7 @@ void channel_eq_thread(
         if (differential) {
             eq_data.insert(eq_data.begin(), diff_ref);
         }
+        phytap::write("eq", msg.first, eq_data);   // before the move
         output_fifo.push({msg.first, std::move(eq_data)});
         ++processed;
     }

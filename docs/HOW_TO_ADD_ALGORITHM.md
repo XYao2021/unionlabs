@@ -172,7 +172,7 @@ def receive(self, msg):
         my_model.apply(msg)                               # tx handles the reply
 ```
 
-(See `deploy/workspace/algorithms/clip_semcom/` — the `tx` sends an image embedding, the `rx` classifies it and
+(See `deploy/workspace/algorithms/semcom_umiami/` — the `tx` sends an image embedding, the `rx` classifies it and
 replies the label.)
 
 ### The four node types

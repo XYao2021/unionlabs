@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-stc_aircomp/app.py — STC-AirComp as an uploaded algorithm (the COMPUTE / aggregation archetype).
+aircomp_ajou/app.py — STC-AirComp as an uploaded algorithm (the COMPUTE / aggregation archetype).
 
 Unlike echo/fl/clip (data transfer) or marl (control/ACK), this app does over-the-air
 COMPUTATION: N sensors transmit SIMULTANEOUSLY and the wireless medium sums them; the access
 point recovers the aggregate Σ_i v_i with a CSI-free STLC 2-antenna combine. The algorithm side
 is tiny — each sensor only declares *what value it contributes* (produce) and *reads back the
 network-wide sum* (on_aggregate). All the STLC precoding / superposition / combine lives in the
-reused library `algorithms/stc_aircomp/stc_core.py`.
+reused library `algorithms/aircomp_ajou/stc_core.py`.
 
 Connection to the PHY: the sensors have NO radio code. The multi-node driver `run()` below hands
 the simultaneously-transmitted symbols to the medium via `stc_core.aircomp_codeword(...)` — the
 marked PORT TO THE PHY, where the superposition (the sum) happens. Swap that simulated superposition
 for a real 2-antenna capture over USRPs and the same algorithm computes over the air.
 
-Run:  ./run.sh --algo stc_aircomp --role aircomp --agents 8 --snr-db 15 --steps 200
+Run:  ./run.sh --algo aircomp_ajou --role aircomp --agents 8 --snr-db 15 --steps 200
 """
 import os
 import sys
@@ -83,6 +83,6 @@ def run(sensors, snr_db=15.0, bits=4, p_max=20.0, steps=200, seed=0, verbose=Tru
         sq_true += true ** 2
     nmse = sq_err / sq_true if sq_true > 0 else float("nan")
     if verbose:
-        print(f"[stc_aircomp] {N} sensors -> 1 AP, {bits}-bit, SNR={snr_db} dB, {steps} rounds: "
+        print(f"[aircomp_ajou] {N} sensors -> 1 AP, {bits}-bit, SNR={snr_db} dB, {steps} rounds: "
               f"NMSE(Σvᵢ)={nmse:.2e}")
     return dict(nmse=nmse, sensors=N, steps=steps)

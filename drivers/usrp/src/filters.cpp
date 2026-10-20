@@ -32,6 +32,7 @@
 #include "taps.hpp"
 #include "transceiver.hpp"
 #include "viz.hpp"
+#include "phy_tap.hpp"
 #include <fftw3.h>
 #include <fstream>
 #include "phy_log.hpp"
@@ -686,6 +687,7 @@ void match_filter_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<fl
 
         if (filtered.size() > 0) {
             filtered_fifo.push({block_id, filtered});
+            phytap::write("mf", block_id, filtered);
         }
         // PHY_CHATTER << "[FILTER] Output FIFO size: " << filtered_fifo.size() << std::endl;
 

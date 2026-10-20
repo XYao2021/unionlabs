@@ -56,6 +56,7 @@
 #include <chrono>
 
 #include "FIFO.hpp"
+#include "phy_tap.hpp"
 #include "modulator.hpp"   // for Modulator, ModulationType
 
 
@@ -610,6 +611,7 @@ void phase_offset_thread(
         // `corrected` empty, so logging corrected.size() afterwards always
         // printed 0 and looked like the stage had dropped every symbol.
         const size_t n_out = corrected.size();
+        phytap::write("phase", msg.first, corrected);   // before the move
         output_fifo.push({msg.first, std::move(corrected)});
         ++processed;
 

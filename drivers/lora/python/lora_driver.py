@@ -277,7 +277,7 @@ class LoRaDriver(PhyDriver):
     """The union/driver.py contract, backed by the LoRa PHY.
 
     transfer()  a message to the peer and its reply — the data-link archetype
-                (fl, dl, clip_semcom, echo).
+                (fl, dl, semcom_umiami, echo).
     broadcast() one slotted round on the shared medium — LoRa IS a shared medium, so
                 two nodes transmitting in the same slot genuinely collide and neither
                 decodes, which is exactly what the random-access algorithms model.

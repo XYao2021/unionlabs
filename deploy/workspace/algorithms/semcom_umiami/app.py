@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-clip_semcom/app.py — CLIP semantic communication as a plain uploaded algorithm.
+semcom_umiami/app.py — CLIP semantic communication as a plain uploaded algorithm.
 
 NO import from the PHY framework, no radio code — only transmit()/receive(); a make(role)
 binding lets the uniform API read it.
@@ -11,7 +11,7 @@ binding lets the uniform API read it.
     tx: receive(label) -> compare to ground truth -> accuracy
 
 Reuses the existing semcom_core library (mock CLIP, no torch weights needed).
-Run:  python3 union/run_algo.py --algo clip_semcom --role loopback --steps 45
+Run:  python3 union/run_algo.py --algo semcom_umiami --role loopback --steps 45
 """
 import os, sys
 import numpy as np

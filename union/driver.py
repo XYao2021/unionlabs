@@ -46,9 +46,9 @@ experimenter's business; everything above the driver only ever sees bytes and cr
 
 Three verbs cover the three experiment archetypes:
 
-    transfer(payload)  -> (reply_bytes, info)   round-trip link       fl · clip_semcom · echo
+    transfer(payload)  -> (reply_bytes, info)   round-trip link       fl · semcom_umiami · echo
     broadcast(bursts)  -> acks / info           slotted multi-access  marl · marl_multi
-    superpose(coded)   -> combined              over-the-air compute  stc_aircomp
+    superpose(coded)   -> combined              over-the-air compute  aircomp_ajou
 
 Reference implementations already exist in `phy_link.py` (this is a formalisation of the seam
 that is already there, not new machinery):
@@ -66,7 +66,7 @@ class PhyDriver:
 
     name = "abstract"
 
-    # ── archetype 1: data-transfer link (fl, clip_semcom, echo) ──
+    # ── archetype 1: data-transfer link (fl, semcom_umiami, echo) ──
     def transfer(self, payload):
         """Carry `payload` bytes one round-trip; return (reply_bytes, info) where
         info carries at least {'crc_ok': bool}."""
@@ -78,7 +78,7 @@ class PhyDriver:
         Return per-node ack/info (0 tx = idle, 1 = delivered iff decoded, ≥2 = collision)."""
         raise NotImplementedError
 
-    # ── archetype 3: over-the-air computation (stc_aircomp) ──
+    # ── archetype 3: over-the-air computation (aircomp_ajou) ──
     def superpose(self, coded):
         """Fire N nodes' pre-coded symbols simultaneously; return the AP's combined
         (summed) observation — the medium performs the computation."""

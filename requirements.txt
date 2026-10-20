@@ -20,13 +20,13 @@ numpy>=1.20
 matplotlib>=3.4
 
 # ── machine learning experiments ────────────────────────────────────────────
-#   torch      : marl / marl_multi (A2C actor-critic), clip_semcom
+#   torch      : marl / marl_multi (A2C actor-critic), semcom_umiami
 #   networkx   : the MARL consensus graph
 # Skip these two if you only want fl, dl, echo and the PHYs — they are the heavy ones.
 torch>=1.12
 networkx>=2.6
 
-# ── clip_semcom's mock image path ───────────────────────────────────────────
+# ── semcom_umiami's mock image path ───────────────────────────────────────────
 opencv-python-headless>=4.5
 
 # ── the LoRa driver's serial backend (Arduino/Teensy over USB) ──────────────
@@ -39,7 +39,7 @@ pybind11>=2.9
 # ── slide generation in docs/ ───────────────────────────────────────────────
 python-pptx>=0.6
 
-# ── real CLIP weights (optional; clip_semcom runs on a mock without them) ───
+# ── real CLIP weights (optional; semcom_umiami runs on a mock without them) ───
 # open_clip_torch
 # pillow
 # ftfy

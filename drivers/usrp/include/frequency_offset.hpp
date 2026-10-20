@@ -26,6 +26,7 @@
 #include <thread>
 
 #include "FIFO.hpp"
+#include "phy_tap.hpp"
 
 // ============================================================
 //  Frequency Offset Utilities
@@ -402,6 +403,7 @@ void CFO_correction_thread(
         }
 
         auto corrected = corrector.correct(msg.second);
+        phytap::write("cfo", msg.first, corrected);   // before the move
         output_fifo.push({msg.first, std::move(corrected)});
         ++processed;
 

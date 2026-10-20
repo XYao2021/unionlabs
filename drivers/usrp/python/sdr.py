@@ -32,6 +32,8 @@ OPTIONS = {
     "quiet-phy": (True, '0', "silence the per-block pipeline chatter ([MODULATION] [DEMODULATION] [FILTER] [DETECTOR] [AGC] [DIFF_ENCODE] [PSD] -- one or more lines per block per stage, saying only that a block passed through). Diagnosis is never silenced: [ACQ], CRC, ARQ progress, clip guard, RX timeouts, [BER], [ERROR] and [WARNING] always print"),
     "viz": (True, '1', "capture TX/RX signals and auto-save the plot to <viz-dir>/<scheme>/figure.png (default true; --viz false disables)"),
     "viz-dir": (True, 'results/phy_outputs', "base directory for --viz output, relative to the working directory (a per-modulation subfolder is made). Defaults under results/ so a run does not scatter output across the repo root."),
+    "rx-tap": (True, None, "dump the IQ samples LEAVING one or more RX stages to <viz-dir>/<scheme>/taps/<stage>/block_<id>.txt. Comma-separated, in pipeline order: recv,detect,agc,mf,sync,cfo,phase,eq. Unlike --viz these are raw -- 'detect' is taken before the AGC rescales the burst to RMS 1.0, so absolute amplitude survives -- and many blocks are kept rather than only the first. A tap does NOT cut the chain: the stage still feeds the next one and the run proceeds normally, so CRC/BER stay meaningful."),
+    "rx-tap-max": (True, '20', "--rx-tap: most blocks written PER STAGE (<=0 = unlimited). One file per block, written synchronously inside the pipeline, so an uncapped tap on a long run both floods the folder and slows the chain."),
     "timeout": (True, '3000', "ACK timeout in ms (source)"),
     "timer_interval": (True, '20', "sink FIFO poll interval in ms — this SETS the ACK round-trip latency, so keep it small (was 1000, which made ARQ ~5x slower)"),
     "max-attempts": (True, '50', "source_arq: give up on a chunk after this many un-ACKed sends. 0 = never give up (keeps TX/RX in lockstep on a marginal link, since a given-up chunk desyncs a paired sender/receiver loop)."),
@@ -148,6 +150,8 @@ PY2CPP = {
     "quiet_phy": "quiet-phy",
     "viz": "viz",
     "viz_dir": "viz-dir",
+    "rx_tap": "rx-tap",
+    "rx_tap_max": "rx-tap-max",
     "timeout": "timeout",
     "timer_interval": "timer_interval",
     "max_attempts": "max-attempts",
@@ -276,6 +280,8 @@ class SDR:
                  quiet_phy=_UNSET, # =0  silence the per-block pipeline chatter ([MODULATION]...
                  viz=_UNSET, # =1  capture TX/RX signals and auto-save the plot to <viz-...
                  viz_dir=_UNSET, # =results/phy_outputs  base directory for --viz output, relative to the working...
+                 rx_tap=_UNSET, # dump the IQ samples LEAVING one or more RX stages to <viz-...
+                 rx_tap_max=_UNSET, # =20  --rx-tap: most blocks written PER STAGE (<=0 = unlimited)....
                  timeout=_UNSET, # =3000  ACK timeout in ms (source)
                  timer_interval=_UNSET, # =20  sink FIFO poll interval in ms — this SETS the ACK round-...
                  max_attempts=_UNSET, # =50  source_arq: give up on a chunk after this many un-ACKed...
@@ -392,6 +398,8 @@ class SDR:
             quiet_phy=quiet_phy,
             viz=viz,
             viz_dir=viz_dir,
+            rx_tap=rx_tap,
+            rx_tap_max=rx_tap_max,
             timeout=timeout,
             timer_interval=timer_interval,
             max_attempts=max_attempts,

@@ -1,5 +1,7 @@
 # CLIP Semantic Communication over the SDR PHY
 
+**Directory named for the originating group: University of Miami.** `semcom_umiami` = semantic communication, U. Miami. Renamed from `clip_semcom` on 2026-10-20 so each paper port carries its source institution.
+
 The **third application** on the shared SDR PHY. It ports
 
 > S. Yang, D. Wei, H. Yu, Z. Yang, Y. Liu, M. Chen, *"Contrastive Language–Image
@@ -35,7 +37,7 @@ opt-in / phase-2 (see `INTEGRATION.md`).
 ## Quickstart (no radio, no torch weights)
 
 ```bash
-cd algorithms/clip_semcom
+cd algorithms/semcom_umiami
 
 # 1) end-to-end sanity: encode -> lossless channel -> classify
 python3 semcom.py demo --mock

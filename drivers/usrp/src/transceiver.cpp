@@ -50,6 +50,7 @@
 # include <sstream>
 # include "viz.hpp"
 # include "phy_log.hpp"
+# include "phy_tap.hpp"
 
 // ---------------------------------------------------- Helper functions for transceiver -------------------------------------------//
 void save_block_to_txt(const std::vector<std::complex<float>>& recv_block,
@@ -839,6 +840,7 @@ void receive_thread(uhd::usrp::multi_usrp::sptr usrp,
             // Therefore, the pointer is always the same.
             std::vector<std::complex<float>> recv_block(buff_ptrs[i], buff_ptrs[i] + num_recv_samples);
             recv_fifo.push({recv_block_id, recv_block});  // same as std::make_pair()
+            phytap::write("recv", recv_block_id, recv_block);
             // save_block_to_txt(recv_block, recv_block_id, "RX");
             // compute_instant_energy(recv_block.size(), recv_block_id, recv_block);
             // std::cout << "[RECEIVER] The receiver's FIFO size is " << recv_fifo.size() << std::endl;
@@ -894,6 +896,9 @@ void EnergyDetection_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex
             std::cout << "[DETECTION THREAD] Packet detected in block #" << message.first << std::endl;
 
             output_fifo.push({message.first, output});
+            // Raw detector output: BEFORE the AGC rescales it, so absolute
+            // amplitude -- the thing you study a detector with -- survives.
+            phytap::write("detect", message.first, output);
             pushed_packets++;
             // save_block_to_txt(output, message.first, "detected");
 
@@ -961,6 +966,7 @@ void AGC_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& 
             // PHY_CHATTER << "[AGC] FeedFoward AGC applied!"<< std::endl;
             std::vector<std::complex<float>> agc_message = FF_AGC.process(message.second);
             viz::capture("rx_wave", agc_message, 2000);   // RX burst waveform
+            phytap::write("agc", message.first, agc_message);
             agc_fifo.push({message.first, agc_message});
 
             float rms=0, peak=0;
@@ -977,6 +983,9 @@ void AGC_thread(MutexFIFO<std::pair<size_t, std::vector<std::complex<float>>>>& 
         else if (AGC == "Closed"){
             // PHY_CHATTER << "[AGC] ClosedLoop AGC applied!" << std::endl;
             std::vector<std::complex<float>> agc_message = CL_AGC.process(message.second);
+            // Tapped here too: viz::capture only runs in the "Feed" branch, so
+            // --AGC_type Closed otherwise produces no record of this stage.
+            phytap::write("agc", message.first, agc_message);
             agc_fifo.push({message.first, agc_message});
         } 
         else {

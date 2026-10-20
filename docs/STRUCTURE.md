@@ -29,8 +29,8 @@ unionlabs/
 │   ├── marl/              single-agent A2C random access + its env/training
 │   ├── marl_multi/        multi-agent random access: the full application (agent_node.py,
 │   │                      ap_multi.py, slot_sync.py, training, INTEGRATION.md)
-│   ├── clip_semcom/       CLIP semantic communication + semcom_core.py
-│   ├── stc_aircomp/       STC over-the-air computation + stc_core.py
+│   ├── semcom_umiami/       CLIP semantic communication + semcom_core.py
+│   ├── aircomp_ajou/       STC over-the-air computation + stc_core.py
 │   ├── jammer/            configurable RF interferer
 │   └── README.md
 │

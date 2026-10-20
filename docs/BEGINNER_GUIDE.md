@@ -541,7 +541,7 @@ accuracy rises round over round. Use `--waveform ofdm` for coherent QPSK if the 
 ### 9.3 STC-AirComp (design only — not yet runnable)
 
 This app is specified but **not implemented** (blocked on the paper's exact STLC precoding/combiner
-equations and on a synchronized 2-channel RX capture). See `stc_aircomp/INTEGRATION.md`.
+equations and on a synchronized 2-channel RX capture). See `aircomp_ajou/INTEGRATION.md`.
 When built, the operating sequence will be:
 
 1. **DSP loopback (radio-free):** validate a 2-sensor → 1-AP sum through a simulated 2-antenna AWGN
@@ -562,7 +562,7 @@ The base station encodes an image with **CLIP** into a float32 embedding and tra
 embedding**; the user classifies it (zero-shot) with no return link. Data-transfer archetype.
 
 ```bash
-cd deploy/workspace/algorithms/clip_semcom
+cd deploy/workspace/algorithms/semcom_umiami
 ```
 
 #### Step 0 — radio-free (no torch weights needed; uses the mock CLIP)
@@ -607,7 +607,7 @@ sweep in Step 0 (radio-free), or the phase-2 single-shot mode in the INTEGRATION
 (cd deploy/workspace/algorithms/marl_multi && python3 ap_multi.py --sim-test)      # MARL routing
 (cd deploy/workspace/algorithms/marl_multi && python3 marl_multi_train.py --mock --agents 4 --steps 800 --coll-penalty 0.5)
 (cd deploy/workspace/algorithms/fl && python3 fl.py --mock --clients 2 --rounds 20)  # FL
-cd deploy/workspace/algorithms/clip_semcom && python3 semcom.py demo --mock   # CLIP
+cd deploy/workspace/algorithms/semcom_umiami && python3 semcom.py demo --mock   # CLIP
 PYTHONPATH=../../drivers/usrp/bindings arch -x86_64 python3 semcom.py demo --mock --channel pyphy --fec turbo --snr-sweep 0,2,4,6,10
 
 # ---- hardware (RX/AP host first, TX host second) ----

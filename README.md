@@ -88,8 +88,8 @@ results/         generated output (gitignored)
 | `drivers/` | the **driver layer**, one per PHY — `usrp/`, `lora/`, `sim/` |
 | `docs/` | guides, references, PDFs, diagrams, slides |
 
-Shipped experiments: `echo` `plain_echo` `fl` `dl` `marl` `marl_multi` `clip_semcom`
-`stc_aircomp` `jammer` — plus `_template/` to copy, and `_shared/` for libraries that more
+Shipped experiments: `echo` `plain_echo` `fl` `dl` `marl` `marl_multi` `semcom_umiami`
+`aircomp_ajou` `jammer` — plus `_template/` to copy, and `_shared/` for libraries that more
 than one experiment uses.
 
 **Two layers.** `union/` is the abstraction, shared by everything. `drivers/<name>/` is one
