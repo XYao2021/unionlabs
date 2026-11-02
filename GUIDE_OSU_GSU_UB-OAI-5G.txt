@@ -1,0 +1,362 @@
+==============================================================================
+ UNIONLABS PLATFORM — STEP-BY-STEP GUIDE
+ For:      OSU-GSU University  (algorithms: marl, marl_multi)
+ Testbed:  UB-OAI 5G   --  WINGS Lab, University at Buffalo   (testbed id 87)
+==============================================================================
+
+--------------------------------------------------------------------------------------------------------
+ READ THIS FIRST — what runs today, and what does not
+--------------------------------------------------------------------------------------------------------
+ GOOD NEWS: unlike most ports, your SINGLE-AGENT path is already finished and
+ validated ON HARDWARE. INTEGRATION.md §7 marks phases 1, 2 and 3 DONE:
+ the bridge layer (marl_phy.py / real_channel.py), the environment adapter
+ (marl_env.py RealChannelEnv) and online A2C training on a live radio link
+ (marl_train.py). An agent has already trained end-to-end from real ACK and
+ timeout rewards on two USRPs.
+
+ ONE AP + ONE AGENT IS EXACTLY TWO RADIOS -- which is what UB-OAI 5G has.
+ So you can go on-air here. That is PART 6 step 1.
+
+ WHAT YOU CANNOT DO ON UB-OAI 5G: true multi-agent collision learning.
+ Real collisions need >=2 SIMULTANEOUS TRANSMITTERS PLUS one AP -- three
+ radios minimum (INTEGRATION.md §3). COMMANDS_RUN.txt documents TWO X310s
+ here. With two radios one is the AP and one is the agent, so there is no
+ second transmitter to collide with, and `marl_multi`'s whole point -- an
+ agent learning to back off because it cannot see the collision, only its
+ own missing ACK -- has nothing to learn from.
+
+     NOTE: the platform device registry for UB-OAI 5G lists only the two
+     compute hosts (PowerEdge R760xs, Dell Precision 7920) -- it does not
+     track USRPs at all. So the radio count above comes from COMMANDS_RUN.txt,
+     not from the registry. CONFIRM THE CURRENT RADIO COUNT WITH WINGS LAB
+     before planning any on-air session.
+
+ TWO HARDWARE LESSONS ALREADY PAID FOR -- do not rediscover them:
+
+   USE DQPSK, NOT QPSK. Coherent QPSK delivered only ~17% on the real link
+   because CFO spins the constellation, so P(transmit|queued) stayed stuck
+   near 0.5 and the agent could not learn anything. DQPSK carries data in the
+   phase DIFFERENCE, so a drifting CFO cancels between symbols. Delivery rose
+   to ~64-83% and the agent learned: P(transmit|queued) 0.51 -> 0.76.
+
+   USE 125-BYTE PACKETS. Differential schemes plus FEC mis-frame at very
+   small chunks (32 B -> CRC always fails). 125 B is the validated size and
+   the default. This is a known framing bug, not something you tune around.
+
+ WHAT YOU CAN DO TODAY ON UB-OAI 5G:
+     PART 4  validate both algorithms completely, radio-free       (verified)
+     PART 5  prove your reservation and the two X310s are alive    (verified)
+     PART 6  single-agent ON-AIR training, plus the gap to multi-agent
+
+--------------------------------------------------------------------------------------------------------
+ PART 1 — Account and role
+--------------------------------------------------------------------------------------------------------
+ 1. Sign in to the UnionLabs platform. Press Enter in the password field or
+    click the sign-in button; both work.
+
+ 2. Check your ROLE indicator. You need EXPERIMENTER. If your account also
+    carries Lab Owner, use the role switcher -- the platform remembers the
+    role you chose across refreshes, and the left sidebar changes with it.
+
+ 3. As an Experimenter your sidebar shows exactly two entries:
+        Experimenter   /app/experiments     your sessions and devices
+        Reservation    /app/reservation     booking
+
+ If you do not see "Experimenter", your account's role code is wrong. Ask the
+ WINGS Lab owner (guan@buffalo.edu) to correct it -- you cannot change it
+ yourself.
+
+-------------------------------------------------------------------------------------------------------- 
+ PART 2 — Reserve the UB-OAI 5G testbed (Not required right now, but worth knowing)
+--------------------------------------------------------------------------------------------------------
+ Open  Reservation  in the sidebar, then click  "Make a Reservation".
+ It is a two-stage wizard.
+
+ STAGE 1
+   - "Choose a lab"        ->  WINGS Lab
+   - Testbed               ->  UB-OAI 5G
+   - Device                ->  "PowerEdge R760xs-UB-OAI5G-Server" and "Dell Precision 7920-Desktop Server", these are the compute host 					    you want. For radio work pick the one the X310s are cabled to; if you do not know which, ask WINGS Lab.
+   - "Frequency band"      ->  Band 2 - 2.4 GHz
+                               (the X310 pair runs on vert2450 / 2400-2450 MHz)
+
+   IMPORTANT: reservations are WHOLE-DEVICE EXCLUSIVE. The frequency band is
+   RECORDED but does NOT affect conflict detection -- picking a different band
+   will not let you share a device with someone else. Two reservations on the
+   same device whose times overlap conflict regardless of band.
+
+ STAGE 2
+   - "Start Time (ET)" / "End Time (ET)"   -- note the timezone is EASTERN.
+                                              Convert carefully.
+   - "Reason (optional)"                   -- fill it in; it is what the lab
+                                              owner reads when approving.
+   - "Device Details"                      -- confirm it is the host you meant
+   - click "Use this time slot"
+
+ Then watch the Status column until the reservation is active.
+
+--------------------------------------------------------------------------------------------------------
+ PART 3 — Open your session workspace
+--------------------------------------------------------------------------------------------------------
+ 1. Go to  Experimenter  in the sidebar.
+ 2. Find your row by Session ID / Device Name and check Status.
+ 3. Click  Connect.  A browser-based desktop (noVNC) opens.
+ 4. The left panel of that desktop is the GUIDE -- a staged hello-world for
+    this testbed type. Work down it in order; it is the same material as this
+    file but shorter.
+ 5. When finished, click Disconnect. If a session will not die, see PART 7.
+
+ Open a terminal inside that desktop for everything below. All commands are
+ run from the repo root unless stated otherwise.
+
+--------------------------------------------------------------------------------------------------------
+ PART 4 — Validate both algorithms, no radio  (THIS WORKS TODAY)
+--------------------------------------------------------------------------------------------------------
+ Do this first, every time. It needs no radio, so a hardware fault cannot
+ confuse the result.
+
+ # once per session -- numpy, matplotlib AND torch all come from here.
+ # MARL needs torch; it is the heavy one, so expect this to take a while.
+ pip install -r requirements.txt
+
+ # the platform's own smoke test
+ ./run.sh selftest
+
+ # 4a. SINGLE AGENT -- online A2C learning on a lossless channel.
+ #     Observes [AoI, queue, busy], chooses transmit vs defer, and learns
+ #     from the ACK. No collisions: one transmitter, point-to-point.
+ ./run.sh --algo marl --steps 400
+
+ expect (numbers vary by seed; the TREND is the result):
+   [run_algo] loaded algorithms/marl via make(role) binding
+       [marl] step 50: delivered=30  P(transmit|queued)=0.61  mean-reward(last 50)=-0.037
+       [marl] step 200: delivered=123  P(transmit|queued)=0.65  mean-reward(last 50)=-0.035
+       [marl] step 400: delivered=241  P(transmit|queued)=0.75  mean-reward(last 50)=-0.043
+   [run_algo] loopback done: 400/400 round-trips delivered over channel=ideal
+
+ Read that output: P(transmit|queued) RISES (0.61 -> 0.75). On a clean link
+ transmitting always pays, so a working agent learns to transmit. If it stays
+ flat near 0.5, the agent is learning nothing -- on hardware that almost
+ always means delivery is too poor to carry a reward signal (see PART 6).
+
+ # 4b. MULTI AGENT -- 4 agents contending for one slotted medium.
+ #     >=2 transmitters in a slot collide and NOBODY decodes. Each agent sees
+ #     only its own missing ACK, never the collision, so it must learn to
+ #     back off.
+ ./run.sh --algo marl_multi --role multi --agents 4 --steps 1500
+
+ expect:
+     slot 374/1500: throughput=0.43 collision-rate=0.31 idle=95
+     slot 1496/1500: throughput=0.42 collision-rate=0.22 idle=535
+   [run_algo] multi done (4 agents, channel=ideal, 1500 slots):
+     throughput=0.42/slot (slotted-ALOHA optimum = 0.42)  collision-rate=0.22
+     per-agent P(transmit)=[0.80, 0.01, 0.04, 0.55]
+
+ Read that output: throughput MATCHES the slotted-ALOHA optimum and the
+ collision rate FALLS (0.31 -> 0.22) as the agents learn. Note the per-agent
+ rates are NOT all 1/N -- the agents often differentiate, some taking the
+ channel and others yielding. Throughput is the result to quote; the
+ per-agent split varies with the seed.
+
+ # 4c. the decentralized stack's own self-tests -- all three should PASS
+ cd deploy/workspace/algorithms/marl_multi
+ python3 ap_multi.py --self-test      # per-agent ACK routing
+ python3 ap_multi.py --sim-test       # parser + end-to-end with a fake sink
+ python3 slot_sync.py --self-test     # slot clock aligns 3 clients
+
+ # 4d. offline decentralized run -- one PROCESS per agent, mock medium.
+ #     This is the shape the hardware version takes, with no radio.
+ python3 mock_medium.py --agents 2 --slots 600 &
+ python3 agent_node.py --mock --id 0 --slots 600
+ python3 agent_node.py --mock --id 1 --slots 600
+
+ # 4e. multi-agent training versus fixed-p ALOHA -- the headline comparison
+ python3 marl_multi_train.py --mock --agents 4 --steps 800 \
+         --coll-penalty 0.5 --compare-aloha "0.15,0.25,0.5"
+
+ # 4f. single-agent A2C lives in the SIBLING folder, not this one
+ cd ../marl && python3 marl_train.py --mock --steps 400
+
+--------------------------------------------------------------------------------------------------------
+ PART 5 — Prove the UB radios are alive  (THIS WORKS TODAY)
+--------------------------------------------------------------------------------------------------------
+ This does NOT run your algorithm. It runs the platform's ARQ link over the
+ two X310s, exactly as WINGS Lab runs it. Its only job is to prove that your
+ reservation, the host, the cabling and both radios work -- so that when you
+ move to PART 6 you are not debugging three things at once.
+
+ START THE RECEIVER FIRST, ALWAYS. The source dials for the ACK, so a
+ transmitter started first just burns its retry budget.
+
+ # 0. find the radios
+ uhd_find_devices
+
+ # 1. SURVEY -- run on every radio that RECEIVES, receive-only, nothing TXes.
+ #    Use the SAME --subdev/--ant that radio will receive on, or you measure a
+ #    different port than the one you listen on. With ACK over RF both boxes
+ #    receive, so SURVEY BOTH.
+ ./prepare.sh --device x310 --args addr=192.168.40.2 --subdev A:0 --ant RX2 \
+              --band vert2450
+
+ #    Results land in /workspace/experiments/searching/<timestamped>, and
+ #    radio.sh / run.sh read them automatically. Add --dry-run first to see
+ #    the plan and how long the sweep takes.
+
+ # 2. SINK -- the X310 at .40.2. START THIS FIRST, leave it running.
+ ./radio.sh rx --device x310 \
+   --args addr=192.168.40.2 --rx-args addr=192.168.40.2 --tx-args addr=192.168.40.2 \
+   --rx-subdev A:0 --rx-ant RX2   --rx-freq 2400e6 --rx-gain 20 \
+   --tx-subdev A:0 --tx-ant TX/RX --tx-freq 2450e6 --tx-gain 25 \
+   --role sink_arq --ack-transport rf \
+   --det-mult 30 --sync-threshold 10 --scheme QPSK --bytes-length 1000
+
+ # 3. SOURCE -- the X310 at .30.2, second terminal.
+ ./radio.sh tx --device x310 \
+   --args addr=192.168.30.2 --tx-args addr=192.168.30.2 --rx-args addr=192.168.30.2 \
+   --tx-subdev A:0 --tx-ant TX/RX --tx-freq 2400e6 --tx-gain 25 \
+   --rx-subdev A:0 --rx-ant RX2   --rx-freq 2450e6 --rx-gain 20 \
+   --role source_arq --ack-transport rf --max-attempts 0 \
+   --det-mult 30 --sync-threshold 10 --scheme QPSK --bytes-length 1000
+
+ Data goes out on 2400 MHz; the link-layer ACK comes back on 2450 MHz. That
+ is why each side declares BOTH an --rx-* and a --tx-* chain, and why both
+ boxes had to be surveyed. --max-attempts 0 means retry until it succeeds.
+
+ expect:
+   [RX] chunk 1/5  [CRC OK, new]  (1/5 verified): "It is a period of civil war."
+   [RX] all 5 chunks CRC-verified -- message complete, stopping.
+
+ NOTE this link test uses QPSK and reliable ARQ, which is right for bulk
+ data. MARL uses neither -- it uses DQPSK and SINGLE-SHOT bursts. Passing
+ PART 5 proves the radios work; it does not predict your MARL delivery rate.
+
+ If it fails:
+   - No [ACQ] lines at all   -> nothing was detected. Same freq on both ends?
+                                antenna on TX/RX to transmit? source running?
+   - [ACQ] peak well above threshold but still failing -> the front end and
+                                sync are fine; the problem is in the DATA.
+                                MORE GAIN WILL NOT HELP.
+   - [RX] burst N REJECTED   -> prints what it decoded and how wrong it was.
+                                That line usually names the problem outright.
+
+--------------------------------------------------------------------------------------------------------
+ PART 6 — On-air MARL
+--------------------------------------------------------------------------------------------------------
+ STEP 1 — SINGLE AGENT ON THE REAL LINK.  >>> TWO X310s ARE ENOUGH. <<<
+ This is INTEGRATION.md §7 phase 3, already validated on hardware. The agent
+ fires one real burst per decision and learns from the real ACK or timeout.
+
+ # AP host -- warm receiver and ACK router. START THIS FIRST.
+ cd deploy/workspace/algorithms/marl_multi
+ python3 real_channel.py ap --rx-args addr=192.168.40.2
+
+ # Agent host -- trains online from real ACK/timeout. Second terminal.
+ cd ../marl
+ python3 marl_train.py --tx-args addr=192.168.30.2 --steps 150 --scheme DQPSK
+
+ expect: the agent fires real bursts, reward tracks real delivery, and the
+ model plus a reward plot are saved next to --out.
+
+ SUCCESS CRITERION: P(transmit|queued) climbs above its 0.5 starting point.
+ If it sits at 0.5, look at DELIVERY first, not at the learning rate -- the
+ agent is behaving correctly by refusing to transmit into a link that does
+ not pay. Delivery below ~50% means no reward signal. Check --scheme DQPSK
+ is actually set, then gains, then the carrier.
+
+ >>> KNOWN GAP FOR X310 USERS: real_channel.py and marl_train.py expose
+     --tx-args / --rx-args / --tx-gain / --rx-gain / --scheme, but they do
+     NOT expose --rx-subdev / --rx-ant / --tx-subdev / --tx-ant. They were
+     validated on B210s, where the defaults are correct. Your X310s have
+     antennas on the FIRST RF port only, so confirm the defaults select the
+     port you are cabled to BEFORE the session -- ask WINGS Lab, or use
+     ap_multi.py for the AP side, which does expose --rx-subdev/--rx-ant.
+
+ STEP 2 — DECENTRALIZED MULTI-AGENT.  >>> NEEDS A THIRD RADIO. <<<
+ One AP plus TWO agents, each a separate process on its own node, sharing
+ only the medium. UB-OAI 5G as documented cannot do this -- raise it with
+ WINGS Lab early if you want it.
+
+ # AP host -- the decoder/ACK router AND the slot clock:
+ python3 ap_multi.py --agents 2 --scheme DQPSK --rx-args addr=192.168.40.2 \
+         --rx-subdev A:0 --rx-ant RX2 --rx-rate 2e6 --symbol-rate 1e6
+ python3 slot_sync.py --agents 2 --slot-ms 150          # slot clock, port 5600
+
+ # Each agent host, pointing at the AP host:
+ python3 agent_node.py --id 0 --tx-args addr=192.168.30.2 --scheme DQPSK \
+         --ap-host $AP_IP --slot-host $AP_IP
+ python3 agent_node.py --id 1 --tx-args <THIRD RADIO> --scheme DQPSK \
+         --ap-host $AP_IP --slot-host $AP_IP
+
+ How the collision signal reaches an agent: the C++ ACK server is
+ single-client, so ACK routing is done in Python. The C++ sink decodes a
+ burst and prints its id (payload byte 0); ap_multi.py reads that and ACKs
+ the matching agent. A collision decodes NOTHING, so no ACK goes out and the
+ agent simply times out. That timeout is its only evidence a collision
+ happened -- it never observes the other transmitter.
+
+ STILL PENDING ON HARDWARE: ap_multi._decode_stream has been validated only
+ against a fake sink (--sim-test). Real RF decode is untested. Also confirm
+ the agent's --bytes-length matches the AP's; both default to 125.
+
+--------------------------------------------------------------------------------------------------------
+ PART 7 — Reference and troubleshooting
+--------------------------------------------------------------------------------------------------------
+ YOUR ALGORITHMS
+
+   algorithms/marl/            SINGLE AGENT. No README here -- read app.py's
+                               docstring, it is the overview.
+     app.py                    the uniform-API binding (decision in transmit(),
+                               A2C update in on_result())
+     marl_train.py             online A2C on a real or mock link
+     marl_env.py               gym-style env over the injected channel
+     aloha_baseline.py         the fixed-p ALOHA comparison
+
+   algorithms/marl_multi/      MULTI AGENT. This one is fully documented.
+     README.md                 what it is, and the file map
+     INTEGRATION.md            the design note. §3 radio count, §7 phased
+                               plan (what is DONE), §8/§8b multi-agent
+     ap_multi.py               multi-agent AP, per-agent ACK routing
+     agent_node.py             one process per agent, local-only observation
+     slot_sync.py              the slot clock
+     real_channel.py           warm source / access point bridge
+     mock_medium.py            offline shared medium, no radio
+     marl_multi_train.py       single-process multi-agent training
+     results/                  saved runs
+
+ PLATFORM
+   docs/BEGINNER_GUIDE.md §9.1 the worked MARL recipes this guide follows
+   docs/HOW_TO_ADD_ALGORITHM.md  the app.py contract and the roles
+   docs/PARAMETERS_ALGO.md       every run.sh option (auto-generated)
+   docs/PARAMETERS.md            every C++ modem option (auto-generated)
+   docs/HARDWARE.md              radio inventory, wiring, per-device gotchas
+   COMMANDS_RUN.txt              the command pairs actually run on both rigs
+
+   PDFs are not kept in the repo (they went stale against the markdown).
+   Render one when you need to send it:  ./docs/make-pdf.sh BEGINNER_GUIDE
+
+ LISTING WHAT EXISTS
+   ./run.sh list              every algorithm, with the roles each accepts
+   ./run.sh topologies        every topology file
+   ./run.sh topologies <name> one topology's wiring
+
+ IF A SESSION WILL NOT TERMINATE
+   The Disconnect button can leave a session showing as live. It is a known
+   failure and there is cleanup logic for it, but if a session is still listed
+   after several minutes, send the Session ID to the platform team rather than
+   clicking repeatedly.
+
+ IF A SESSION DIES WITH "Transport endpoint is not connected"
+   That is a dead mount or storage layer, not your code. It cannot be
+   repaired from inside the container -- destroy it and create a new one.
+   /workspace content lives on the storage backend and should survive.
+
+ CONTACTS
+   WINGS Lab / UB-OAI 5G owner ... guan@buffalo.edu
+   Platform / this guide ........ the UnionLabs platform team
+
+==============================================================================
+ Written 2026-10-24. Every PART 4 command was EXECUTED while writing this and
+ the expected output is real, not illustrative. PART 5 is taken verbatim from
+ COMMANDS_RUN.txt. PART 6 follows BEGINNER_GUIDE §9.1 and INTEGRATION.md §7;
+ the X310 addresses are substituted for the B210 serials those recipes use --
+ re-read the KNOWN GAP note before the session.
+==============================================================================

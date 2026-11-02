@@ -1,0 +1,282 @@
+==============================================================================
+ UNIONLABS PLATFORM — STEP-BY-STEP GUIDE
+ For:      Ajou University  (algorithm: aircomp_ajou, STC-AirComp)
+ Testbed:  UB-OAI 5G   --  WINGS Lab, University at Buffalo   (testbed id 87)
+==============================================================================
+
+--------------------------------------------------------------------------------------------------------
+ READ THIS FIRST — what runs today, and what does not
+--------------------------------------------------------------------------------------------------------
+ Your algorithm `aircomp_ajou` is at PHASE 1: the DSP is built and validated
+ RADIO-FREE. Over-the-air AirComp is NOT runnable yet, for two INDEPENDENT
+ reasons. Neither is a reservation problem, so do not expect to fix either by
+ booking more time.
+
+ (1) ONE ENGINE BLOCK IS MISSING.
+     AirComp needs the access point to take TWO COHERENT RX CAPTURES on ONE
+     device (both channels sharing an LO) so the receive-diversity combine has
+     something to combine. That block -- `capture2` -- is still listed as
+     "build", not "have".
+       see: algorithms/aircomp_ajou/README.md   (the Need/Status table)
+            algorithms/aircomp_ajou/INTEGRATION.md  §8 step 2
+
+ (2) UB-OAI 5G DOES NOT HAVE ENOUGH RADIOS FOR A REAL SUM.
+     A genuine over-the-air sum needs >=2 INDEPENDENT transmitters PLUS one
+     multi-antenna AP -- three radios, co-located, sharing the medium
+     (INTEGRATION.md §4). COMMANDS_RUN.txt documents TWO X310s at UB-OAI 5G.
+     An X310 is 2x2, so one of them can be the AP -- which leaves exactly ONE
+     X310 as a sensor. That is INTEGRATION.md §8 step 3 (single-sensor RF:
+     proves the TX chain and the combine, NO sum yet), not §8 step 4 (the
+     two-sensor sum).
+
+     NOTE: the platform device registry for UB-OAI 5G lists only the two
+     compute hosts (PowerEdge R760xs, Dell Precision 7920) -- it does not
+     track USRPs at all. So the radio count above comes from COMMANDS_RUN.txt,
+     not from the registry. CONFIRM THE CURRENT RADIO COUNT WITH WINGS LAB
+     before planning any on-air session.
+
+ WHAT YOU CAN DO TODAY ON UB-OAI 5G:
+     PART 4  validate your algorithm completely, radio-free        (verified)
+     PART 5  prove your reservation and the two X310s are alive    (verified)
+     PART 6  the exact gap to on-air, so you can plan it
+
+--------------------------------------------------------------------------------------------------------
+ PART 1 — Account and role
+--------------------------------------------------------------------------------------------------------
+ 1. Sign in to the UnionLabs platform. Press Enter in the password field or
+    click the sign-in button; both work.
+
+ 2. Check your ROLE indicator. You need EXPERIMENTER. If your account also
+    carries Lab Owner, use the role switcher -- the platform remembers the
+    role you chose across refreshes, and the left sidebar changes with it.
+
+ 3. As an Experimenter your sidebar shows exactly two entries:
+        Experimenter   /app/experiments     your sessions and devices
+        Reservation    /app/reservation     booking
+
+ If you do not see "Experimenter", your account's role code is wrong. Ask the
+ WINGS Lab owner (guan@buffalo.edu) to correct it -- you cannot change it
+ yourself.
+
+-------------------------------------------------------------------------------------------------------- 
+ PART 2 — Reserve the UB-OAI 5G testbed (This does not required at this time, but worth to know it)
+--------------------------------------------------------------------------------------------------------
+ Open  Reservation  in the sidebar, then click  "Make a Reservation".
+ It is a two-stage wizard.
+
+ STAGE 1
+   - "Choose a lab"        ->  WINGS Lab
+   - Testbed               ->  UB-OAI 5G
+   - Device                ->  "PowerEdge R760xs-UB-OAI5G-Server" and "Dell Precision 7920-Desktop Server", these are the compute host 					    you want. For radio work pick the one the X310s are cabled to; if you do not know which, ask WINGS Lab.
+   - "Frequency band"      ->  Band 2 - 2.4 GHz
+                               (the X310 pair runs on vert2450 / 2400-2450 MHz)
+
+   IMPORTANT: reservations are WHOLE-DEVICE EXCLUSIVE. The frequency band is
+   RECORDED but does NOT affect conflict detection -- picking a different band
+   will not let you share a device with someone else. Two reservations on the
+   same device whose times overlap conflict regardless of band.
+
+ STAGE 2
+   - "Start Time (ET)" / "End Time (ET)"   -- note the timezone is EASTERN,
+                                              not KST. Convert carefully.
+   - "Reason (optional)"                   -- fill it in; it is what the lab
+                                              owner reads when approving.
+   - "Device Details"                      -- confirm it is the host you meant
+   - click "Use this time slot"
+
+ Then watch the Status column until the reservation is active.
+
+--------------------------------------------------------------------------------------------------------
+ PART 3 — Open your session workspace
+--------------------------------------------------------------------------------------------------------
+ 1. Go to  Experimenter  in the sidebar.
+ 2. Find your row by Session ID / Device Name and check Status.
+ 3. Click  Connect.  A browser-based desktop (noVNC) opens.
+ 4. The left panel of that desktop is the GUIDE -- a staged hello-world for
+    this testbed type. Work down it in order; it is the same material as this
+    file but shorter.
+ 5. When finished, click Disconnect. If a session will not die, see PART 7.
+
+ Open a terminal inside that desktop for everything below. All commands are
+ run from the repo root unless stated otherwise.
+
+--------------------------------------------------------------------------------------------------------
+ PART 4 — Validate your algorithm, no radio  (THIS WORKS TODAY)
+--------------------------------------------------------------------------------------------------------
+ Do this first, every time. It needs no radio, so a hardware fault cannot
+ confuse the result.
+
+ # once per session -- numpy and matplotlib both come from here
+ pip install -r requirements.txt
+
+ # the platform's own smoke test
+ ./run.sh selftest
+
+ # the smallest possible run: echo over an ideal channel
+ ./run.sh
+
+ # YOUR ALGORITHM, radio-free: 8 sensors -> 1 AP, 4-bit values
+ ./run.sh --algo aircomp_ajou --role aircomp --agents 8 --snr-db 15 --steps 200
+
+ expect:
+   [run_algo] loaded algorithms/aircomp_ajou via make(role) binding
+   [aircomp_ajou] 8 sensors -> 1 AP, 4-bit, SNR=15.0 dB, 200 rounds:
+                  NMSE(sum v_i)=4.6e-04
+
+ # the NMSE-versus-SNR sweep from the paper, as a figure
+ #   in-session (workspace is the working dir):
+ python3 algorithms/aircomp_ajou/aircomp_ajou.py --sensors 8 --bits 4
+ #   from a clone on your own machine:
+ python3 deploy/workspace/algorithms/aircomp_ajou/aircomp_ajou.py \
+         --sensors 8 --bits 4
+
+ expect (one line per SNR, then the figure path):
+   [stc] 8 sensors -> 1 AP (2 ant), 4-bit values, 4000 trials/point, P_max=20.0
+     SNR= +0.0 dB   STLC NMSE=4.5e-02   single-antenna NMSE=2.4e-02
+     SNR=+20.0 dB   STLC NMSE=3.3e-05   single-antenna NMSE=3.0e-03
+   [stc] wrote .../results/aircomp_ajou/aircomp_ajou_nmse.png
+
+ Read that output: the STLC column beats single-antenna by ~100x at 20 dB,
+ and LOSES at 0 dB. Receive diversity needs SNR to pay off. That crossover is
+ the result, not a bug.
+
+ Useful flags on the sweep: --trials (default 4000, lower it to iterate fast),
+ --snr-list, --bits, --p-max, --seed.
+
+--------------------------------------------------------------------------------------------------------
+ PART 5 — Prove the UB radios are alive  (THIS WORKS TODAY)
+--------------------------------------------------------------------------------------------------------
+ This does NOT run your algorithm. It runs the platform's ARQ link over the
+ two X310s, exactly as WINGS Lab runs it. Its only job is to prove that your
+ reservation, the host, the cabling and both radios work -- so that when
+ AirComp does become runnable, you are not debugging three things at once.
+
+ START THE RECEIVER FIRST, ALWAYS. The source dials for the ACK, so a
+ transmitter started first just burns its retry budget.
+
+ # 0. find the radios
+ uhd_find_devices
+
+ # 1. SURVEY -- run on every radio that RECEIVES, receive-only, nothing TXes.
+ #    Use the SAME --subdev/--ant that radio will receive on, or you measure a
+ #    different port than the one you listen on. With ACK over RF both boxes
+ #    receive, so SURVEY BOTH.
+ ./prepare.sh --device x310 --args addr=192.168.40.2 --subdev A:0 --ant RX2 \
+              --band vert2450
+
+ #    Results land in /workspace/experiments/searching/<timestamped>, and
+ #    radio.sh / run.sh read them automatically. Add --dry-run first to see
+ #    the plan and how long the sweep takes.
+
+ # 2. SINK -- the X310 at .40.2. START THIS FIRST, leave it running.
+ ./radio.sh rx --device x310 \
+   --args addr=192.168.40.2 --rx-args addr=192.168.40.2 --tx-args addr=192.168.40.2 \
+   --rx-subdev A:0 --rx-ant RX2   --rx-freq 2400e6 --rx-gain 20 \
+   --tx-subdev A:0 --tx-ant TX/RX --tx-freq 2450e6 --tx-gain 25 \
+   --role sink_arq --ack-transport rf \
+   --det-mult 30 --sync-threshold 10 --scheme QPSK --bytes-length 1000
+
+ # 3. SOURCE -- the X310 at .30.2, second terminal.
+ ./radio.sh tx --device x310 \
+   --args addr=192.168.30.2 --tx-args addr=192.168.30.2 --rx-args addr=192.168.30.2 \
+   --tx-subdev A:0 --tx-ant TX/RX --tx-freq 2400e6 --tx-gain 25 \
+   --rx-subdev A:0 --rx-ant RX2   --rx-freq 2450e6 --rx-gain 20 \
+   --role source_arq --ack-transport rf --max-attempts 0 \
+   --det-mult 30 --sync-threshold 10 --scheme QPSK --bytes-length 1000
+
+ Data goes out on 2400 MHz; the link-layer ACK comes back on 2450 MHz. That
+ is why each side declares BOTH an --rx-* and a --tx-* chain, and why both
+ boxes had to be surveyed. --max-attempts 0 means retry until it succeeds.
+
+ expect:
+   [RX] chunk 1/5  [CRC OK, new]  (1/5 verified): "It is a period of civil war."
+   [RX] all 5 chunks CRC-verified -- message complete, stopping.
+
+ If it fails:
+   - No [ACQ] lines at all   -> nothing was detected. Same freq on both ends?
+                                antenna on TX/RX to transmit? source running?
+   - [ACQ] peak well above threshold but still failing -> the front end and
+                                sync are fine; the problem is in the DATA.
+                                MORE GAIN WILL NOT HELP.
+   - [RX] burst N REJECTED   -> prints what it decoded and how wrong it was.
+                                That line usually names the problem outright.
+
+--------------------------------------------------------------------------------------------------------
+ PART 6 — The gap to on-air AirComp
+--------------------------------------------------------------------------------------------------------
+ In dependency order. Steps 1 and 2 are platform work, not yours.
+
+ [done]  §8.1  DSP loopback, radio-free. 2 sensors -> 1 AP through a simulated
+               2-antenna AWGN channel. This is PART 4 above.
+
+ [TODO]  §8.2  `capture2` -- the synchronized 2-channel RX block in the Radio
+               wrapper. Acceptance test: two coherent captures of ONE known
+               transmitter, equal timestamps, stable relative phase.
+               This is the ONLY engine addition the design note identifies.
+
+ [TODO]  §8.3  Single-sensor RF. One sensor -> 2x2 AP. STLC-encode, transmit,
+               capture2, combine, recover that ONE sensor's value. No sum yet.
+               >>> UB-OAI 5G's two X310s ARE enough for this step. <<<
+
+ [TODO]  §8.4  Two-sensor RF sum. Add a second independent sensor, slot-sync
+               both into the same slot, recover v1 + v2, report NMSE.
+               >>> This needs a THIRD co-located radio. UB-OAI 5G as
+                   documented cannot do it. Raise this with WINGS Lab early.
+               Try DBPSK first -- it is differential, so a slow CFO cancels
+               and no absolute phase reference is needed. Only if coherence
+               demands it move to BPSK with --ref external (shared 10 MHz/PPS).
+
+ The integration point is already marked in the code: in
+ algorithms/aircomp_ajou/app.py, `stc_core.aircomp_codeword(...)` is the PORT
+ TO THE PHY where the superposition happens. Swap that simulated sum for a
+ real 2-antenna capture and the SAME algorithm computes over the air -- the
+ algorithm code does not change.
+
+ Full reasoning, including the coherence budget: INTEGRATION.md §2, §4, §8.
+
+--------------------------------------------------------------------------------------------------------
+ PART 7 — Reference and troubleshooting
+--------------------------------------------------------------------------------------------------------
+ YOUR ALGORITHM
+   algorithms/aircomp_ajou/README.md        what it is, Need/Status table
+   algorithms/aircomp_ajou/INTEGRATION.md   the design note (§4 radios, §8 plan)
+   algorithms/aircomp_ajou/stc_core.py      STLC precoder/combiner, bit-slicing
+   algorithms/aircomp_ajou/app.py           the uniform-API binding
+   algorithms/aircomp_ajou/aircomp_ajou.py  the NMSE-vs-SNR sweep
+
+   Paper: Y.-S. Lee, K.-H. Lee, B. C. Jung, "Space-time coded over-the-air
+   computation with receive diversity for 6G massive IoT networks," IEEE
+   Wireless Communications Letters, vol. 15, pp. 31-35, 2026.
+
+ PLATFORM
+   docs/BEGINNER_GUIDE.md        install, first run, every run.sh option
+   docs/HOW_TO_ADD_ALGORITHM.md  the app.py contract and the roles
+   docs/PARAMETERS_ALGO.md       every run.sh / LoRa option (auto-generated)
+   docs/PARAMETERS.md            every C++ modem option (auto-generated)
+   docs/HARDWARE.md              radio inventory, wiring, per-device gotchas
+   drivers/usrp/sim/README.md    two-terminal TX/RX DSP demo, no radio
+   COMMANDS_RUN.txt              the command pairs actually run on both rigs
+
+   PDFs are not kept in the repo (they went stale against the markdown).
+   Render one when you need to send it:  ./docs/make-pdf.sh BEGINNER_GUIDE
+
+ LISTING WHAT EXISTS
+   ./run.sh list              every algorithm, with the roles each accepts
+   ./run.sh topologies        every topology file
+   ./run.sh topologies <name> one topology's wiring
+
+ IF A SESSION WILL NOT TERMINATE
+   The Disconnect button can leave a session showing as live. It is a known
+   failure and there is cleanup logic for it, but if a session is still listed
+   after several minutes, send the Session ID to the platform team rather than
+   clicking repeatedly.
+
+ CONTACTS
+   WINGS Lab / UB-OAI 5G owner ... guan@buffalo.edu
+   Platform / this guide ........ the UnionLabs platform team
+
+==============================================================================
+ Written 2026-10-20. PART 4 and PART 5 commands were executed or taken
+ verbatim from COMMANDS_RUN.txt. PART 6 tracks INTEGRATION.md §8 -- re-read
+ that section before planning on-air work, as the TODOs are being worked on.
+==============================================================================

@@ -1,0 +1,368 @@
+==============================================================================
+ UNIONLABS PLATFORM — STEP-BY-STEP GUIDE
+ For:      University of Miami  (algorithm: semcom_umiami)
+ Testbed:  UB-OAI 5G   --  WINGS Lab, University at Buffalo   (testbed id 87)
+==============================================================================
+
+--------------------------------------------------------------------------------------------------------
+ READ THIS FIRST — what runs today, and what does not
+--------------------------------------------------------------------------------------------------------
+ YOUR PORT IS DONE. INTEGRATION.md §6 phase 1 is complete and validated
+ radio-free: the CLIP backend, the float32 embedding codec, the zero-shot
+ classifier and the API port (semcom_core.py + phy_port.py + semcom.py).
+
+ AND IT ONLY NEEDS TWO RADIOS. Semantic communication here is a point-to-
+ point data transfer -- the base station sends one float32 embedding, one
+ user receives and classifies it. That is the same byte-pipe FL uses
+ (INTEGRATION.md §4: one TX, one RX). UB-OAI 5G's two X310s are enough.
+ Nothing in this port needs a third radio, unlike the AirComp and
+ multi-agent MARL ports.
+
+ THE ONE THING TO UNDERSTAND BEFORE YOU BOOK TIME -- READ §3 OF
+ INTEGRATION.md. Our PHY offers TWO REGIMES and they answer DIFFERENT
+ questions:
+
+   (1) RELIABLE -- what the radio backend does TODAY. CRC-16 + FEC +
+       stop-and-wait ARQ deliver the embedding LOSSLESSLY. Accuracy is
+       preserved, and the cost of a noisy channel shows up as
+       RETRANSMISSIONS, DELAY and ENERGY -- not as degraded accuracy.
+
+   (2) NOISY / SEMANTIC -- what reproduces the paper's Fig. 3. The
+       embedding is sent WITHOUT a CRC gate, so residual bit errors pass
+       through and corrupt the floats, and accuracy falls with SNR. Today
+       this is the RADIO-FREE `--channel pyphy` path. On the radio it is
+       phase 2 (single-shot `--max-attempts 1` with the CRC check disabled
+       on this stream).
+
+ SO: going on-air at UB today proves the TRANSPORT works end to end. It
+ does NOT reproduce the paper's headline figure, because ARQ removes
+ exactly the noise the paper is about. Plan your session accordingly --
+ the Fig. 3 curve is produced radio-free in PART 4, and it is produced
+ through our REAL modem, not a toy channel.
+
+ TWO MORE THINGS THAT WILL OTHERWISE CONFUSE YOU:
+
+   WITH --mock, ALL THREE CLIP MODELS SCORE THE SAME ACCURACY. The mock
+   backend is a deterministic stand-in, so vit-b32 / b16 / l14 all report
+   0.988 and only payload, delay and energy differ. The paper's accuracy
+   ORDERING (Fig. 2, L/14 > B/16 > B/32) needs REAL weights -- that is
+   phase 2, and it is one pip install, not a code change.
+
+   FEC IS NOT OPTIONAL HERE. A 512-float embedding is wrecked by any
+   surviving bit error. Uncoded QPSK at 6 dB has BER 0.034 and gives
+   accuracy ~0; turbo at the same 6 dB is error-free and gives 0.988.
+   Always carry --fec turbo on this payload.
+
+ WHAT YOU CAN DO TODAY ON UB-OAI 5G:
+     PART 4  reproduce the paper radio-free, through the real modem (verified)
+     PART 5  prove your reservation and the two X310s are alive    (verified)
+     PART 6  on-air embedding transfer, and the gap to on-air Fig. 3
+
+--------------------------------------------------------------------------------------------------------
+ PART 1 — Account and role
+--------------------------------------------------------------------------------------------------------
+ 1. Sign in to the UnionLabs platform. Press Enter in the password field or
+    click the sign-in button; both work.
+
+ 2. Check your ROLE indicator. You need EXPERIMENTER. If your account also
+    carries Lab Owner, use the role switcher -- the platform remembers the
+    role you chose across refreshes, and the left sidebar changes with it.
+
+ 3. As an Experimenter your sidebar shows exactly two entries:
+        Experimenter   /app/experiments     your sessions and devices
+        Reservation    /app/reservation     booking
+
+ If you do not see "Experimenter", your account's role code is wrong. Ask the
+ WINGS Lab owner (guan@buffalo.edu) to correct it -- you cannot change it
+ yourself.
+
+-------------------------------------------------------------------------------------------------------- 
+ PART 2 — Reserve the UB-OAI 5G testbed (Not required right now, but worth knowing)
+--------------------------------------------------------------------------------------------------------
+ Open  Reservation  in the sidebar, then click  "Make a Reservation".
+ It is a two-stage wizard.
+
+ STAGE 1
+   - "Choose a lab"        ->  WINGS Lab
+   - Testbed               ->  UB-OAI 5G
+   - Device                ->  "PowerEdge R760xs-UB-OAI5G-Server" and "Dell Precision 7920-Desktop Server", these are the compute host 					    you want. For radio work pick the one the X310s are cabled to; if you do not know which, ask WINGS Lab.
+   - "Frequency band"      ->  Band 2 - 2.4 GHz
+                               (the X310 pair runs on vert2450 / 2400-2450 MHz)
+
+   IMPORTANT: reservations are WHOLE-DEVICE EXCLUSIVE. The frequency band is
+   RECORDED but does NOT affect conflict detection -- picking a different band
+   will not let you share a device with someone else. Two reservations on the
+   same device whose times overlap conflict regardless of band.
+
+ STAGE 2
+   - "Start Time (ET)" / "End Time (ET)"   -- note the timezone is EASTERN.
+                                              Convert carefully.
+   - "Reason (optional)"                   -- fill it in; it is what the lab
+                                              owner reads when approving.
+   - "Device Details"                      -- confirm it is the host you meant
+   - click "Use this time slot"
+
+ Then watch the Status column until the reservation is active.
+
+--------------------------------------------------------------------------------------------------------
+ PART 3 — Open your session workspace
+--------------------------------------------------------------------------------------------------------
+ 1. Go to  Experimenter  in the sidebar.
+ 2. Find your row by Session ID / Device Name and check Status.
+ 3. Click  Connect.  A browser-based desktop (noVNC) opens.
+ 4. The left panel of that desktop is the GUIDE -- a staged hello-world for
+    this testbed type. Work down it in order; it is the same material as this
+    file but shorter.
+ 5. When finished, click Disconnect. If a session will not die, see PART 7.
+
+ Open a terminal inside that desktop for everything below.
+
+--------------------------------------------------------------------------------------------------------
+ PART 4 — Reproduce the paper, no radio  (THIS WORKS TODAY)
+--------------------------------------------------------------------------------------------------------
+ Do this first, every time. It needs no radio, so a hardware fault cannot
+ confuse the result. This is also where the paper's Fig. 3 actually comes
+ from -- see the regime note at the top.
+
+ # once per session. The MOCK path needs only numpy + opencv, both of which
+ # come from here. Real CLIP weights are a separate opt-in (step 4d).
+ pip install -r requirements.txt
+
+ # the platform's own smoke test
+ ./run.sh selftest
+
+ cd deploy/workspace/algorithms/semcom_umiami
+
+ # 4a. END-TO-END SANITY: encode -> lossless channel -> classify
+ python3 semcom.py demo --mock
+
+ expect:
+   [semcom] CLIP=ViT-B-32(mock,d=512)  spec=PayloadSpec(dtype='float32', shape=(512,))
+            quant=f32  N=80 images / 10 classes  payload=2061 B
+   [semcom] noise-free (channel-perfect) top-1 accuracy = 0.988
+
+      SNR dB |      BER | accuracy | channel
+         8.0 |   0.0000 |    0.988 | ideal/QPSK
+
+ Read that: one image becomes a 512-float embedding, 2061 bytes on the wire.
+ On a clean channel the classifier is right 98.8% of the time. That is your
+ ceiling -- everything below is how much the channel takes away.
+
+ # 4b. THE PAPER'S FIG. 3, through OUR REAL MODEM (turbo-coded QPSK).
+ #     This is the noisy/semantic regime: no CRC gate, so bit errors reach
+ #     the floats and accuracy degrades. Radio-free, but NOT a toy channel.
+ PYTHONPATH=../../../../drivers/usrp/bindings python3 semcom.py demo --mock \
+     --channel pyphy --scheme QPSK --fec turbo --snr-sweep 0,2,4,6,10
+
+ expect (recorded in INTEGRATION.md §3 as the validated result):
+    SNR dB |  BER   | accuracy
+      0.0  | 0.208  |  0.000
+      2.0  | 0.073  |  0.000
+      4.0  | 0.001  |  0.700
+      6.0  | 0.000  |  0.988     <- matches the paper's Fig. 3 shape
+
+ The cliff between 2 and 6 dB IS the result. A 512-float embedding has no
+ redundancy, so it is all-or-nothing: once FEC closes the last errors,
+ accuracy jumps to the clean ceiling.
+
+ # 4c. THE 3-MODEL TRADEOFF (the paper's Table I)
+ python3 semcom.py demo --mock --model-sweep
+
+ expect:
+         model |  dim | payload B | t_tx ms |  energy | clean acc
+       vit-b32 |  512 |      2061 |   0.039 |  0.0010 |     0.988
+       vit-b16 |  512 |      2061 |   0.039 |  0.0013 |     0.988
+       vit-l14 |  768 |      3085 |   0.058 |  0.0039 |     0.988
+
+ NOTE the accuracy column is IDENTICAL for all three. That is the mock
+ backend, not a bug -- see the top of this guide. Payload, delay and energy
+ are the real axes here; accuracy only separates with real weights.
+
+ # 4d. REAL CLIP WEIGHTS (phase 2, one pip install)
+ pip install -r requirements.txt     # pulls open_clip_torch; torch is already here
+ python3 semcom.py demo --model vit-l14      # dropping --mock uses real ViT-L/14
+
+ load_clip() auto-detects open_clip. If it is missing or the host is offline
+ it PRINTS A NOTICE AND FALLS BACK TO THE MOCK rather than failing -- so if
+ your accuracies all look like 0.988 again, check for that notice before
+ concluding anything about the models.
+
+--------------------------------------------------------------------------------------------------------
+ PART 5 — Prove the UB radios are alive  (THIS WORKS TODAY)
+--------------------------------------------------------------------------------------------------------
+ This does NOT run your algorithm. It runs the platform's ARQ link over the
+ two X310s, exactly as WINGS Lab runs it. Its only job is to prove that your
+ reservation, the host, the cabling and both radios work -- so that when you
+ move to PART 6 you are not debugging three things at once.
+
+ START THE RECEIVER FIRST, ALWAYS. The source dials for the ACK, so a
+ transmitter started first just burns its retry budget.
+
+ # 0. find the radios
+ uhd_find_devices
+
+ # 1. SURVEY -- run on every radio that RECEIVES, receive-only, nothing TXes.
+ #    Use the SAME --subdev/--ant that radio will receive on, or you measure a
+ #    different port than the one you listen on.
+ ./prepare.sh --device x310 --args addr=192.168.40.2 --subdev A:0 --ant RX2 \
+              --band vert2450
+
+ #    Results land in /workspace/experiments/searching/<timestamped>, and
+ #    radio.sh / run.sh read them automatically. Add --dry-run first to see
+ #    the plan and how long the sweep takes.
+
+ # 2. SINK -- the X310 at .40.2. START THIS FIRST, leave it running.
+ ./radio.sh rx --device x310 \
+   --args addr=192.168.40.2 --rx-args addr=192.168.40.2 --tx-args addr=192.168.40.2 \
+   --rx-subdev A:0 --rx-ant RX2   --rx-freq 2400e6 --rx-gain 20 \
+   --tx-subdev A:0 --tx-ant TX/RX --tx-freq 2450e6 --tx-gain 25 \
+   --role sink_arq --ack-transport rf \
+   --det-mult 30 --sync-threshold 10 --scheme QPSK --bytes-length 1000
+
+ # 3. SOURCE -- the X310 at .30.2, second terminal.
+ ./radio.sh tx --device x310 \
+   --args addr=192.168.30.2 --tx-args addr=192.168.30.2 --rx-args addr=192.168.30.2 \
+   --tx-subdev A:0 --tx-ant TX/RX --tx-freq 2400e6 --tx-gain 25 \
+   --rx-subdev A:0 --rx-ant RX2   --rx-freq 2450e6 --rx-gain 20 \
+   --role source_arq --ack-transport rf --max-attempts 0 \
+   --det-mult 30 --sync-threshold 10 --scheme QPSK --bytes-length 1000
+
+ Data goes out on 2400 MHz; the link-layer ACK comes back on 2450 MHz. That
+ is why each side declares BOTH an --rx-* and a --tx-* chain, and why both
+ boxes had to be surveyed. --max-attempts 0 means retry until it succeeds.
+
+ expect:
+   [RX] chunk 1/5  [CRC OK, new]  (1/5 verified): "It is a period of civil war."
+   [RX] all 5 chunks CRC-verified -- message complete, stopping.
+
+ This link test is a GOOD predictor for your port, because semcom uses the
+ same reliable-ARQ byte pipe. If PART 5 passes, PART 6 step 1 should too.
+
+ If it fails:
+   - No [ACQ] lines at all   -> nothing was detected. Same freq on both ends?
+                                antenna on TX/RX to transmit? source running?
+   - [ACQ] peak well above threshold but still failing -> the front end and
+                                sync are fine; the problem is in the DATA.
+                                MORE GAIN WILL NOT HELP.
+   - [RX] burst N REJECTED   -> prints what it decoded and how wrong it was.
+                                That line usually names the problem outright.
+
+--------------------------------------------------------------------------------------------------------
+ PART 6 — On-air semantic communication
+--------------------------------------------------------------------------------------------------------
+ STEP 1 — EMBEDDING TRANSFER OVER THE RADIO.  >>> TWO X310s ARE ENOUGH. <<<
+ INTEGRATION.md §6 phase 3. The BS encodes an image, the embedding crosses
+ the air under reliable ARQ, the user classifies it. START THE RX FIRST.
+
+ cd deploy/workspace/algorithms/semcom_umiami
+
+ # USER / RX host -- receives embeddings and classifies them locally.
+ # It builds the CLIP TEXT features itself, so there is no return link.
+ python3 semcom.py rx --rx-args addr=192.168.40.2 --rx-subdev A:0 --num 8
+
+ # BS / TX host -- encodes images, sends each embedding. Second terminal.
+ python3 semcom.py tx --tx-args addr=192.168.30.2 --tx-subdev A:0 \
+         --ack-host <RX_HOST_IP> --chunk 125
+
+ SUCCESS CRITERION: a delivered embedding classifies the same as it did
+ radio-free. Because ARQ is lossless, accuracy should MATCH PART 4a
+ (~0.988). If it is lower, the problem is the codec or the label set, not
+ the channel -- the channel either delivers the bytes or retransmits.
+
+ WHAT TO MEASURE HERE: not accuracy -- retransmissions, delay and energy.
+ That is the reliable regime's whole point, and it is the axis the paper's
+ PPO optimiser trades against accuracy. --chunk 125 is the validated
+ framing size; one image may span several chunks.
+
+ >>> KNOWN GAP FOR X310 USERS: semcom.py exposes --rx-subdev / --tx-subdev
+     (good -- the MARL scripts do not) but NOT --rx-ant / --tx-ant. The
+     recipes were validated on a B210 -> N210 pair where the defaults are
+     correct. Your X310s have antennas on the FIRST RF port only, and PART 5
+     shows this link wants --rx-ant RX2 / --tx-ant TX/RX. CONFIRM the
+     defaults select the port you are cabled to BEFORE the session, or ask
+     WINGS Lab.
+
+ >>> ALSO NOTE: INTEGRATION.md §4 describes this link at 915 MHz, because it
+     was written against the B210/N210 rig. UB-OAI 5G's X310 pair runs on
+     vert2450 (2400-2450 MHz), which is what PART 5 uses and what your
+     reservation band covers.
+
+ STEP 2 — ON-AIR FIG. 3 (the noisy regime).  >>> PHASE 2, NOT YET BUILT. <<<
+ To degrade accuracy with SNR on the radio you need single-shot delivery
+ with the CRC gate disabled on this stream: `--max-attempts 1` plus letting
+ a failed-CRC burst through to the application instead of dropping it. The
+ single-shot flag already exists; the "deliver it anyway" path does not.
+ This is INTEGRATION.md §3 regime 2 and §6 phase 3's second half.
+
+ Until it exists, PART 4b is the Fig. 3 result -- and it is measured through
+ the real turbo-coded QPSK modem, not a simulated channel, so it is a
+ perfectly defensible number to publish.
+
+ STEP 3 — MULTI-USER (the paper's U=5).  Run several RX users; the BS sends
+ each user's embedding in turn. Each extra SIMULTANEOUS user needs its own
+ radio, so at UB you can only serialise them. True simultaneous OFDMA
+ resource-block allocation is a phase-2 PHY feature (INTEGRATION.md §5),
+ and it is what the PPO optimiser would actually control.
+
+--------------------------------------------------------------------------------------------------------
+ PART 7 — Reference and troubleshooting
+--------------------------------------------------------------------------------------------------------
+ YOUR ALGORITHM
+   algorithms/semcom_umiami/README.md        what it is, quickstart, file map
+   algorithms/semcom_umiami/INTEGRATION.md   the design note. §3 the two
+                                             regimes (read this), §4 radio
+                                             topology, §5 PPO, §6 phased plan
+   algorithms/semcom_umiami/semcom_core.py   CLIP backend (real or mock), the
+                                             float32 codec, zero-shot
+                                             classifier, delay/energy model
+   algorithms/semcom_umiami/phy_port.py      the API port: PayloadSpec,
+                                             SemComCodec, PhyLink (ideal /
+                                             pyphy / radio), the SdrApp pair
+   algorithms/semcom_umiami/semcom.py        the CLI used throughout this guide
+   algorithms/semcom_umiami/requirements.txt optional deps for REAL CLIP
+
+   Paper: S. Yang, D. Wei, H. Yu, Z. Yang, Y. Liu, M. Chen, "Contrastive
+   Language-Image Pre-Training Model based Semantic Communication Performance
+   Optimization," arXiv:2507.08873, 2025.
+
+ PLATFORM
+   docs/BEGINNER_GUIDE.md §9    the worked recipes this guide follows
+   docs/HOW_TO_ADD_ALGORITHM.md the app.py contract and the roles
+   docs/PARAMETERS_ALGO.md      every run.sh option (auto-generated)
+   docs/PARAMETERS.md           every C++ modem option (auto-generated)
+   docs/HARDWARE.md             radio inventory, wiring, per-device gotchas
+   COMMANDS_RUN.txt             the command pairs actually run on both rigs
+   algorithms/fl/fl.py          the FL app this mirrors (same byte pipe)
+
+   PDFs are not kept in the repo (they went stale against the markdown).
+   Render one when you need to send it:  ./docs/make-pdf.sh BEGINNER_GUIDE
+
+ LISTING WHAT EXISTS
+   ./run.sh list              every algorithm, with the roles each accepts
+   ./run.sh topologies        every topology file
+   ./run.sh topologies <name> one topology's wiring
+
+ IF A SESSION WILL NOT TERMINATE
+   The Disconnect button can leave a session showing as live. It is a known
+   failure and there is cleanup logic for it, but if a session is still listed
+   after several minutes, send the Session ID to the platform team rather than
+   clicking repeatedly.
+
+ IF A SESSION DIES WITH "Transport endpoint is not connected"
+   That is a dead mount or storage layer, not your code. It cannot be
+   repaired from inside the container -- destroy it and create a new one.
+   /workspace content lives on the storage backend and should survive.
+
+ CONTACTS
+   WINGS Lab / UB-OAI 5G owner ... guan@buffalo.edu
+   Platform / this guide ........ the UnionLabs platform team
+
+==============================================================================
+ Written 2026-10-24. PART 4a and 4c were EXECUTED while writing this and the
+ output shown is real. PART 4b's table is quoted from INTEGRATION.md §3 as
+ the project's own recorded validation -- the pyphy extension was not built
+ on the authoring machine, so re-run it in-session to confirm. PART 5 is
+ verbatim from COMMANDS_RUN.txt. PART 6 follows INTEGRATION.md §4/§6 with the
+ X310 addresses substituted for the B210/N210 pair those recipes use -- read
+ the KNOWN GAP note before the session.
+==============================================================================

@@ -1,0 +1,183 @@
+==============================================================================
+ UNIONLABS PLATFORM — POINT-TO-POINT DEMO, TOPOLOGY-DRIVEN
+ Testbed:  UB-OAI 5G   --  WINGS Lab, University at Buffalo   (testbed id 87)
+ Radios:   two X310s   --  SOURCE at 192.168.30.2, SINK at 192.168.40.2
+==============================================================================
+
+ THE FLOW, in one line:
+
+   uhd_find_devices  ->  prepare.sh  ->  edit the topology  ->  run.sh --topology
+
+ This is the same two-X310 ARQ link as the hand-typed radio.sh commands, but
+ written into ONE file. You stop retyping the carrier, gains,
+ connectors and thresholds on each box; you name the node instead.
+
+ Why this order:
+   - uhd_find_devices  tells you each radio's SERIAL. The topology names
+                       radios by serial, because 192.168.40.2 is UHD's default
+                       X310 address and means a different radio on every box.
+   - prepare.sh        measures the air at the RECEIVER (receive-only, nothing
+                       transmits) and WRITES A TOPOLOGY DRAFT for you, with the
+                       sink side already filled in from the measurement.
+   - edit              fill in the one thing the survey cannot know -- the far
+                       radio's serial -- and pick how the ACK comes back.
+   - run.sh            each node reads the same file and runs its own end.
+
+ All commands are run from the repo root, inside the session's noVNC desktop.
+ START THE RECEIVER FIRST, ALWAYS.
+
+--------------------------------------------------------------------------------
+ STEP 1 — Find the radios
+--------------------------------------------------------------------------------
+ uhd_find_devices
+
+ You should see TWO X310s. Note each one's serial against its address:
+
+   addr: 192.168.30.2   serial: ________   <- SOURCE (transmits the data)
+   addr: 192.168.40.2   serial: ________   <- SINK   (receives the data)
+
+ If only one answers, query it directly:
+   uhd_find_devices --args addr=192.168.30.2
+   uhd_find_devices --args addr=192.168.40.2
+ Nothing at all -> the reservation, the host or the cabling is wrong. Stop
+ here; nothing later will work.
+
+--------------------------------------------------------------------------------
+ STEP 2 — Survey with prepare.sh  (receive-only, safe with the other radio idle)
+--------------------------------------------------------------------------------
+ Survey EVERY radio that receives, on the SAME --subdev/--ant it will receive
+ on. With the ACK over RF that is BOTH radios: the sink hears the data on
+ RX2, the source hears the ACK on RX2.
+
+ # see the plan and how long it takes, touching nothing
+ ./prepare.sh --device x310 --args addr=192.168.40.2 --subdev A:0 --ant RX2 \
+              --band vert2450 --dry-run
+
+ # the SINK -- this one writes the topology draft you will use
+ ./prepare.sh --device x310 --args addr=192.168.40.2 --subdev A:0 --ant RX2 \
+              --band vert2450
+
+ # the SOURCE -- needed only for an RF ACK (it measures the ACK path)
+ ./prepare.sh --device x310 --args addr=192.168.30.2 --subdev A:0 --ant RX2 \
+              --band vert2450
+
+ --band is the ANTENNA on the radio and cannot be probed:
+   vert2450      2.4-2.5 GHz
+   vert2450-5g   4.9-5.9 GHz   (for the 5 GHz runs)
+
+ At the end of the sink's survey, look for:
+   [prepare] available frequencies (2400, 2450, ... MHz) saved: ...
+   [prepare] topology draft: /workspace/experiments/topologies/draft-<SINK_SERIAL>-<time>.jsonc
+   [prepare]   replace REPLACE_ME_SOURCE_ID ..., then:
+   [prepare]   ./run.sh --algo echo --topology <that file> --node snk
+
+ The SOURCE's survey writes a draft too (draft-<SOURCE_SERIAL>-...). You do
+ not need it; use the one named after the SINK's serial.
+
+ The measurements themselves go to /workspace/experiments/searching/ and are
+ read back automatically by run.sh and radio.sh.
+
+ Lost the draft, or want it again without re-sweeping:
+   ./prepare.sh --device x310 --args addr=192.168.40.2 --topology-only
+ (It never overwrites a draft you have edited unless you add --force.)
+
+--------------------------------------------------------------------------------
+ STEP 3 — Edit the topology
+--------------------------------------------------------------------------------
+ ./run.sh topologies                 # the draft is listed, marked DRAFT
+ nano /workspace/experiments/topologies/draft-<SINK_SERIAL>-<time>.jsonc
+
+ The header at the top of the file lists every carrier the survey measured as
+ usable, best first. The body has two nodes, src (tx) and snk (rx).
+
+ MUST change:
+   src.radio.serial    "REPLACE_ME_SOURCE_ID"  ->  the SOURCE serial from STEP 1
+                       (a run refuses the file until this is real, and names it)
+
+ CHOOSE how the link-layer ACK comes back:
+   "ack_wireless": true    ACK over the air, on each X310's second connector
+                           (src listens on RX2, snk transmits on TX/RX).
+                           This is how WINGS Lab runs it. Needs both surveys.
+   "ack_wireless": false   ACK over TCP. snk.host is what src dials
+                           (127.0.0.1 when one machine holds both X310s).
+
+ CHECK against this rig (values proven on the hand-typed commands):
+   data carrier   src.tx.freq_mhz == snk.rx.freq_mhz   (e.g. 2400)
+   ACK carrier    src.rx.freq_mhz == snk.tx.freq_mhz   (e.g. 2450, MUST differ
+                                                        from the data carrier)
+   tx.gain        25 on both      (only rx.gain came from the survey; every
+                                   tx.gain is a device default -- check it)
+   rx.gain        20 on both
+   bytes_length   1000            (must match on both ends -- it is in defaults,
+                                   so it does)
+   host           127.0.0.1 on both while one machine holds both radios; on two
+                  machines put each node's OWN address in its host.
+
+ TUNE ONLY IF THE RUN FAILS, in this order (both live in "defaults"):
+   det_mult        energy gate. Too high -> nothing detected at all.
+                   Proven range on this rig: 30-50.
+   sync_threshold  preamble gate. Too low -> decodes garbage. Proven: 10.
+ Tune det_mult first: until the detector fires, sync_threshold cannot be read.
+
+ Check what each node resolves to BEFORE opening any radio:
+   ./run.sh radio --topology draft-<SINK_SERIAL>-<time> --node snk --dry-run
+   ./run.sh radio --topology draft-<SINK_SERIAL>-<time> --node src --dry-run
+ Each prints the exact radio.sh / sdr_system line it would run. Compare it to
+ the hand-typed commands in COMMANDS_RUN.txt section 1.
+
+--------------------------------------------------------------------------------
+ STEP 4 — Run it
+--------------------------------------------------------------------------------
+ # Terminal 1 -- the SINK. START THIS FIRST, leave it running.
+ ./run.sh radio --topology draft-<SINK_SERIAL>-<time> --node snk
+
+ # Terminal 2 -- the SOURCE.
+ ./run.sh radio --topology draft-<SINK_SERIAL>-<time> --node src
+
+ `run.sh radio --topology` is the raw modem link with its built-in message, so
+ no algorithm and no extra socket are involved. It is the topology form of the
+ radio.sh pair, and the one to use for the demo.
+
+ (`./run.sh --algo echo --topology ... --node snk`, as prepare.sh suggests,
+ runs the echo ALGORITHM over the same file instead. Its reply always comes back
+ over TCP, even with ack_wireless true. Do that after the raw link works.)
+
+ One-off changes need no edit. Anything typed beats the file:
+   ./run.sh radio --topology <draft> --node src --tx-gain 30
+   ./run.sh radio --topology <draft> --node snk --det-mult 50
+
+ expect (sink):
+   [RX] chunk 1/5  [CRC OK, new]  (1/5 verified): "It is a period of civil war."
+   ...
+   [RX] all 5 chunks CRC-verified -- message complete, stopping.
+ expect (source): each chunk ACKed, not retransmitted forever.
+
+--------------------------------------------------------------------------------
+ STEP 5 — If it fails
+--------------------------------------------------------------------------------
+   Run refused, names REPLACE_ME_...  -> STEP 3, the source serial is not set.
+   No [ACQ] lines at all              -> nothing was detected. Same data carrier
+                                         on both nodes? Source running? Lower
+                                         det_mult.
+   [ACQ] peak well above threshold
+     but CRC keeps failing            -> the front end and sync are fine; the
+                                         problem is in the DATA. MORE GAIN WILL
+                                         NOT HELP.
+   Output looks like random bytes     -> sync_threshold too low: noise is
+                                         passing as a preamble. Raise it.
+   Sink decodes, source never sees
+     the ACK (ack_wireless true)      -> ACK carriers mismatched, or equal to the
+                                         data carrier, or the source was not
+                                         surveyed on RX2. Re-check STEP 3.
+   Same, with ack_wireless false      -> src cannot reach snk.host:5599.
+
+--------------------------------------------------------------------------------
+ REFERENCE
+--------------------------------------------------------------------------------
+   ./run.sh topologies                   every topology file (drafts marked)
+   ./run.sh topologies <name>            one topology's wiring
+   ./prepare.sh --help                   survey options
+   deploy/workspace/topologies/TEMPLATE.jsonc        the hand-written equivalent
+   deploy/workspace/topologies/echo-pair-x310.json   a finished X310 pair, TCP ACK
+   deploy/workspace/topologies/README.md             the topology schema
+   COMMANDS_RUN.txt section 1             the same link as hand-typed radio.sh
