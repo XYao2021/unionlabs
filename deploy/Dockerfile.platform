@@ -153,6 +153,33 @@ RUN apt-get update \
       echo "text/html=google-chrome.desktop"; } >> /root/.config/mimeapps.list \
  && echo 'export BROWSER=/usr/local/bin/google-chrome' >> /root/.bashrc
 
+# ── Tailscale, so a session's browser can reach the LoRa gateway ─────────────
+#    The LoRa Pis cannot join the platform; a gateway on a lab machine in the tailnet
+#    runs jobs on them (drivers/lora/gateway). deploy/workspace/lora-tailnet.sh joins the
+#    tailnet at session start, in USERSPACE mode -- a pod cannot create a TUN device.
+#    Static binaries, pinned, so the image never downloads anything at session start.
+ARG TAILSCALE_VERSION=1.102.2
+RUN curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_amd64.tgz" \
+      | tar -xz -C /tmp \
+ && install -m 755 /tmp/tailscale_${TAILSCALE_VERSION}_amd64/tailscale  /usr/local/bin/tailscale \
+ && install -m 755 /tmp/tailscale_${TAILSCALE_VERSION}_amd64/tailscaled /usr/local/bin/tailscaled \
+ && rm -rf /tmp/tailscale_${TAILSCALE_VERSION}_amd64 \
+ && tailscale version | head -1
+
+#    The tailnet key arrives as a BUILD SECRET (build-platform.sh, TAILNET_KEY_FILE), so it
+#    is never a build arg in the image history and never in git. It does land in the image:
+#    a session must read it to join. What makes that safe is the tailnet POLICY -- devices
+#    tagged tag:unionlabs-session may reach the gateway page and nothing else. Built
+#    without the secret, the file is absent and the session simply does not join.
+RUN --mount=type=secret,id=tailnet_key,required=false \
+    mkdir -p /etc/unionlabs \
+ && if [ -s /run/secrets/tailnet_key ]; then \
+      install -m 600 /run/secrets/tailnet_key /etc/unionlabs/tailnet.key \
+      && echo "tailnet key installed"; \
+    else echo "no tailnet key supplied: sessions will not join the tailnet"; fi
+ARG LORA_GATEWAY_URL=http://thinkpad-laptop:8080/
+RUN echo "$LORA_GATEWAY_URL" > /etc/unionlabs/lora-gateway
+
 # ── xstartup: TurboVNC 3.x ignores ~/.vnc/xstartup entirely ──
 #    Its vncserver defaults $xstartup to the BUNDLED /opt/TurboVNC/bin/xstartup.turbovnc
 #    unless $xstartup is set in /etc/turbovncserver.conf (verified in the vncserver
@@ -187,6 +214,11 @@ grep -q 'experiments/env/venv' /root/.bashrc 2>/dev/null || \
 # backgrounded: probing takes seconds and must never delay the desktop.
 setsid python3 /opt/unionlabs/deploy/workspace/discover-node.py --daemon \
   >/tmp/discover-node.log 2>&1 < /dev/null &
+
+# Join the tailnet (ephemeral, tag:unionlabs-session) so the browser can reach the LoRa
+# gateway, and put a "LoRa Gateway" launcher on the desktop. Detached: logging in takes
+# seconds, and without a key or the binary it logs why and does nothing.
+setsid bash /opt/unionlabs/deploy/workspace/lora-tailnet.sh < /dev/null >/dev/null 2>&1 &
 
 # NOTE: nothing here publishes ports any more. That used to run in this session
 # and needed a Kubernetes API grant to do it, which meant handing the container --
@@ -270,6 +302,8 @@ RUN cat > /usr/local/bin/stay-alive.sh <<'EOF' && chmod +x /usr/local/bin/stay-a
 #!/bin/bash
 cleanup() {
   pkill -TERM -f discover-node.py 2>/dev/null || true
+  # Leave the tailnet now rather than waiting for the ephemeral device to time out.
+  tailscale --socket=/run/tailscale/tailscaled.sock logout 2>/dev/null || true
   sleep 1                      # let it delete its record before we go
   exit 0
 }

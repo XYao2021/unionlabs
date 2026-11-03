@@ -74,3 +74,7 @@ paper/*.fls
 paper/*.log
 paper/*.out
 paper/*.synctex.gz
+
+# Tailscale key for the LoRa gateway hook (deploy/workspace/lora-tailnet.sh) -- never commit
+*tailnet*.key
+tailnet_key*

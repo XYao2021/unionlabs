@@ -43,6 +43,19 @@ COMMON=(--provenance=false --sbom=false
         --build-arg "UNIONLABS_REFS_URL=https://api.github.com/repos/${SLUG}/git/refs/heads/${REF}"
         -t "$IMAGE")
 
+# The tailnet key for the LoRa gateway (deploy/workspace/lora-tailnet.sh). Passed as a
+# build SECRET, never a build arg, so it is not in the image history or in git. Point
+# TAILNET_KEY_FILE at a file holding the OAuth client secret; unset = sessions do not
+# join the tailnet. LORA_GATEWAY_URL overrides where the launcher points.
+if [ -n "${TAILNET_KEY_FILE:-}" ]; then
+  [ -s "$TAILNET_KEY_FILE" ] || { echo "TAILNET_KEY_FILE=$TAILNET_KEY_FILE is empty or missing" >&2; exit 1; }
+  COMMON+=(--secret "id=tailnet_key,src=$TAILNET_KEY_FILE")
+  echo ">> tailnet key: from $TAILNET_KEY_FILE (build secret)"
+else
+  echo ">> tailnet key: none -- sessions will not join the tailnet (set TAILNET_KEY_FILE)"
+fi
+[ -n "${LORA_GATEWAY_URL:-}" ] && COMMON+=(--build-arg "LORA_GATEWAY_URL=$LORA_GATEWAY_URL")
+
 if [ "$NATIVE" = 1 ]; then
   docker buildx build --load "${COMMON[@]}" .
   exit 0
