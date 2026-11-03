@@ -46,20 +46,33 @@ if ! tailscale --socket="$SOCK" status >/dev/null 2>&1; then
   for _ in $(seq 1 30); do [ -S "$SOCK" ] && break; sleep 0.5; done
 fi
 
-KEY="$(cat "$KEY_FILE")"
+# THE KEY IS USED ONCE AND THEN DELETED. A session user is root, so a key left on disk
+# is a key they can read. It is needed only for this login (tailscaled keeps the node
+# in memory afterwards), so after the attempt it is removed from the filesystem. The
+# copy in the image layer is not reachable from inside the pod.
+# It goes to tailscale as a FILE (--auth-key=file:), never on a command line, where
+# `ps` or /proc/<pid>/cmdline would show it to anyone.
+mkdir -p /run/tailscale; TMPK="$(mktemp /run/tailscale/.k.XXXXXX)"; chmod 600 "$TMPK"
 # An OAuth client secret mints a fresh key per login; these parameters make that key
 # ephemeral and pre-approved. A plain auth key carries its own settings and takes none.
-case "$KEY" in tskey-client-*) KEY="${KEY}?ephemeral=true&preauthorized=true" ;; esac
+case "$(head -c 13 "$KEY_FILE")" in
+  tskey-client-) printf '%s?ephemeral=true&preauthorized=true' "$(tr -d '\n\r ' < "$KEY_FILE")" > "$TMPK" ;;
+  *)             tr -d '\n\r ' < "$KEY_FILE" > "$TMPK" ;;
+esac
 
 # One device per session, named after the pod so the admin console says which is which.
-if tailscale --socket="$SOCK" up --authkey="$KEY" --advertise-tags="$TAG" \
-     --hostname="unionlabs-$(hostname | tr -c 'a-zA-Z0-9-\n' '-' | cut -c1-40)" \
-     --accept-dns=false --timeout=60s; then
+tailscale --socket="$SOCK" up --auth-key="file:$TMPK" --advertise-tags="$TAG" \
+  --hostname="unionlabs-$(hostname | tr -c 'a-zA-Z0-9-\n' '-' | cut -c1-40)" \
+  --accept-dns=false --timeout=60s
+rc=$?
+shred -u "$TMPK" 2>/dev/null || rm -f "$TMPK"
+shred -u "$KEY_FILE" 2>/dev/null || rm -f "$KEY_FILE"
+echo "key removed from this session's filesystem"
+if [ "$rc" = 0 ]; then
   echo "joined the tailnet as $(tailscale --socket="$SOCK" ip -4 2>/dev/null)"
 else
-  echo "tailscale up FAILED -- see /tmp/tailscaled.log"; exit 0
+  echo "tailscale up FAILED (rc=$rc) -- see /tmp/tailscaled.log"; exit 0
 fi
-unset KEY
 
 # The browser: tailnet hosts (100.64.0.0/10, *.ts.net, the gateway's bare name) through the
 # proxy, everything else direct. Chrome cannot read a file:// PAC, so it is inlined.
