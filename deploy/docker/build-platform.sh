@@ -49,7 +49,14 @@ COMMON=(--provenance=false --sbom=false
 # join the tailnet. LORA_GATEWAY_URL overrides where the launcher points.
 if [ -n "${TAILNET_KEY_FILE:-}" ]; then
   [ -s "$TAILNET_KEY_FILE" ] || { echo "TAILNET_KEY_FILE=$TAILNET_KEY_FILE is empty or missing" >&2; exit 1; }
+  case "$(head -c 6 "$TAILNET_KEY_FILE")" in
+    tskey-) ;;
+    *) echo "TAILNET_KEY_FILE does not start with tskey- -- is it the client secret?" >&2; exit 1 ;;
+  esac
   COMMON+=(--secret "id=tailnet_key,src=$TAILNET_KEY_FILE")
+  # BuildKit's cache ignores a secret's content; this fingerprint makes a new key a new
+  # layer (see Dockerfile.platform). Irreversible for a random secret.
+  COMMON+=(--build-arg "TAILNET_KEY_ID=$(shasum -a 256 "$TAILNET_KEY_FILE" | cut -c1-12)")
   echo ">> tailnet key: from $TAILNET_KEY_FILE (build secret)"
 else
   echo ">> tailnet key: none -- sessions will not join the tailnet (set TAILNET_KEY_FILE)"
