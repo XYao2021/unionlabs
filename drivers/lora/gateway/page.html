@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoRa Gateway</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f6f7f9; --panel: #fcfcfb; --ink: #0b0b0b; --muted: #52514e; --faint: #8a8984;
+    --line: #e3e2de; --grid: #ecebe7; --code: #f0efec;
+    --accent: #2a62d4; --accent-ink: #ffffff;
+    --series-1: #2a78d6;
+    --good: #0ca30c; --serious: #ec835a; --critical: #d03b3b; --pending: #c9c8c2;
+    --ok-text: #006300; --bad-text: #b3261e; --warn-text: #8a5a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --bg: #121211; --panel: #1a1a19; --ink: #f0efec; --muted: #c3c2b7; --faint: #8f8e86;
+      --line: #2f2f2c; --grid: #262624; --code: #232321;
+      --accent: #6d9cff; --accent-ink: #0d1117;
+      --series-1: #3987e5;
+      --pending: #45453f;
+      --ok-text: #5fcf8e; --bad-text: #ff8a80; --warn-text: #e6b450;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121211; --panel: #1a1a19; --ink: #f0efec; --muted: #c3c2b7; --faint: #8f8e86;
+    --line: #2f2f2c; --grid: #262624; --code: #232321;
+    --accent: #6d9cff; --accent-ink: #0d1117;
+    --series-1: #3987e5;
+    --pending: #45453f;
+    --ok-text: #5fcf8e; --bad-text: #ff8a80; --warn-text: #e6b450;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 18px 20px 4px; max-width: 1300px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  main { display: grid; gap: 16px; padding: 14px 20px 40px; max-width: 1300px;
+         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); padding: 12px 16px 40px; } header { padding: 16px 16px 4px; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { font-size: 15px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  h3 { font-size: 14px; margin: 0 0 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  .ok { color: var(--ok-text); } .bad { color: var(--bad-text); } .warn { color: var(--warn-text); } .muted { color: var(--muted); }
+  form { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 14px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                  border-radius: 6px; padding: 6px 8px; width: 100%; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg label { display: block; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; width: auto; }
+  .seg span { display: block; padding: 6px 12px; cursor: pointer; color: var(--muted); }
+  .seg input:checked + span { background: var(--accent); color: var(--accent-ink); }
+  .seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .stopby { grid-column: 1 / -1; display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+  .stopby > label { min-width: 150px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+           border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.danger { border-color: var(--critical); color: var(--bad-text); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .actions { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .hint { font-size: 13px; color: var(--muted); }
+  .err { color: var(--bad-text); font-size: 14px; margin: 0; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  .tile .k { font-size: 12px; color: var(--muted); }
+  .tile .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .tile .s { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .progress { height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; margin: 2px 0 14px; }
+  .progress > div { height: 100%; width: 0; background: var(--series-1); border-radius: 3px; transition: width .4s; }
+
+  .charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 900px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+  .chart { position: relative; min-width: 0; }
+  .chart .sub { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+  .chart svg { display: block; width: 100%; height: 200px; overflow: visible; }
+  .chart svg text { fill: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .key { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .key i { display: inline-block; vertical-align: middle; margin-right: 5px; }
+  .tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
+         border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.4; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+         white-space: nowrap; z-index: 2; display: none; color: var(--muted); }
+  .tip b { color: var(--ink); font-size: 13px; }
+  .map { margin-top: 16px; position: relative; }
+  .map canvas { display: block; width: 100%; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center;
+        font-size: 9px; font-weight: 700; color: #fff; line-height: 1; }
+
+  .logs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 16px; }
+  @media (max-width: 900px) { .logs { grid-template-columns: minmax(0, 1fr); } }
+  details summary { cursor: pointer; color: var(--muted); font-size: 14px; margin-top: 14px; }
+  pre { background: var(--code); border-radius: 6px; padding: 8px 10px; margin: 6px 0 0; max-height: 340px;
+        overflow: auto; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+  .pill { font-size: 12px; padding: 1px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); font-weight: 500; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>LoRa Gateway</h1>
+  <p>Point-to-point test between two Pis. Pick the pair, the radio settings and how long to run; watch it live.</p>
+</header>
+<main>
+  <section>
+    <h2>Pis <button id="refresh" type="button">Refresh</button></h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Pi</th><th>Tailscale IP</th><th>State</th><th>Board</th><th>Settings now</th></tr></thead>
+      <tbody id="pis"><tr><td colspan="5" class="muted">Asking each Pi…</td></tr></tbody>
+    </table></div>
+    <p class="hint">A board's role comes from the firmware flashed on it: <b>tx</b> boards only transmit, <b>rx</b> boards only receive.</p>
+  </section>
+
+  <section>
+    <h2>New job</h2>
+    <form id="job">
+      <label>TX Pi <select name="tx" required></select></label>
+      <label>RX Pi <select name="rx" required></select></label>
+      <label>Spreading factor <select name="sf"></select></label>
+      <label>Bandwidth <select name="bw"></select></label>
+      <label>Coding rate <select name="cr"></select></label>
+      <label>TX power (dBm) <input name="pow" type="number" min="2" max="17" value="10"></label>
+      <label>Frequency (MHz) <input name="freq_mhz" type="number" min="902" max="928" step="0.1" value="915"></label>
+      <label>Payload (bytes) <input name="size" type="number" min="6" max="255" value="16"></label>
+      <label>Interval (ms, blank = auto) <input name="period_ms" type="number" min="20" max="10000" placeholder="auto"></label>
+      <div class="stopby">
+        <div>
+          <div class="hint" style="margin-bottom:4px">Stop after</div>
+          <div class="seg" role="radiogroup" aria-label="Stop after">
+            <label><input type="radio" name="stop_by" value="seconds" checked><span>Duration</span></label>
+            <label><input type="radio" name="stop_by" value="packets"><span>Packets</span></label>
+          </div>
+        </div>
+        <label id="durwrap">Duration (s) <input name="duration_s" type="number" min="1" max="600" value="30"></label>
+        <label id="cntwrap" hidden>Packets <input name="count" type="number" min="1" max="5000" value="100"></label>
+      </div>
+      <div class="actions">
+        <button class="primary" type="submit" id="run">Run</button>
+        <button class="danger" type="button" id="stop" hidden>Stop</button>
+        <span class="hint" id="air"></span>
+      </div>
+      <p class="err" id="formerr"></p>
+    </form>
+  </section>
+
+  <section class="wide" id="result" hidden>
+    <h2><span id="jobtitle">Job</span> <span class="pill" id="jobstate"></span></h2>
+    <div class="progress" aria-hidden="true"><div id="bar"></div></div>
+    <div class="tiles" id="tiles"></div>
+    <p class="err" id="joberr"></p>
+    <div class="charts">
+      <div class="chart" id="c-rssi"><h3>RSSI</h3><p class="sub">received signal strength per packet, dBm</p><svg></svg><div class="tip"></div></div>
+      <div class="chart" id="c-snr"><h3>SNR</h3><p class="sub">signal-to-noise ratio per packet, dB</p><svg></svg><div class="tip"></div></div>
+    </div>
+    <div class="key">
+      <span><i><svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke="var(--series-1)" stroke-width="2"/><circle cx="7" cy="5" r="3.5" fill="var(--series-1)" stroke="var(--panel)" stroke-width="1.5"/></svg></i>CRC ok</span>
+      <span><i><svg width="12" height="12"><circle cx="6" cy="6" r="4" fill="none" stroke="var(--serious)" stroke-width="2"/></svg></i>CRC failed (decoded but corrupt)</span>
+    </div>
+    <div class="map" id="map">
+      <h3>Every packet, in send order</h3>
+      <p class="sub hint" style="margin:0 0 6px">one cell per sequence number; hover a cell for its details</p>
+      <canvas></canvas><div class="tip"></div>
+      <div class="key">
+        <span class="badge"><span class="sw" style="background:var(--good)">✓</span>received</span>
+        <span class="badge"><span class="sw" style="background:var(--serious)">!</span>CRC failed</span>
+        <span class="badge"><span class="sw" style="background:var(--critical)">✕</span>lost</span>
+        <span class="badge"><span class="sw" style="background:var(--pending)"></span>sent, not yet seen</span>
+      </div>
+    </div>
+    <details>
+      <summary>Raw logs, by Pi</summary>
+      <div class="logs" id="logs"></div>
+    </details>
+    <p><a id="download" href="#">Download this job (JSON)</a></p>
+  </section>
+
+  <section class="wide">
+    <h2>Recent jobs</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Job</th><th>TX → RX</th><th>SF / BW / CR / dBm</th><th>Ran for</th><th>State</th><th>Delivered</th></tr></thead>
+      <tbody id="jobs"><tr><td colspan="6" class="muted">None yet.</td></tr></tbody>
+    </table></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (tag, attrs = {}, text) => { const n = document.createElement(tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (text != null) n.textContent = text; return n; };
+const svgEl = (tag, attrs = {}) => { const n = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const form = $("#job");
+let pis = [], poll = null, cur = null;
+
+/* ── form ──────────────────────────────────────────────────────────── */
+function fillSelect(name, items, sel) {
+  const s = form.elements[name]; s.replaceChildren();
+  for (const [v, t] of items) { const o = el("option", {value: v}, t); if (String(v) === String(sel)) o.selected = true; s.append(o); }
+}
+fillSelect("sf", [7,8,9,10,11,12].map(v => [v, "SF" + v]), 9);
+fillSelect("bw", [[62500,"62.5 kHz"],[125000,"125 kHz"],[250000,"250 kHz"],[500000,"500 kHz"]], 125000);
+fillSelect("cr", [5,6,7,8].map(v => [v, "4/" + v]), 5);
+
+function stopBy() { return form.elements.stop_by.value; }
+function syncStopBy() {
+  $("#durwrap").hidden = stopBy() !== "seconds";
+  $("#cntwrap").hidden = stopBy() !== "packets";
+  airtime();
+}
+form.querySelectorAll('input[name="stop_by"]').forEach(r => r.addEventListener("change", syncStopBy));
+
+async function loadPis(refresh) {
+  $("#refresh").disabled = true;
+  try { pis = (await (await fetch("/api/pis" + (refresh ? "?refresh=1" : ""))).json()).pis; } catch (e) { pis = []; }
+  $("#refresh").disabled = false;
+  const body = $("#pis"); body.replaceChildren();
+  for (const p of pis) {
+    const tr = el("tr");
+    const st = !p.online ? ["offline", "muted"] : p.busy ? ["busy", "warn"] : p.access === "ok" && p.role ? ["ready", "ok"]
+      : p.access === "ok" ? [p.error || "no answer", "bad"] : [p.access || "unknown", p.access === "not enabled" ? "muted" : "bad"];
+    const b = p.board ? `SF${p.board.sf} · ${p.board.bw / 1000} kHz · ${p.board.cr}${p.board.pow ? " · " + p.board.pow + " dBm" : ""}` : "";
+    tr.append(el("td", {}, p.name), el("td", {}, p.ip), el("td", {class: st[1]}, st[0]), el("td", {}, p.role || "—"), el("td", {class: "muted"}, b));
+    body.append(tr);
+  }
+  if (!pis.length) body.append(Object.assign(el("tr"), {innerHTML: '<td colspan="5" class="muted">No Pis found.</td>'}));
+  const usable = role => pis.filter(p => p.online && p.access === "ok" && p.role === role && !p.busy).map(p => [p.name, p.name]);
+  const tx = usable("tx"), rx = usable("rx");
+  fillSelect("tx", tx.length ? tx : [["", "no TX board ready"]], form.elements.tx.value);
+  fillSelect("rx", rx.length ? rx : [["", "no RX board ready"]], form.elements.rx.value);
+}
+
+async function airtime() {
+  const f = form.elements;
+  const q = new URLSearchParams({sf: f.sf.value, bw: f.bw.value, cr: f.cr.value, size: f.size.value});
+  try {
+    const a = (await (await fetch("/api/airtime?" + q)).json()).airtime_ms;
+    const per = +f.period_ms.value || Math.max(Math.round(a * 1.5 + 50), 100);
+    const tail = stopBy() === "seconds"
+      ? `about ${Math.floor(f.duration_s.value * 1000 / per) + 1} packets`
+      : `about ${(f.count.value * per / 1000).toFixed(1)} s`;
+    $("#air").textContent = `${a} ms on air per packet · one every ${per} ms · ${tail}`;
+  } catch (e) { $("#air").textContent = ""; }
+}
+["sf","bw","cr","size","count","duration_s","period_ms"].forEach(n => form.elements[n].addEventListener("input", airtime));
+
+form.addEventListener("submit", async ev => {
+  ev.preventDefault();
+  $("#formerr").textContent = "";
+  const body = Object.fromEntries(new FormData(form));
+  $("#run").disabled = true;
+  try {
+    const r = await fetch("/api/jobs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok) { $("#formerr").textContent = j.error; $("#run").disabled = false; return; }
+    watch(j.id);
+  } catch (e) { $("#formerr").textContent = "The gateway did not answer."; $("#run").disabled = false; }
+});
+$("#stop").onclick = async () => {
+  if (!cur) return;
+  $("#stop").disabled = true; $("#stop").textContent = "Stopping…";
+  await fetch(`/api/jobs/${cur.id}/stop`, {method: "POST"});
+};
+
+/* ── job model: logs arrive incrementally ─────────────────────────── */
+function newModel(id) { return {id, logs: {}, len: {}, view: null}; }
+function packets(m) {
+  const rx = m.view && m.logs[m.view.rx] || [];
+  return rx.filter(e => e.event === "packet" && e.cfg_match);
+}
+function txInfo(m) {
+  const tx = m.view && m.logs[m.view.tx] || [];
+  const started = tx.find(e => e.event === "started");
+  const sentEv = tx.find(e => e.event === "sent");
+  const prog = tx.filter(e => e.event === "progress").pop();
+  return {started, sentEv, sent: sentEv ? sentEv.sent : prog ? prog.sent : 0,
+          t0: started ? started.t : null, seq0: started ? started.seq_first : null};
+}
+
+/* ── tiles ─────────────────────────────────────────────────────────── */
+function tile(k, v, s) {
+  const d = el("div", {class: "tile"});
+  d.append(el("div", {class: "k"}, k), el("div", {class: "v"}, v), el("div", {class: "s"}, s || ""));
+  return d;
+}
+const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+function renderTiles(m) {
+  const v = m.view, s = v.spec, ti = txInfo(m), pk = packets(m);
+  const inRange = ti.seq0 == null ? pk : pk.filter(e => e.seq >= ti.seq0 && (!ti.sentEv || e.seq < ti.sentEv.seq_end));
+  const ok = new Set(inRange.filter(e => e.crc_ok).map(e => e.seq));
+  const okP = inRange.filter(e => e.crc_ok);
+  const fail = inRange.filter(e => !e.crc_ok).length;
+  const sent = Math.max(ti.sent, ok.size && ti.seq0 != null ? Math.max(...ok) - ti.seq0 + 1 : ok.size);
+  const now = v.state === "done" || v.state === "failed" ? (ti.sentEv ? ti.sentEv.t : Date.now() / 1000) : Date.now() / 1000;
+  const elapsed = ti.t0 ? Math.max(0, now - ti.t0) : 0;
+  const total = s.duration_s;
+  const rssi = mean(okP.map(e => e.rssi_dbm)), snr = mean(okP.map(e => e.snr_db));
+  const box = $("#tiles"); box.replaceChildren(
+    tile("Delivered", sent ? Math.round(ok.size / sent * 100) + "%" : "—", `${ok.size} of ${sent || "?"} packets`),
+    tile("CRC failures", String(fail), "decoded but corrupt"),
+    tile("RSSI, mean", rssi == null ? "—" : rssi.toFixed(1) + " dBm", okP.length ? `${Math.min(...okP.map(e => e.rssi_dbm))} to ${Math.max(...okP.map(e => e.rssi_dbm))}` : ""),
+    tile("SNR, mean", snr == null ? "—" : snr.toFixed(1) + " dB", okP.length ? `${Math.min(...okP.map(e => e.snr_db))} to ${Math.max(...okP.map(e => e.snr_db))}` : ""),
+    tile("Time", elapsed.toFixed(0) + " s", v.stop_requested && ti.sentEv ? "stopped early" : `of ${Math.round(total)} s planned`),
+  );
+  const fin = v.state === "done" || v.state === "failed";
+  $("#bar").style.width = (fin ? 100 : Math.min(100, elapsed / total * 100)) + "%";
+  return {sent, okSet: ok, inRange};
+}
+
+/* ── line charts (one measure per chart, shared time axis) ────────── */
+function niceTicks(lo, hi, n) {
+  const span = hi - lo || 1, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map(f => f * mag).find(s => span / s <= n) || 10 * mag;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+  return out;
+}
+function lineChart(id, pts, key, unit, xMax) {
+  const root = $(id), svg = root.querySelector("svg"), tip = root.querySelector(".tip");
+  const W = svg.clientWidth || 500, H = 200, L = 40, R = 10, T = 8, B = 24;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.replaceChildren();
+  const ys = pts.map(p => p[key]);
+  let lo = ys.length ? Math.min(...ys) : 0, hi = ys.length ? Math.max(...ys) : 1;
+  const pad = Math.max((hi - lo) * 0.2, key === "snr_db" ? 1 : 2); lo -= pad; hi += pad;
+  const xm = Math.max(xMax, 1);
+  const X = x => L + (W - L - R) * (x / xm), Y = y => T + (H - T - B) * (1 - (y - lo) / (hi - lo));
+  for (const t of niceTicks(lo, hi, 4)) {
+    svg.append(svgEl("line", {x1: L, x2: W - R, y1: Y(t), y2: Y(t), stroke: css("--grid"), "stroke-width": 1}));
+    const tx = svgEl("text", {x: L - 6, y: Y(t) + 4, "text-anchor": "end"}); tx.textContent = t; svg.append(tx);
+  }
+  for (const t of niceTicks(0, xm, 6)) {
+    const tx = svgEl("text", {x: X(t), y: H - 6, "text-anchor": "middle"}); tx.textContent = t + " s"; svg.append(tx);
+  }
+  svg.append(svgEl("line", {x1: L, x2: W - R, y1: H - B, y2: H - B, stroke: css("--line"), "stroke-width": 1}));
+  const good = pts.filter(p => p.crc_ok);
+  if (good.length > 1) {
+    svg.append(svgEl("polyline", {points: good.map(p => `${X(p.x)},${Y(p[key])}`).join(" "), fill: "none",
+      stroke: css("--series-1"), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round"}));
+  }
+  const dots = pts.length <= 400;
+  for (const p of pts) {
+    if (p.crc_ok && !dots) continue;
+    svg.append(p.crc_ok
+      ? svgEl("circle", {cx: X(p.x), cy: Y(p[key]), r: 4, fill: css("--series-1"), stroke: css("--panel"), "stroke-width": 2})
+      : svgEl("circle", {cx: X(p.x), cy: Y(p[key]), r: 4, fill: "none", stroke: css("--serious"), "stroke-width": 2}));
+  }
+  if (!pts.length) {
+    const tx = svgEl("text", {x: L + (W - L - R) / 2, y: H / 2, "text-anchor": "middle"}); tx.textContent = "waiting for the first packet…"; svg.append(tx);
+  }
+  // hover: crosshair snaps to the nearest packet in time
+  const hair = svgEl("line", {y1: T, y2: H - B, stroke: css("--faint"), "stroke-width": 1, visibility: "hidden"});
+  const ring = svgEl("circle", {r: 6, fill: "none", stroke: css("--ink"), "stroke-width": 1.5, visibility: "hidden"});
+  svg.append(hair, ring);
+  svg.onpointermove = ev => {
+    if (!pts.length) return;
+    const r = svg.getBoundingClientRect(), x = (ev.clientX - r.left) * (W / r.width);
+    const xv = (x - L) / (W - L - R) * xm;
+    let best = pts[0]; for (const p of pts) if (Math.abs(p.x - xv) < Math.abs(best.x - xv)) best = p;
+    hair.setAttribute("x1", X(best.x)); hair.setAttribute("x2", X(best.x)); hair.setAttribute("visibility", "visible");
+    ring.setAttribute("cx", X(best.x)); ring.setAttribute("cy", Y(best[key])); ring.setAttribute("visibility", "visible");
+    tip.replaceChildren(el("b", {}, `${best[key]} ${unit}`), el("br"),
+      document.createTextNode(`seq ${best.seq} · ${best.x.toFixed(1)} s · ${best.crc_ok ? "CRC ok" : "CRC failed"}`), el("br"),
+      document.createTextNode(key === "rssi_dbm" ? `SNR ${best.snr_db} dB` : `RSSI ${best.rssi_dbm} dBm`));
+    tip.style.display = "block";
+    const px = X(best.x) * (r.width / W);
+    tip.style.left = Math.min(px + 12, r.width - tip.offsetWidth) + "px";
+    tip.style.top = (r.top - root.getBoundingClientRect().top + 4) + "px";
+  };
+  svg.onpointerleave = () => { hair.setAttribute("visibility", "hidden"); ring.setAttribute("visibility", "hidden"); tip.style.display = "none"; };
+}
+
+/* ── packet map (canvas: one cell per sequence number) ─────────────── */
+function renderMap(m, st) {
+  const ti = txInfo(m), root = $("#map"), cv = root.querySelector("canvas"), tip = root.querySelector(".tip");
+  const n = st.sent, fin = m.view.state === "done" || m.view.state === "failed";
+  const bySeq = new Map(); for (const e of st.inRange) { const o = bySeq.get(e.seq); if (!o || e.crc_ok) bySeq.set(e.seq, e); }
+  const lastSeen = st.inRange.length ? Math.max(...st.inRange.map(e => e.seq)) - (ti.seq0 || 0) : -1;
+  const status = i => { const e = bySeq.get((ti.seq0 || 0) + i);
+    if (e) return e.crc_ok ? "good" : "serious";
+    return fin || i < lastSeen ? "critical" : "pending"; };
+  const W = cv.clientWidth || 800, cell = n > 1500 ? 7 : n > 600 ? 10 : 14, gap = 2, per = Math.max(1, Math.floor((W + gap) / (cell + gap)));
+  const rows = Math.max(1, Math.ceil(n / per)), H = rows * (cell + gap);
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.height = H + "px";
+  const g = cv.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+  const col = {good: css("--good"), serious: css("--serious"), critical: css("--critical"), pending: css("--pending")};
+  for (let i = 0; i < n; i++) {
+    const x = (i % per) * (cell + gap), y = Math.floor(i / per) * (cell + gap), s = status(i);
+    g.fillStyle = col[s]; g.beginPath();
+    g.roundRect ? g.roundRect(x, y, cell, cell, 2) : g.rect(x, y, cell, cell); g.fill();
+    if (cell >= 14 && s !== "pending") {           // icon inside the cell, so state is never color alone
+      g.fillStyle = "#fff"; g.font = "bold 9px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(s === "good" ? "✓" : s === "serious" ? "!" : "✕", x + cell / 2, y + cell / 2 + 0.5);
+    }
+  }
+  cv.onpointermove = ev => {
+    const r = cv.getBoundingClientRect(), cx = ev.clientX - r.left, cy = ev.clientY - r.top;
+    const i = Math.floor(cy / (cell + gap)) * per + Math.floor(cx / (cell + gap));
+    if (i < 0 || i >= n || cx > per * (cell + gap)) { tip.style.display = "none"; return; }
+    const e = bySeq.get((ti.seq0 || 0) + i), s = status(i);
+    const label = {good: "received", serious: "CRC failed", critical: "lost", pending: "sent, not yet seen"}[s];
+    tip.replaceChildren(el("b", {}, `packet ${i + 1}`), document.createTextNode(` · ${label}`));
+    if (e) { tip.append(el("br"), document.createTextNode(`RSSI ${e.rssi_dbm} dBm · SNR ${e.snr_db} dB`)); }
+    tip.style.display = "block";
+    tip.style.left = Math.min(cx + 12, r.width - tip.offsetWidth) + "px";
+    tip.style.top = (cv.offsetTop + cy + 14) + "px";
+  };
+  cv.onpointerleave = () => { tip.style.display = "none"; };
+}
+
+/* ── raw logs ─────────────────────────────────────────────────────── */
+function fmtEvent(e) {
+  const t = new Date(e.t * 1000).toLocaleTimeString();
+  switch (e.event) {
+    case "packet": return `${t}  seq ${e.seq}  ${e.crc_ok ? "CRC ok " : "CRC FAIL"}  RSSI ${e.rssi_dbm} dBm  SNR ${e.snr_db} dB  FEI ${e.fei_hz} Hz${e.cfg_match ? "" : "  (other config)"}`;
+    case "progress": return `${t}  sent ${e.sent}  airtime ${(e.airtime_us / 1000).toFixed(1)} ms`;
+    case "sent": return `${t}  SENT ${e.sent} packets (seq ${e.seq_first}..${e.seq_end - 1})${e.stopped_early ? "  stopped early" : ""}`;
+    case "ready": return `${t}  listening`;
+    case "started": return `${t}  transmitting from seq ${e.seq_first}`;
+    case "status": return `${t}  board: ${e.role} firmware, SF${e.sf} ${e.bw} Hz CR ${e.cr}${e.pow ? " " + e.pow + " dBm" : ""}`;
+    case "restored": return `${t}  board settings restored: ${e.ok ? "yes" : "NO " + JSON.stringify(e.mismatch || e.error)}`;
+    case "error": return `${t}  ERROR ${e.error}`;
+    case "done": return `${t}  done`;
+    default: return `${t}  ${e.text || JSON.stringify(e)}`;
+  }
+}
+function renderLogs(m) {
+  const box = $("#logs"); box.replaceChildren();
+  for (const [n, r] of [[m.view.tx, "TX"], [m.view.rx, "RX"]]) {
+    const d = el("div"); d.append(el("b", {}, n), document.createTextNode(" "), el("span", {class: "muted"}, r));
+    d.append(el("pre", {}, (m.logs[n] || []).map(fmtEvent).join("\n"))); box.append(d);
+  }
+}
+
+/* ── render + poll ────────────────────────────────────────────────── */
+function render(m) {
+  const v = m.view, s = v.spec;
+  $("#result").hidden = false;
+  $("#jobtitle").textContent = `${v.tx} → ${v.rx} · SF${s.sf} · ${s.bw / 1000} kHz · 4/${s.cr} · ${s.pow} dBm · ${s.freq_mhz} MHz`;
+  $("#jobstate").textContent = v.state;
+  $("#joberr").textContent = v.error || "";
+  $("#download").href = `/api/jobs/${v.id}/download`;
+  const st = renderTiles(m), ti = txInfo(m);
+  const pts = st.inRange.map(e => ({...e, x: ti.t0 ? e.t - ti.t0 : 0}));
+  // While running, the axis spans the PLANNED time so the trace grows across it. Once
+  // finished it fits what was actually sent -- a run stopped at 6 s of a planned 60 s
+  // would otherwise be squeezed into the left tenth of the chart.
+  const fin = v.state === "done" || v.state === "failed";
+  const lastX = pts.length ? pts[pts.length - 1].x : 0;
+  const xMax = fin ? Math.max(lastX, 1) : Math.max(s.duration_s, lastX);
+  lineChart("#c-rssi", pts, "rssi_dbm", "dBm", xMax);
+  lineChart("#c-snr", pts, "snr_db", "dB", xMax);
+  renderMap(m, st);
+  if ($("details").open) renderLogs(m);
+  const live = !(v.state === "done" || v.state === "failed");
+  $("#stop").hidden = !live; $("#run").disabled = live;
+  if (!live) { $("#stop").disabled = false; $("#stop").textContent = "Stop"; }
+}
+$("details").addEventListener("toggle", () => cur && cur.view && renderLogs(cur));
+window.addEventListener("resize", () => cur && cur.view && render(cur));
+
+async function watch(id) {
+  clearInterval(poll);
+  const m = cur = newModel(id);
+  const tick = async () => {
+    const since = Object.entries(m.len).map(([n, k]) => `${n}:${k}`).join(",");
+    const v = await (await fetch(`/api/jobs/${id}` + (since ? `?since=${encodeURIComponent(since)}` : ""))).json();
+    for (const [n, evs] of Object.entries(v.logs)) (m.logs[n] = m.logs[n] || []).push(...evs);
+    m.len = v.log_len; m.view = v;
+    if (cur === m) render(m);
+    if (v.state === "done" || v.state === "failed") { clearInterval(poll); loadJobs(); loadPis(false); }
+  };
+  await tick();
+  poll = setInterval(tick, 1000);
+}
+
+async function loadJobs() {
+  const js = (await (await fetch("/api/jobs")).json()).jobs;
+  const body = $("#jobs"); body.replaceChildren();
+  for (const j of js) {
+    const tr = el("tr"), a = el("a", {href: "#"}, j.id);
+    a.onclick = e => { e.preventDefault(); watch(j.id); };
+    const m = j.summary;
+    const td = el("td"); td.append(a);
+    tr.append(td, el("td", {}, `${j.tx} → ${j.rx}`), el("td", {}, `SF${j.spec.sf} / ${j.spec.bw / 1000}k / 4/${j.spec.cr} / ${j.spec.pow}`),
+      el("td", {}, (j.spec.stop_by === "seconds" ? j.spec.duration_s + " s" : j.spec.count + " pkts") + (j.stop_requested ? " (stopped)" : "")),
+      el("td", {}, j.state), el("td", {}, m && m.sent ? `${m.received_crc_ok}/${m.sent} (${Math.round(m.pdr * 100)}%)` : "—"));
+    body.append(tr);
+  }
+  if (!js.length) body.append(Object.assign(el("tr"), {innerHTML: '<td colspan="6" class="muted">None yet.</td>'}));
+}
+
+$("#refresh").onclick = () => loadPis(true);
+syncStopBy(); loadPis(false); loadJobs();
+</script>
+</body>
+</html>
