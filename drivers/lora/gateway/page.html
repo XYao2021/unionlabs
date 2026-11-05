@@ -121,7 +121,7 @@
       <thead><tr><th>Pi</th><th>Tailscale IP</th><th>State</th><th>Board</th><th>Settings now</th></tr></thead>
       <tbody id="pis"><tr><td colspan="5" class="muted">Asking each Pi…</td></tr></tbody>
     </table></div>
-    <p class="hint">A board's role comes from the firmware flashed on it: <b>tx</b> boards only transmit, <b>rx</b> boards only receive.</p>
+    <p class="hint">Any ready Pi can be TX or RX. A Pi used in the other role gets that firmware for the job and its own back afterwards, which adds about 25 seconds.</p>
   </section>
 
   <section>
@@ -228,14 +228,18 @@ async function loadPis(refresh) {
   const body = $("#pis"); body.replaceChildren();
   for (const p of pis) {
     const tr = el("tr");
-    const st = !p.online ? ["offline", "muted"] : p.busy ? ["busy", "warn"] : p.access === "ok" && p.role ? ["ready", "ok"]
-      : p.access === "ok" ? [p.error || "no answer", "bad"] : [p.access || "unknown", p.access === "not enabled" ? "muted" : "bad"];
+    const unavailable = (p.access || "").startsWith("unavailable");
+    const st = unavailable ? [p.access, "muted"] : !p.online ? ["offline", "muted"] : p.busy ? ["busy", "warn"] : p.access === "ok" && p.role ? ["ready", "ok"]
+      : p.access === "ok" ? [p.error || "no answer", "bad"] : [p.access || "unknown", "bad"];
+    const away = p.home_role && p.role && p.role !== p.home_role && !p.busy ? ` (own: ${p.home_role})` : "";
     const b = p.board ? `SF${p.board.sf} · ${p.board.bw / 1000} kHz · ${p.board.cr}${p.board.pow ? " · " + p.board.pow + " dBm" : ""}` : "";
-    tr.append(el("td", {}, p.name), el("td", {}, p.ip), el("td", {class: st[1]}, st[0]), el("td", {}, p.role || "—"), el("td", {class: "muted"}, b));
+    tr.append(el("td", {}, p.name), el("td", {}, p.ip), el("td", {class: st[1]}, st[0]), el("td", {}, (p.role || "—") + away), el("td", {class: "muted"}, b));
     body.append(tr);
   }
   if (!pis.length) body.append(Object.assign(el("tr"), {innerHTML: '<td colspan="5" class="muted">No Pis found.</td>'}));
-  const usable = role => pis.filter(p => p.online && p.access === "ok" && p.role === role && !p.busy).map(p => [p.name, p.name]);
+  const usable = role => pis.filter(p => p.online && p.access === "ok" && !p.busy && (p.role === role || (p.can_swap && p.role)))
+    .sort((a, b) => (b.role === role) - (a.role === role))
+    .map(p => [p.name, p.role === role ? p.name : `${p.name} (swaps firmware)`]);
   const tx = usable("tx"), rx = usable("rx");
   fillSelect("tx", tx.length ? tx : [["", "no TX board ready"]], form.elements.tx.value);
   fillSelect("rx", rx.length ? rx : [["", "no RX board ready"]], form.elements.rx.value);
@@ -429,6 +433,7 @@ function fmtEvent(e) {
     case "started": return `${t}  transmitting from seq ${e.seq_first}`;
     case "status": return `${t}  board: ${e.role} firmware, SF${e.sf} ${e.bw} Hz CR ${e.cr}${e.pow ? " " + e.pow + " dBm" : ""}`;
     case "restored": return `${t}  board settings restored: ${e.ok ? "yes" : "NO " + JSON.stringify(e.mismatch || e.error)}`;
+    case "flashed": return `${t}  ${e.role.toUpperCase()} firmware loaded`;
     case "error": return `${t}  ERROR ${e.error}`;
     case "done": return `${t}  done`;
     default: return `${t}  ${e.text || JSON.stringify(e)}`;

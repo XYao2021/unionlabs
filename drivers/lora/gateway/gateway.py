@@ -22,6 +22,7 @@ Standard library only, so the host needs python3 and `tailscale` and nothing els
 """
 import argparse
 import base64
+import hashlib
 import json
 import math
 import os
@@ -43,6 +44,17 @@ LIMITS = dict(sf=(7, 12), cr=(5, 8), pow=(2, 17), size=(6, 255), count=(1, 5000)
               duration_s=(1, 600), freq_mhz=(902.0, 928.0), period_ms=(20, 10000))
 MAX_JOB_S = 600             # one job holds two radios for at most this long
 RX_TAIL_S = 2.0             # RX keeps listening this long after the TX stops
+
+# ROLE SWAPS. A board's firmware either sends or receives, so using a Pi in the other role
+# means flashing it for that job and flashing its own firmware back afterwards. ONLY the
+# boards named here are ever flashed, and only with these exact files (--firmware, the
+# LoRa_Sensing backup folder; checked by md5 at startup). Adding a Pi here needs its board
+# type and its own firmware confirmed first: another MCU needs another build.
+FLASHABLE = {"raspberrypi-07": ("TEENSY40", "rx"),      # pi name -> (board, its own role)
+             "raspberrypi-08": ("TEENSY40", "tx")}
+FIRMWARE = {"rx": ("pi07/rx_acc.hex", "9ea8f6c14cc36626a25ed70ffe44f55a"),
+            "tx": ("pi08/sx1276_sweep_tx_period_t40.hex", "324eba491922f8fb376927ae9f4c349f")}
+UNAVAILABLE = "unavailable for the test"
 
 
 # ───────────────────────────────────────────── reservations (pluggable) ──
@@ -68,8 +80,16 @@ def airtime_ms(sf, bw, cr, size, preamble=8):
 
 # ─────────────────────────────────────────────────────────── the Pis ──
 class Fleet:
-    def __init__(self, ssh_key=None, probe_ttl=60, enabled=None):
+    def __init__(self, ssh_key=None, probe_ttl=60, enabled=None, firmware_dir=None):
         self.ssh_key = ssh_key
+        self.firmware = {}                  # role -> hex bytes; empty = no role swaps
+        if firmware_dir:
+            for role, (path, md5) in FIRMWARE.items():
+                with open(os.path.join(firmware_dir, path), "rb") as f:
+                    data = f.read()
+                if hashlib.md5(data).hexdigest() != md5:
+                    raise SystemExit(f"{path} is not the expected build (md5 differs)")
+                self.firmware[role] = data
         # Pis this gateway may touch. Others are listed but never probed or used: their
         # boards may belong to another project, and even a STATUS opens their radio.
         self.enabled = set(enabled) if enabled else None
@@ -150,13 +170,50 @@ class Fleet:
                 self.cache_t = time.time()
         for p in pis:
             if not self.allowed(p["name"]):
-                p["access"] = "not enabled"
+                p["access"] = UNAVAILABLE
             elif not p["online"]:
                 p["access"] = "offline"
             else:
                 p.update(self.cache.get(p["name"], {}))
             p["busy"] = self.busy.get(p["name"])
+            p["can_swap"] = self.can_swap(p["name"])
+            p["home_role"] = FLASHABLE.get(p["name"], (None, None))[1]
         return pis
+
+    def can_swap(self, name):
+        return bool(self.firmware) and name in FLASHABLE and self.allowed(name)
+
+    def agent(self, pi, args, log, stdin=None, timeout=30):
+        """One short agent run (status, flash, apply): its events go to `log`."""
+        p = subprocess.run(self.ssh_cmd(pi, args), input=stdin or b"",
+                           capture_output=True, timeout=timeout)
+        evs = []
+        for line in p.stdout.decode(errors="replace").splitlines():
+            try:
+                evs.append(json.loads(line))
+            except ValueError:
+                pass
+        log.extend(e for e in evs if e.get("event") != "done")
+        bad = [e["error"] for e in evs if e.get("event") == "error"]
+        if bad or p.returncode:
+            raise RuntimeError(f"{pi['name']}: " + (bad[0] if bad else f"agent exit {p.returncode}"))
+        return evs
+
+    def read_status(self, pi, log):
+        evs = self.agent(pi, ["status"], log)
+        st = next((e for e in evs if e.get("event") == "status"), None)
+        if not st:
+            raise RuntimeError(f"{pi['name']}: no STATUS")
+        return {k: v for k, v in st.items() if k not in ("event", "t")}
+
+    def flash(self, pi, role, log):
+        mcu = FLASHABLE[pi["name"]][0]      # KeyError = refuse: never flash an unlisted Pi
+        self.agent(pi, ["flash", "--role", role, "--mcu", mcu], log,
+                   stdin=self.firmware[role], timeout=120)
+
+    def apply(self, pi, state, log):
+        evs = self.agent(pi, ["apply", "--state", json.dumps(state)], log)
+        return any(e.get("event") == "restored" and e.get("ok") for e in evs)
 
     def allowed(self, name):
         return self.enabled is None or name in self.enabled
@@ -266,12 +323,18 @@ def validate(body, fleet, request_ctx):
         raise ValueError("choose a TX Pi and an RX Pi from the list")
     if tx["name"] == rx["name"]:
         raise ValueError("TX and RX must be different Pis")
+    spec["swap"] = []
     for p, want in ((tx, "tx"), (rx, "rx")):
         if p.get("access") != "ok":
             raise ValueError(f"{p['name']}: {p.get('access', 'unknown')}")
-        if p.get("role") != want:
-            raise ValueError(f"{p['name']} runs the {p.get('role')} firmware and cannot be the "
+        role, home = p.get("role"), p.get("home_role")
+        swappable = fleet.can_swap(p["name"]) and role in ("tx", "rx")
+        if role != want and not swappable:
+            raise ValueError(f"{p['name']} runs the {role} firmware and cannot be the "
                              f"{want.upper()} end")
+        # a board found away from home (a job cut off mid-way) is taken home afterwards too
+        if swappable and (role != want or role != home):
+            spec["swap"].append(p["name"])
     spec["tx"], spec["rx"] = tx["name"], rx["name"]
     return spec, tx, rx
 
@@ -307,7 +370,16 @@ def run_job(job, fleet, results_dir):
         proc.wait()
         return proc.returncode
 
+    saved = {}                              # pi name -> its settings before the swap
+    state, error = "failed", "interrupted"
     try:
+        for pi, want in ((job.rx, "rx"), (job.tx, "tx")):
+            if pi["name"] in s["swap"]:
+                log = job.logs[pi["name"]]
+                saved[pi["name"]] = st = fleet.read_status(pi, log)
+                if st["role"] != want:
+                    job.state = f"loading {want.upper()} firmware on {pi['name']}"
+                    fleet.flash(pi, want, log)
         job.state = "starting receiver"
         rx_t = threading.Thread(target=pump, args=(job.rx, rx_args))
         rx_t.start()
@@ -323,17 +395,39 @@ def run_job(job, fleet, results_dir):
         job.summary = summarize(job)
         errs = [f"{n}: {e['error']}" for n, evs in job.logs.items()
                 for e in evs if e.get("event") == "error"]
-        job.state = "failed" if errs else "done"
-        job.error = "; ".join(errs) or None
+        state, error = ("failed" if errs else "done"), "; ".join(errs) or None
     except Exception as e:                                    # noqa: BLE001
-        job.state, job.error = "failed", str(e)
+        state, error = "failed", str(e)
     finally:
         for p in job.procs.values():        # closing stdin = EOF = the agent stops too
             try:
                 p.stdin.close()
             except OSError:
                 pass
+        for p in job.procs.values():        # the serial port must be free before flashing
+            try:
+                p.wait(15)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        # Back to its own firmware and settings, on every path out of the job. Only then
+        # is the job finished: the page must not offer a board that is still being flashed.
+        for name, st in saved.items():
+            pi = job.tx if name == job.tx["name"] else job.rx
+            home = FLASHABLE[name][1]
+            job.state = f"restoring {name}"
+            ok = False
+            try:
+                fleet.flash(pi, home, job.logs[name])
+                # a board found away from home: its own settings are gone, the firmware is back
+                ok = fleet.apply(pi, st, job.logs[name]) if st["role"] == home else True
+            except Exception as e:                            # noqa: BLE001
+                state = "failed"
+                error = "; ".join(x for x in (error, f"{name} NOT restored: {e}") if x)
+            if job.summary:
+                job.summary["boards_restored"][name] = ok
+        job.state, job.error = state, error
         fleet.release([job.tx["name"], job.rx["name"]])
+        fleet.cache_t = 0.0                 # roles may have changed: ask the boards again
         os.makedirs(results_dir, exist_ok=True)
         with open(os.path.join(results_dir, f"job-{job.id}.json"), "w") as f:
             json.dump(job.view(), f, indent=1)
@@ -471,6 +565,9 @@ def main():
     ap.add_argument("--pis", default=None,
                     help="comma-separated Pis this gateway may use, e.g. raspberrypi-07,raspberrypi-08 "
                          "(default: every Pi in the tailnet). Others are listed, never touched.")
+    ap.add_argument("--firmware", default=None,
+                    help="the LoRa_Sensing firmware_backup folder; enables role swaps on the "
+                         "boards in FLASHABLE. Absent = each board keeps its fixed role.")
     ap.add_argument("--results", default=os.path.expanduser("~/lora-gateway/results"))
     a = ap.parse_args()
     host = a.host or subprocess.run(["tailscale", "ip", "-4"], capture_output=True,
@@ -478,7 +575,7 @@ def main():
     if not os.path.exists(PAGE_PATH):
         raise SystemExit(f"missing {PAGE_PATH}")
     enabled = [x.strip() for x in a.pis.split(",") if x.strip()] if a.pis else None
-    gw = Gateway(Fleet(ssh_key=a.ssh_key, enabled=enabled), a.results)
+    gw = Gateway(Fleet(ssh_key=a.ssh_key, enabled=enabled, firmware_dir=a.firmware), a.results)
     srv = ThreadingHTTPServer((host, a.port), make_handler(gw))
     print(f"[gateway] http://{host}:{a.port}/   results -> {a.results}", flush=True)
     srv.serve_forever()

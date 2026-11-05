@@ -26,14 +26,16 @@ sent over SSH with each job, so there is no copy there to go stale.
 ```bash
 python3 gateway.py --pis raspberrypi-07,raspberrypi-08          # binds this machine's Tailscale IP :8080
 python3 gateway.py --host 127.0.0.1 --pis raspberrypi-07,raspberrypi-08   # local only, for development
+python3 gateway.py --pis raspberrypi-07,raspberrypi-08 --firmware <LoRa_Sensing>/firmware_backup_2026-11-03   # + role swaps
 ```
 
 Open `http://<gateway tailscale IP>:8080/`. Results are saved as one JSON per job in
 `~/lora-gateway/results/` (`--results` to move them).
 
-`--pis` is the list of Pis the gateway may **touch**. Every other Pi is still listed but is
-never probed or used, because even a `STATUS` opens its radio and its board may belong to
-another project. Omit it and every Pi in the tailnet is eligible.
+`--pis` is the list of Pis the gateway may **touch**. Every other Pi is still listed, shown
+as "unavailable for the test", but is never probed or used, because even a `STATUS` opens
+its radio and its board may belong to another project. Omit it and every Pi in the tailnet
+is eligible.
 
 ## The firmware it drives
 
@@ -45,11 +47,26 @@ they are rather than reflashed:
 | `sx1276_sweep_tx` | transmit only | `SET CFG <sf> <bw> <cr> <pow>`, `SET SIZE`, `SET PERIOD`, `START`/`STOP` |
 | `sx1276_sweep_rx` | receive only | `SET CFG <sf> <bw> <cr>`, `START`, one `P …` line per packet |
 
-So a board's role is fixed by what is flashed on it; the page only offers valid pairs.
-(As of 2026-11-03: pi07 = rx, pi08 = tx.) Power is 2–17 dBm because the firmware caps it.
+So a board's role comes from what is flashed on it. (pi07 = rx, pi08 = tx.) Power is
+2–17 dBm because the firmware caps it.
+
+**Role swaps.** With `--firmware`, a Pi in `FLASHABLE` can take the other role for one job:
+the gateway saves its `STATUS`, flashes the other firmware, runs the job, flashes its own
+firmware back and restores its settings, on every way out of the job, Stop included. The
+job only ends after that. It adds about 25 s (a swap of both boards: 36 s for 20 packets).
+
+- Only the boards in `FLASHABLE` are flashed (pi07, pi08), only with the two files in
+  `FIRMWARE`, checked by md5 at startup. Each board is checked by `STATUS` after loading.
+- The hex files stay in the LoRa_Sensing backup folder, not in this public repo.
+- The first loader try usually fails and the second lands; up to four are made.
+- Restore covers every setting `STATUS` reports, including `LNA`, `ACC`, `ERRATA` and `TEMP`,
+  and compares them afterwards. Only the packet and sequence counters restart from 0.
+- If the gateway dies mid-job, the board keeps the swapped firmware. The page shows
+  `(own: rx)`, and the next job using that Pi takes it home, without its old settings.
 
 **Leave it as you found it.** Each agent reads the board's `STATUS` first and, whatever
-happens, puts back its frequency, PHY config, size/period/rate and run state — then reads
+happens, puts back its frequency, PHY config, size/period/rate, gain settings and run
+state — then reads
 `STATUS` again and reports any field that differs (`boards_restored` in the summary). It
 also refuses a serial port another process already has open.
 

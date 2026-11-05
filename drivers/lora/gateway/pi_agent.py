@@ -20,6 +20,8 @@ never leaves a sensing board on someone else's settings.
 
 Modes:
     status                       print the board's STATUS, change nothing
+    flash --role --mcu           load the firmware arriving on stdin, check it answers as --role
+    apply --state <json>         put back settings saved from an earlier STATUS
     rx --sf --bw --cr --freq --seconds
     tx --sf --bw --cr --pow --freq --size --period-us --count
 """
@@ -27,7 +29,10 @@ import argparse
 import glob
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -144,14 +149,20 @@ def restore(b, st):
             steps.append(b.send(f"SET PERIOD {st['period']}"))
             if st.get("pre"):
                 steps.append(b.send(f"SET PRE {st['pre']}"))
+            if st.get("temp"):
+                steps.append(b.send(f"SET TEMP {st['temp']}"))
         elif st["role"] == "rx":
             steps.append(b.send(f"SET CFG {st['sf']} {st['bw']} {_cr(st['cr'])}"))
             steps.append(b.send(f"SET RATE {st['rate']}"))
+            for key in ("lna", "acc", "errata", "temp"):      # a reflash resets these too
+                if st.get(key) is not None:
+                    steps.append(b.send(f"SET {key.upper()} {st[key]}"))
         if st.get("run") == "1":
             steps.append(b.send("START", expect="S OK started"))
         # Prove it: compare the settings that define the board's state, before vs now.
         now = b.status()
-        keys = ("freq", "sf", "bw", "cr", "pow", "size", "rate", "period", "pre", "run")
+        keys = ("freq", "sf", "bw", "cr", "pow", "size", "rate", "period", "pre", "run",
+                "lna", "acc", "errata", "temp")
         diff = {k: [st[k], now.get(k)] for k in keys if k in st and now.get(k) != st[k]}
         emit(event="restored", ok=not diff, mismatch=diff, steps=steps)
     except Exception as e:                                    # noqa: BLE001
@@ -224,9 +235,70 @@ def run_tx(b, st, a):
          stopped_early=STOP.is_set())
 
 
+def find_loader():
+    """teensy_loader_cli, and the library path the Arduino-installed copy needs."""
+    tools = sorted(glob.glob(os.path.expanduser("~/.arduino15/packages/teensy/tools/teensy-tools/*/")))
+    env = dict(os.environ)
+    if tools:
+        env["LD_LIBRARY_PATH"] = tools[-1]
+    for c in (shutil.which("teensy_loader_cli"), os.path.expanduser("~/fastrssi/teensy_loader_cli"),
+              *(os.path.join(t, "teensy_loader_cli") for t in tools)):
+        if c and os.access(c, os.X_OK):
+            return c, env
+    raise RuntimeError("no teensy_loader_cli on this Pi")
+
+
+def flash(a):
+    """Load the firmware on stdin, then prove it runs: a STATUS must answer as a.role.
+    A Teensy keeps its bootloader, so a failed load leaves it recoverable, not dead."""
+    held = port_holders(a.port)
+    if held:
+        raise RuntimeError(f"{a.port} is in use ({'; '.join(held)}) -- not flashing")
+    data = sys.stdin.buffer.read()
+    if not data.startswith(b":"):
+        raise RuntimeError("what arrived is not an Intel hex file")
+    loader, env = find_loader()
+    import serial
+    with tempfile.NamedTemporaryFile(suffix=".hex") as f:
+        f.write(data)
+        f.flush()
+        serial.Serial(a.port, 134).close()      # 134 baud = "enter the bootloader"
+        out = ""
+        for attempt in range(1, 5):             # the first try usually fails; the next one lands
+            p = subprocess.run([loader, f"--mcu={a.mcu}", "-w", "-v", f.name], env=env,
+                               capture_output=True, text=True, timeout=45)
+            out = (p.stdout + p.stderr).strip()[-300:]
+            if p.returncode == 0:
+                break
+            time.sleep(1)
+        else:
+            raise RuntimeError(f"loader failed 4 times: {out}")
+    end = time.time() + 20                      # the port returns once the new firmware boots
+    while time.time() < end:
+        if os.path.exists(a.port):
+            try:
+                time.sleep(1)
+                b = Board(a.port)
+                try:
+                    st = b.status()
+                finally:
+                    b.close()
+                if st["role"] != a.role:
+                    raise RuntimeError(f"board answers as {st['role']}, wanted {a.role}")
+                emit(event="flashed", role=a.role, attempts=attempt)
+                return 0
+            except (OSError, TimeoutError):
+                pass
+        time.sleep(0.5)
+    raise RuntimeError("the board did not come back after flashing")
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["status", "rx", "tx"])
+    ap.add_argument("mode", choices=["status", "rx", "tx", "flash", "apply"])
+    ap.add_argument("--role", choices=["tx", "rx"], help="flash: the firmware being loaded")
+    ap.add_argument("--mcu", choices=["TEENSY40"], help="flash: the board type")
+    ap.add_argument("--state", help="apply: JSON from an earlier STATUS")
     ap.add_argument("--port", default=PORT)
     ap.add_argument("--sf", type=int, default=9)
     ap.add_argument("--bw", type=int, default=125000)
@@ -243,6 +315,12 @@ def main():
         a.seconds = HARD_MAX_S
     if a.mode == "tx" and not (a.count or a.seconds):
         a.count = 20
+    if a.mode == "flash":                       # stdin carries the firmware, not a stop channel
+        try:
+            return flash(a)
+        except Exception as e:                                # noqa: BLE001
+            emit(event="error", error=f"flash: {e}")
+            return 1
     threading.Thread(target=_watch_stdin, daemon=True).start()
 
     try:
@@ -250,6 +328,12 @@ def main():
     except Exception as e:                                    # noqa: BLE001
         emit(event="error", error=f"cannot open {a.port}: {e}")
         return 1
+    if a.mode == "apply":
+        try:
+            restore(b, json.loads(a.state))
+            return 0
+        finally:
+            b.close()
     st = None
     try:
         st = b.status()
