@@ -37,6 +37,7 @@ import threading
 import time
 
 PORT = "/dev/ttyACM0"
+PORT_SERVICES = ("blora-hub",)      # services that use the port themselves
 BAUD = 115200
 HARD_MAX_S = 900            # no job holds a radio longer than this, whatever it asks for
 
@@ -69,6 +70,16 @@ def port_holders(port):
     """Processes that already have `port` open. Two openers would split the serial
     stream between them, silently corrupting both -- so a held port is refused."""
     me, held = os.getpid(), []
+    # Asked directly, because the scan below skips any process it cannot read, and it
+    # missed blora-hub on pi09. That service also comes back by itself on a reboot.
+    for svc in PORT_SERVICES:
+        try:
+            state = subprocess.run(["systemctl", "is-active", svc], capture_output=True,
+                                   text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if state in ("active", "activating", "reloading"):
+            held.append(f"service {svc}")
     for fd in glob.glob("/proc/[0-9]*/fd/*"):
         try:
             if os.readlink(fd) != port:
@@ -297,7 +308,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=["status", "rx", "tx", "flash", "apply"])
     ap.add_argument("--role", choices=["tx", "rx"], help="flash: the firmware being loaded")
-    ap.add_argument("--mcu", choices=["TEENSY40"], help="flash: the board type")
+    ap.add_argument("--mcu", choices=["TEENSY40", "TEENSY41"], help="flash: the board type")
     ap.add_argument("--state", help="apply: JSON from an earlier STATUS")
     ap.add_argument("--port", default=PORT)
     ap.add_argument("--sf", type=int, default=9)

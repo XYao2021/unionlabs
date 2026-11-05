@@ -50,13 +50,15 @@ they are rather than reflashed:
 So a board's role comes from what is flashed on it. (pi07 = rx, pi08 = tx.) Power is
 2–17 dBm because the firmware caps it.
 
-**Role swaps.** With `--firmware`, a Pi in `FLASHABLE` can take the other role for one job:
+**Role swaps.** With `--firmware`, a Pi in `FLASHABLE` (07, 08, 09, 16, 18) can take the other role for one job:
 the gateway saves its `STATUS`, flashes the other firmware, runs the job, flashes its own
 firmware back and restores its settings, on every way out of the job, Stop included. The
 job only ends after that. It adds about 25 s (a swap of both boards: 36 s for 20 packets).
 
-- Only the boards in `FLASHABLE` are flashed (pi07, pi08), only with the two files in
-  `FIRMWARE`, checked by md5 at startup. Each board is checked by `STATUS` after loading.
+- Only the boards in `FLASHABLE` are flashed, only with the files in `FIRMWARE`, one TX and one
+  RX per board type, checked by md5 at startup. Each board is checked by `STATUS` after loading.
+- pi09 is a Teensy 4.1 and the rest are 4.0, so a Pi always goes home to the file for its own
+  board and role, not to a build of its own.
 - The hex files stay in the LoRa_Sensing backup folder, not in this public repo.
 - The first loader try usually fails and the second lands; up to four are made.
 - Restore covers every setting `STATUS` reports, including `LNA`, `ACC`, `ERRATA` and `TEMP`,

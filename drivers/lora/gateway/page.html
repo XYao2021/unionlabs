@@ -237,13 +237,26 @@ async function loadPis(refresh) {
     body.append(tr);
   }
   if (!pis.length) body.append(Object.assign(el("tr"), {innerHTML: '<td colspan="5" class="muted">No Pis found.</td>'}));
-  const usable = role => pis.filter(p => p.online && p.access === "ok" && !p.busy && (p.role === role || (p.can_swap && p.role)))
-    .sort((a, b) => (b.role === role) - (a.role === role))
-    .map(p => [p.name, p.role === role ? p.name : `${p.name} (swaps firmware)`]);
-  const tx = usable("tx"), rx = usable("rx");
-  fillSelect("tx", tx.length ? tx : [["", "no TX board ready"]], form.elements.tx.value);
-  fillSelect("rx", rx.length ? rx : [["", "no RX board ready"]], form.elements.rx.value);
+  fillRoles();
 }
+
+const usable = role => pis.filter(p => p.online && p.access === "ok" && !p.busy && (p.role === role || (p.can_swap && p.role)))
+  .sort((a, b) => (b.role === role) - (a.role === role))
+  .map(p => [p.name, p.role === role ? p.name : `${p.name} (swaps firmware)`]);
+
+/* A Pi cannot be both ends of a job, so the one picked on one side leaves the other list. */
+function fillRoles() {
+  const f = form.elements, tx = usable("tx"), rx = usable("rx");
+  const has = (list, v) => list.some(o => o[0] === v);
+  const t = has(tx, f.tx.value) ? f.tx.value : (tx[0] || [""])[0];
+  const rxOpen = rx.filter(o => o[0] !== t);
+  const r = has(rxOpen, f.rx.value) ? f.rx.value : (rxOpen[0] || [""])[0];
+  const txOpen = tx.filter(o => o[0] !== r);
+  fillSelect("tx", txOpen.length ? txOpen : [["", "no TX board ready"]], t);
+  fillSelect("rx", rxOpen.length ? rxOpen : [["", "no RX board ready"]], r);
+}
+form.elements.tx.addEventListener("change", fillRoles);
+form.elements.rx.addEventListener("change", fillRoles);
 
 async function airtime() {
   const f = form.elements;

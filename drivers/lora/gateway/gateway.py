@@ -51,9 +51,14 @@ RX_TAIL_S = 2.0             # RX keeps listening this long after the TX stops
 # LoRa_Sensing backup folder; checked by md5 at startup). Adding a Pi here needs its board
 # type and its own firmware confirmed first: another MCU needs another build.
 FLASHABLE = {"raspberrypi-07": ("TEENSY40", "rx"),      # pi name -> (board, its own role)
-             "raspberrypi-08": ("TEENSY40", "tx")}
-FIRMWARE = {"rx": ("pi07/rx_acc.hex", "9ea8f6c14cc36626a25ed70ffe44f55a"),
-            "tx": ("pi08/sx1276_sweep_tx_period_t40.hex", "324eba491922f8fb376927ae9f4c349f")}
+             "raspberrypi-08": ("TEENSY40", "tx"),
+             "raspberrypi-09": ("TEENSY41", "tx"),
+             "raspberrypi-16": ("TEENSY40", "rx"),
+             "raspberrypi-18": ("TEENSY40", "rx")}
+FIRMWARE = {("TEENSY40", "rx"): ("pi07/rx_acc.hex", "9ea8f6c14cc36626a25ed70ffe44f55a"),
+            ("TEENSY40", "tx"): ("pi08/sx1276_sweep_tx_period_t40.hex", "324eba491922f8fb376927ae9f4c349f"),
+            ("TEENSY41", "rx"): ("pi09/rx_acc_t41.hex", "e529f01c6939fa6c0834add1a7dcffc2"),
+            ("TEENSY41", "tx"): ("pi09/sx1276_sweep_tx_follow_t41.hex", "b96335ee462cbb11e8435faa98968877")}
 UNAVAILABLE = "unavailable for the test"
 
 
@@ -82,14 +87,14 @@ def airtime_ms(sf, bw, cr, size, preamble=8):
 class Fleet:
     def __init__(self, ssh_key=None, probe_ttl=60, enabled=None, firmware_dir=None):
         self.ssh_key = ssh_key
-        self.firmware = {}                  # role -> hex bytes; empty = no role swaps
+        self.firmware = {}                  # (board, role) -> hex bytes; empty = no role swaps
         if firmware_dir:
-            for role, (path, md5) in FIRMWARE.items():
+            for key, (path, md5) in FIRMWARE.items():
                 with open(os.path.join(firmware_dir, path), "rb") as f:
                     data = f.read()
                 if hashlib.md5(data).hexdigest() != md5:
                     raise SystemExit(f"{path} is not the expected build (md5 differs)")
-                self.firmware[role] = data
+                self.firmware[key] = data
         # Pis this gateway may touch. Others are listed but never probed or used: their
         # boards may belong to another project, and even a STATUS opens their radio.
         self.enabled = set(enabled) if enabled else None
@@ -209,7 +214,7 @@ class Fleet:
     def flash(self, pi, role, log):
         mcu = FLASHABLE[pi["name"]][0]      # KeyError = refuse: never flash an unlisted Pi
         self.agent(pi, ["flash", "--role", role, "--mcu", mcu], log,
-                   stdin=self.firmware[role], timeout=120)
+                   stdin=self.firmware[(mcu, role)], timeout=120)
 
     def apply(self, pi, state, log):
         evs = self.agent(pi, ["apply", "--state", json.dumps(state)], log)
